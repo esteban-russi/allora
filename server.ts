@@ -22,6 +22,13 @@ const PORT = process.env.PORT || 3000;
 const GCP_PROJECT = process.env.GCP_PROJECT;
 const GCP_REGION = process.env.GCP_REGION || 'europe-west2';
 
+// Local ADC credentials carry their own quota project (often another gcloud
+// project), and Google bills calls there even when a projectId is passed.
+// Pin it to GCP_PROJECT unless the environment already chooses one.
+if (GCP_PROJECT && !process.env.GOOGLE_CLOUD_QUOTA_PROJECT) {
+  process.env.GOOGLE_CLOUD_QUOTA_PROJECT = GCP_PROJECT;
+}
+
 // Split models: Chat / Pedagogical Tutor vs. Audio / TTS Generation
 const CHAT_MODEL = process.env.GEMINI_CHAT_MODEL || process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 const TTS_MODEL = process.env.GEMINI_TTS_MODEL || 'gemini-3.8-flash-lite-tts';
@@ -81,24 +88,22 @@ const primaryAi = createGenAiClient(Boolean(GCP_PROJECT));
 // Fallback client (Google AI Studio via GEMINI_API_KEY)
 const fallbackAi = (GCP_PROJECT && process.env.GEMINI_API_KEY) ? createGenAiClient(false) : null;
 
-// Google Cloud Text-to-Speech Client
+// Google Cloud Text-to-Speech and Speech-to-Text clients. Only created for an
+// explicit GCP_PROJECT, so a missing setting never falls through to whatever
+// project the local gcloud credentials default to.
 let cloudTtsClient: TextToSpeechClient | null = null;
-try {
-  cloudTtsClient = new TextToSpeechClient(
-    GCP_PROJECT ? { projectId: GCP_PROJECT } : {}
-  );
-} catch (err: any) {
-  console.warn('[GCP TTS] Could not initialize TextToSpeechClient:', err.message);
-}
-
-// Google Cloud Speech-to-Text Client
 let cloudSpeechClient: SpeechClient | null = null;
-try {
-  cloudSpeechClient = new SpeechClient(
-    GCP_PROJECT ? { projectId: GCP_PROJECT } : {}
-  );
-} catch (err: any) {
-  console.warn('[GCP STT] Could not initialize SpeechClient:', err.message);
+if (GCP_PROJECT) {
+  try {
+    cloudTtsClient = new TextToSpeechClient({ projectId: GCP_PROJECT });
+  } catch (err: any) {
+    console.warn('[GCP TTS] Could not initialize TextToSpeechClient:', err.message);
+  }
+  try {
+    cloudSpeechClient = new SpeechClient({ projectId: GCP_PROJECT });
+  } catch (err: any) {
+    console.warn('[GCP STT] Could not initialize SpeechClient:', err.message);
+  }
 }
 
 // Robust execution wrapper with fallback to AI Studio if Vertex AI request fails
