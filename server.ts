@@ -9,6 +9,7 @@ import { SpeechClient } from '@google-cloud/speech';
 import { PERSONA_PROMPTS, LEVEL_PROMPTS, GRAMMAR_STRICTNESS_LEVELS, buildSystemInstruction } from './src/data/personaPrompts';
 import type { CefrLevel } from './src/types';
 import { attachLiveBridge } from './liveBridge';
+import { VertexCooldown, isPersistentVertexError, summarizeError } from './vertexCooldown';
 
 dotenv.config();
 
@@ -106,16 +107,31 @@ if (GCP_PROJECT) {
   }
 }
 
+// Vertex AI models that just failed with a configuration error (IAM, region,
+// model name) are skipped for a while instead of costing a round trip per request.
+const vertexCooldown = new VertexCooldown();
+const hasVertexFallback = (ai: GoogleGenAI) => ai === primaryAi && fallbackAi !== null;
+
 // Robust execution wrapper with fallback to AI Studio if Vertex AI request fails
 async function generateContentWithFallback(requestConfig: any) {
+  const model = String(requestConfig.model);
+  if (fallbackAi && vertexCooldown.isCoolingDown(model)) {
+    return await fallbackAi.models.generateContent(requestConfig);
+  }
   try {
     return await primaryAi.models.generateContent(requestConfig);
   } catch (primaryErr: any) {
-    if (fallbackAi) {
-      console.warn('[GCP Fallback] Vertex AI request failed, retrying with Google AI Studio API key:', primaryErr.message);
-      return await fallbackAi.models.generateContent(requestConfig);
+    if (!fallbackAi) throw primaryErr;
+    if (isPersistentVertexError(primaryErr)) {
+      vertexCooldown.trip(model);
+      console.warn(
+        `[GCP Fallback] Vertex AI ${primaryErr.status} for ${model}; using AI Studio for the next ` +
+          `${vertexCooldown.cooldownMinutes} min: ${summarizeError(primaryErr)}`
+      );
+    } else {
+      console.warn(`[GCP Fallback] Vertex AI request failed, retrying with AI Studio: ${summarizeError(primaryErr)}`);
     }
-    throw primaryErr;
+    return await fallbackAi.models.generateContent(requestConfig);
   }
 }
 
@@ -574,6 +590,10 @@ async function startServer() {
     clients: HAS_GENAI_CREDENTIALS ? [primaryAi, fallbackAi].filter((ai): ai is GoogleGenAI => ai !== null) : [],
     model: LIVE_MODEL,
     trustProxyHops: TRUST_PROXY_HOPS,
+    skipClient: (ai) => hasVertexFallback(ai) && vertexCooldown.isCoolingDown(LIVE_MODEL),
+    onClientFailed: (ai) => {
+      if (hasVertexFallback(ai)) vertexCooldown.trip(LIVE_MODEL);
+    },
   });
 }
 

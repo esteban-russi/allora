@@ -45,6 +45,10 @@ export interface LiveBridgeOptions {
   model: string;
   /** Proxy hops to skip in X-Forwarded-For, matching Express `trust proxy`. */
   trustProxyHops: number;
+  /** Return true to skip a client for this call (e.g. Vertex AI while it is cooling down). */
+  skipClient?: (ai: GoogleGenAI) => boolean;
+  /** Called when a client fails to open a session, before the next one is tried. */
+  onClientFailed?: (ai: GoogleGenAI) => void;
 }
 
 /**
@@ -241,6 +245,7 @@ async function runLiveCall(ws: WebSocket, params: LiveCallParams, options: LiveB
 
   let lastError = 'No Gemini client configured';
   for (const ai of options.clients) {
+    if (options.skipClient?.(ai)) continue;
     try {
       session = await openLiveSession(
         ai,
@@ -253,6 +258,7 @@ async function runLiveCall(ws: WebSocket, params: LiveCallParams, options: LiveB
     } catch (err) {
       lastError = (err as Error).message;
       console.warn('[Gemini Live] Could not open session, trying next client:', lastError);
+      options.onClientFailed?.(ai);
     }
   }
 
