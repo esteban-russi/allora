@@ -133,7 +133,15 @@ function openLiveSession(
 ): Promise<Session> {
   return new Promise((resolve, reject) => {
     let isReady = false;
+    let isSetupComplete = false;
     let session: Session | null = null;
+    // setupComplete can arrive before live.connect() resolves, so wait for both
+    const resolveWhenReady = () => {
+      if (isReady || !isSetupComplete || !session) return;
+      isReady = true;
+      clearTimeout(timeout);
+      resolve(session);
+    };
     const timeout = setTimeout(() => {
       session?.close();
       reject(new Error('Timed out waiting for Gemini Live setup'));
@@ -154,10 +162,9 @@ function openLiveSession(
         config,
         callbacks: {
           onmessage: (message) => {
-            if (!isReady && message.setupComplete && session) {
-              isReady = true;
-              clearTimeout(timeout);
-              resolve(session);
+            if (message.setupComplete) {
+              isSetupComplete = true;
+              resolveWhenReady();
               return;
             }
             onMessage(message);
@@ -168,6 +175,7 @@ function openLiveSession(
       })
       .then((opened) => {
         session = opened;
+        resolveWhenReady();
       })
       .catch((err: Error) => fail(err.message));
   });
