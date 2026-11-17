@@ -1,5 +1,11 @@
 export type CefrLevel = 'A1' | 'A2' | 'B1' | 'B2' | 'C1';
 
+export interface LearnerProfile {
+  name: string;
+  level: CefrLevel;
+  personaId: string;
+}
+
 export type VoiceProvider = 
   | 'gemini_live'
   | 'gcp_cloud_tts'
@@ -10,6 +16,9 @@ export type VoiceProvider =
 export type SttProvider =
   | 'production_cloud'
   | 'browser_web_speech';
+
+/** How voice calls run: one Gemini Live stream, or separate STT, chat and TTS requests per turn. */
+export type VoiceCallEngine = 'realtime_live' | 'turn_based';
 
 export interface GrammarNote {
   wordOrPhrase: string;
@@ -69,6 +78,7 @@ export interface DevSettings {
   voiceProvider: VoiceProvider;
   voiceId: string;
   sttProvider: SttProvider;
+  voiceCallEngine: VoiceCallEngine;
   temperature: number;
   speechRate: number;
   audioSamplingRate: '16kHz' | '24kHz' | '48kHz';

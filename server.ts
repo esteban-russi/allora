@@ -6,7 +6,10 @@ import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
 import { TextToSpeechClient } from '@google-cloud/text-to-speech';
 import { SpeechClient } from '@google-cloud/speech';
-import { PERSONA_PROMPTS } from './src/data/personaPrompts';
+import { PERSONA_PROMPTS, LEVEL_PROMPTS, GRAMMAR_STRICTNESS_LEVELS, buildSystemInstruction } from './src/data/personaPrompts';
+import type { CefrLevel } from './src/types';
+import { attachLiveBridge } from './liveBridge';
+import { VertexCooldown, isPersistentVertexError, summarizeError } from './vertexCooldown';
 
 dotenv.config();
 
@@ -20,22 +23,32 @@ const PORT = process.env.PORT || 3000;
 const GCP_PROJECT = process.env.GCP_PROJECT;
 const GCP_REGION = process.env.GCP_REGION || 'europe-west2';
 
+// Local ADC credentials carry their own quota project (often another gcloud
+// project), and Google bills calls there even when a projectId is passed.
+// Pin it to GCP_PROJECT unless the environment already chooses one.
+if (GCP_PROJECT && !process.env.GOOGLE_CLOUD_QUOTA_PROJECT) {
+  process.env.GOOGLE_CLOUD_QUOTA_PROJECT = GCP_PROJECT;
+}
+
 // Split models: Chat / Pedagogical Tutor vs. Audio / TTS Generation
 const CHAT_MODEL = process.env.GEMINI_CHAT_MODEL || process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 const TTS_MODEL = process.env.GEMINI_TTS_MODEL || 'gemini-3.8-flash-lite-tts';
+// Native-audio model for real-time voice calls over the Live API
+const LIVE_MODEL = process.env.GEMINI_LIVE_MODEL || 'gemini-3.8-live';
 
 // Gemini is reachable through Vertex AI (GCP_PROJECT + ADC) or an AI Studio key
 const HAS_GENAI_CREDENTIALS = Boolean(GCP_PROJECT || process.env.GEMINI_API_KEY);
 
 // Behind a load balancer (e.g. Cloud Run) set TRUST_PROXY_HOPS=1 so req.ip is
 // the client's address rather than the proxy's, or every user shares one limit.
-app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS) || 0);
+const TRUST_PROXY_HOPS = Number(process.env.TRUST_PROXY_HOPS) || 0;
+app.set('trust proxy', TRUST_PROXY_HOPS);
 
 // Every Gemini / Cloud Speech call is billed. Cap each IP before the body is
 // parsed. A voice-call turn makes ~3 requests (STT, chat, TTS), so the default
 // leaves room for about 20 turns a minute.
 const RATE_LIMIT_PER_MINUTE = Number(process.env.RATE_LIMIT_PER_MINUTE) || 60;
-app.use(['/api/chat', '/api/tts', '/api/stt'], rateLimit({
+app.use(['/api/chat', '/api/translate', '/api/tts', '/api/stt'], rateLimit({
   windowMs: 60_000,
   limit: RATE_LIMIT_PER_MINUTE,
   standardHeaders: 'draft-7',
@@ -76,36 +89,49 @@ const primaryAi = createGenAiClient(Boolean(GCP_PROJECT));
 // Fallback client (Google AI Studio via GEMINI_API_KEY)
 const fallbackAi = (GCP_PROJECT && process.env.GEMINI_API_KEY) ? createGenAiClient(false) : null;
 
-// Google Cloud Text-to-Speech Client
+// Google Cloud Text-to-Speech and Speech-to-Text clients. Only created for an
+// explicit GCP_PROJECT, so a missing setting never falls through to whatever
+// project the local gcloud credentials default to.
 let cloudTtsClient: TextToSpeechClient | null = null;
-try {
-  cloudTtsClient = new TextToSpeechClient(
-    GCP_PROJECT ? { projectId: GCP_PROJECT } : {}
-  );
-} catch (err: any) {
-  console.warn('[GCP TTS] Could not initialize TextToSpeechClient:', err.message);
+let cloudSpeechClient: SpeechClient | null = null;
+if (GCP_PROJECT) {
+  try {
+    cloudTtsClient = new TextToSpeechClient({ projectId: GCP_PROJECT });
+  } catch (err: any) {
+    console.warn('[GCP TTS] Could not initialize TextToSpeechClient:', err.message);
+  }
+  try {
+    cloudSpeechClient = new SpeechClient({ projectId: GCP_PROJECT });
+  } catch (err: any) {
+    console.warn('[GCP STT] Could not initialize SpeechClient:', err.message);
+  }
 }
 
-// Google Cloud Speech-to-Text Client
-let cloudSpeechClient: SpeechClient | null = null;
-try {
-  cloudSpeechClient = new SpeechClient(
-    GCP_PROJECT ? { projectId: GCP_PROJECT } : {}
-  );
-} catch (err: any) {
-  console.warn('[GCP STT] Could not initialize SpeechClient:', err.message);
-}
+// Vertex AI models that just failed with a configuration error (IAM, region,
+// model name) are skipped for a while instead of costing a round trip per request.
+const vertexCooldown = new VertexCooldown();
+const hasVertexFallback = (ai: GoogleGenAI) => ai === primaryAi && fallbackAi !== null;
 
 // Robust execution wrapper with fallback to AI Studio if Vertex AI request fails
 async function generateContentWithFallback(requestConfig: any) {
+  const model = String(requestConfig.model);
+  if (fallbackAi && vertexCooldown.isCoolingDown(model)) {
+    return await fallbackAi.models.generateContent(requestConfig);
+  }
   try {
     return await primaryAi.models.generateContent(requestConfig);
   } catch (primaryErr: any) {
-    if (fallbackAi) {
-      console.warn('[GCP Fallback] Vertex AI request failed, retrying with Google AI Studio API key:', primaryErr.message);
-      return await fallbackAi.models.generateContent(requestConfig);
+    if (!fallbackAi) throw primaryErr;
+    if (isPersistentVertexError(primaryErr)) {
+      vertexCooldown.trip(model);
+      console.warn(
+        `[GCP Fallback] Vertex AI ${primaryErr.status} for ${model}; using AI Studio for the next ` +
+          `${vertexCooldown.cooldownMinutes} min: ${summarizeError(primaryErr)}`
+      );
+    } else {
+      console.warn(`[GCP Fallback] Vertex AI request failed, retrying with AI Studio: ${summarizeError(primaryErr)}`);
     }
-    throw primaryErr;
+    return await fallbackAi.models.generateContent(requestConfig);
   }
 }
 
@@ -116,6 +142,7 @@ app.get('/api/health', (req, res) => {
     models: {
       chat: CHAT_MODEL,
       tts: TTS_MODEL,
+      live: LIVE_MODEL,
     },
     gcp: {
       region: GCP_REGION,
@@ -131,12 +158,18 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-const GRAMMAR_STRICTNESS_LEVELS = ['conversational', 'tutor', 'strict'];
-
 // Gemini Conversational Chat API with Italian pedagogical grammar analysis
 app.post('/api/chat', async (req, res) => {
   try {
-    const { personaId, history, userMessage, temperature = 0.7, grammarStrictness = 'tutor' } = req.body;
+    const {
+      personaId,
+      history,
+      userMessage,
+      temperature = 0.7,
+      grammarStrictness = 'tutor',
+      learnerLevel = 'A2',
+      learnerName
+    } = req.body;
 
     if (!userMessage || typeof userMessage !== 'string') {
       return res.status(400).json({ error: 'Missing userMessage' });
@@ -147,14 +180,15 @@ app.post('/api/chat', async (req, res) => {
 
     // The system prompt is built only from server-owned text, so a caller
     // cannot repurpose the endpoint with their own instructions.
-    const personaPrompt = typeof personaId === 'string' && Object.hasOwn(PERSONA_PROMPTS, personaId)
-      ? PERSONA_PROMPTS[personaId]
-      : undefined;
-    if (!personaPrompt) {
+    const hasPersona = typeof personaId === 'string' && Object.hasOwn(PERSONA_PROMPTS, personaId);
+    if (!hasPersona) {
       return res.status(400).json({ error: `Unknown personaId: ${String(personaId)}` });
     }
     if (!GRAMMAR_STRICTNESS_LEVELS.includes(grammarStrictness)) {
       return res.status(400).json({ error: `grammarStrictness must be one of ${GRAMMAR_STRICTNESS_LEVELS.join(', ')}` });
+    }
+    if (typeof learnerLevel !== 'string' || !Object.hasOwn(LEVEL_PROMPTS, learnerLevel)) {
+      return res.status(400).json({ error: `learnerLevel must be one of ${Object.keys(LEVEL_PROMPTS).join(', ')}` });
     }
 
     if (!HAS_GENAI_CREDENTIALS) {
@@ -164,26 +198,12 @@ app.post('/api/chat', async (req, res) => {
       });
     }
 
-    const systemInstruction = `
-${personaPrompt}
-Tu sei un tutor madrelingua italiano per una piattaforma di apprendimento conversazionale ("Parliamo Italiano").
-Rigidità correzione: "${grammarStrictness}".
-Rispondi SEMPRE in italiano naturale, accogliente e culturalmente autentico.
-Includi sempre la traduzione in inglese e da 1 a 3 note grammaticali/culturali concrete (parole nuove, congiuntivo, modi di dire, pronuncia).
-
-Restituisci ESCLUSIVAMENTE un oggetto JSON valido con la seguente struttura esatta:
-{
-  "text": "La tua risposta in italiano",
-  "translation": "English translation of your reply",
-  "grammarNotes": [
-    {
-      "wordOrPhrase": "parola o espressione chiave",
-      "explanation": "spiegazione in inglese chiara e sintetica",
-      "category": "verb" | "idiom" | "grammar" | "vocabulary" | "cultural"
-    }
-  ]
-}
-`.trim();
+    const systemInstruction = buildSystemInstruction({
+      personaId,
+      level: learnerLevel as CefrLevel,
+      grammarStrictness,
+      learnerName
+    });
 
     // Map conversation history safely, skipping any malformed items
     const contents: any[] = [];
@@ -246,6 +266,36 @@ Restituisci ESCLUSIVAMENTE un oggetto JSON valido con la seguente struttura esat
       error: error.message || 'Error communicating with AI model',
       fallbackNeeded: true
     });
+  }
+});
+
+// English translation of one spoken line, used for Gemini Live call captions
+app.post('/api/translate', async (req, res) => {
+  try {
+    const { text } = req.body;
+    if (!text || typeof text !== 'string') {
+      return res.status(400).json({ error: 'Text is required for translation' });
+    }
+    if (text.length > 2000) {
+      return res.status(400).json({ error: 'Text exceeds maximum length of 2000 characters for translation' });
+    }
+    if (!HAS_GENAI_CREDENTIALS) {
+      return res.status(503).json({ error: 'Neither GCP_PROJECT nor GEMINI_API_KEY is configured' });
+    }
+
+    const response = await generateContentWithFallback({
+      model: CHAT_MODEL,
+      contents: [{ role: 'user', parts: [{ text }] }],
+      config: {
+        systemInstruction: 'Translate the Italian text the user sends into natural English. Reply with the translation only.',
+        temperature: 0.2,
+      }
+    });
+
+    res.json({ translation: response.text?.trim() ?? '' });
+  } catch (error: any) {
+    console.error('Translation error:', error);
+    res.status(500).json({ error: error.message || 'Translation failed' });
   }
 });
 
@@ -530,10 +580,20 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log(`Parliamo Italiano server listening on http://localhost:${PORT}`);
-    console.log(`[Config] Chat Model: ${CHAT_MODEL} | TTS Model: ${TTS_MODEL}`);
+    console.log(`[Config] Chat Model: ${CHAT_MODEL} | TTS Model: ${TTS_MODEL} | Live Model: ${LIVE_MODEL}`);
     console.log(`[Config] GCP Project: ${GCP_PROJECT || '(none - using API key)'} | Region: ${GCP_REGION}`);
+  });
+
+  attachLiveBridge(server, {
+    clients: HAS_GENAI_CREDENTIALS ? [primaryAi, fallbackAi].filter((ai): ai is GoogleGenAI => ai !== null) : [],
+    model: LIVE_MODEL,
+    trustProxyHops: TRUST_PROXY_HOPS,
+    skipClient: (ai) => hasVertexFallback(ai) && vertexCooldown.isCoolingDown(LIVE_MODEL),
+    onClientFailed: (ai) => {
+      if (hasVertexFallback(ai)) vertexCooldown.trip(LIVE_MODEL);
+    },
   });
 }
 

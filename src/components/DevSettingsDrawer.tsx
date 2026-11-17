@@ -13,7 +13,7 @@ import {
   Play,
   Mic
 } from 'lucide-react';
-import { DevSettings, VoiceProvider, SttProvider } from '../types';
+import { DevSettings, VoiceProvider, SttProvider, VoiceCallEngine } from '../types';
 import { speechService } from '../utils/speech';
 import { EMMANUELE } from '../data/personas';
 import { useDialog } from '../hooks/useDialog';
@@ -92,6 +92,7 @@ export const DevSettingsDrawer: React.FC<DevSettingsDrawerProps> = ({
       voiceProvider: 'gemini_live',
       voiceId: EMMANUELE.voiceId,
       sttProvider: 'production_cloud',
+      voiceCallEngine: 'realtime_live',
       temperature: 0.7,
       speechRate: 0.95,
       audioSamplingRate: '24kHz',
@@ -107,7 +108,8 @@ export const DevSettingsDrawer: React.FC<DevSettingsDrawerProps> = ({
     runtime: 'Parliamo Italiano Video & Audio Engine v3.2',
     endpoints: {
       tts: '/api/tts (Gemini 3.8 Flash-Lite TTS, 24kHz WAV)',
-      chat: '/api/chat (Gemini 2.5 Flash + Pedagogical JSON)'
+      chat: '/api/chat (Gemini 2.5 Flash + Pedagogical JSON)',
+      live: '/api/live (Gemini Live WebSocket, real-time voice calls)'
     },
     activeConfig: {
       provider: localSettings.voiceProvider,
@@ -351,6 +353,55 @@ export const DevSettingsDrawer: React.FC<DevSettingsDrawerProps> = ({
                   {rate}
                 </button>
               ))}
+            </div>
+          </div>
+
+          {/* SECTION: VOICE CALL ENGINE */}
+          <div className="space-y-3 pt-2 border-t border-line">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-ink uppercase tracking-wider">
+              <Mic className="w-3.5 h-3.5 text-cobalt" />
+              <span>Voice Call Engine</span>
+            </div>
+
+            <div className="grid grid-cols-1 gap-2" role="group" aria-label="Voice call engine">
+              {[
+                {
+                  id: 'realtime_live',
+                  name: 'Gemini Live (Real-time)',
+                  desc: 'One streaming session: sub-second replies and you can interrupt. Falls back to turn-based if it cannot connect.',
+                  badge: 'DEFAULT',
+                  badgeColor: 'bg-cobalt text-white font-bold',
+                },
+                {
+                  id: 'turn_based',
+                  name: 'Turn-based (STT → Chat → TTS)',
+                  desc: 'Waits for a pause, then transcribes, replies and speaks with the providers chosen below.',
+                  badge: 'CLASSIC',
+                  badgeColor: 'bg-stone-200 text-slate-800 font-semibold',
+                }
+              ].map(engine => {
+                const isSelected = localSettings.voiceCallEngine === engine.id;
+                return (
+                  <button
+                    key={engine.id}
+                    onClick={() => handleChange('voiceCallEngine', engine.id as VoiceCallEngine)}
+                    aria-pressed={isSelected}
+                    className={`w-full text-left p-3 rounded-2xl border transition-all ${
+                      isSelected
+                        ? 'bg-cobalt-tint border-cobalt text-ink shadow-xs'
+                        : 'bg-surface border-line hover:bg-cobalt-tint text-ink'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-xs text-ink">{engine.name}</span>
+                      <span className={`text-[9px] px-2 py-0.5 rounded-full uppercase tracking-wider ${engine.badgeColor}`}>
+                        {engine.badge}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-ink-muted mt-1">{engine.desc}</p>
+                  </button>
+                );
+              })}
             </div>
           </div>
 

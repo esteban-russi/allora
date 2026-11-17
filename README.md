@@ -29,7 +29,7 @@ Italian text is set in Fraunces; the interface uses Inter.
 ## Features
 
 - **Chat with Emmanuele.** Every reply comes in Italian with an English translation and 1 to 3 notes on vocabulary, verbs, idioms, grammar or culture. Listen to any line, hide its translation, or save it to your notebook.
-- **Hands-free voice calls.** Speech recognition (`it-IT`) listens while you talk, so there is no send button. The tutor thinks, then speaks back. Ask him to go slower, repeat himself, or suggest something to say.
+- **Hands-free voice calls.** Calls stream through Gemini Live, so the tutor answers in under a second and you can interrupt him mid-sentence. Ask him to go slower, repeat himself, or suggest something to say. If Live is unavailable, the call carries on turn by turn (speech recognition, then chat, then text-to-speech).
 - **Captions.** Follow each line of the call in Italian with an English translation.
 - **Natural voices.** Replies are spoken with Gemini text-to-speech. If it is unavailable, the app falls back to the browser's built-in Italian voice.
 - **Adjustable tutoring.** A settings drawer lets you choose how strictly mistakes are corrected (conversational, tutor or strict), how much regional slang to use, speech rate, subtitles, auto-play and a custom system prompt.
@@ -44,9 +44,14 @@ Web Speech API  ── your speech ──▶  POST /api/chat  ──────
                                       correction strictness)         text, translation,
                                                                      grammarNotes
 Audio player   ◀── WAV audio ────  POST /api/tts   ──────────▶  gemini-3.8-flash-lite-tts
+
+Voice call     ◀── PCM audio ───▶  WS /api/live    ◀─────────▶  gemini-3.8-live
+ (mic + speaker)    + transcripts    (server-owned prompt,         streaming audio in/out
+                                      voice and level)
+Captions       ◀── English ──────  POST /api/translate ──────▶  gemini-3.8-flash
 ```
 
-The Gemini API key stays on the server. The browser only talks to `/api/chat`, `/api/tts` and `/api/health`.
+The Gemini API key stays on the server. The browser only talks to the server's `/api/*` routes, including the `/api/live` WebSocket, which bridges each call to a Gemini Live session. On Vertex AI the Live model is served from the `global`, `us` and `eu` locations, so set `GCP_REGION` accordingly (`GEMINI_LIVE_MODEL` overrides the model).
 
 ## Tech stack
 
@@ -84,12 +89,13 @@ React 19 · TypeScript · Vite 8 · Tailwind CSS 4 · Motion · Lucide · Expres
 
 Speech recognition relies on the browser's Web Speech API, so voice calls work best in Chrome or Edge.
 
-The billed API routes (`/api/chat`, `/api/tts`, `/api/stt`) are rate-limited per IP (`RATE_LIMIT_PER_MINUTE`, default 60). When deploying behind a proxy such as Cloud Run, set `TRUST_PROXY_HOPS=1` so the limit applies to each client rather than to the proxy.
+The billed API routes (`/api/chat`, `/api/translate`, `/api/tts`, `/api/stt`) are rate-limited per IP (`RATE_LIMIT_PER_MINUTE`, default 60), and each IP can hold at most two open Live calls. When deploying behind a proxy such as Cloud Run, set `TRUST_PROXY_HOPS=1` so the limit applies to each client rather than to the proxy.
 
 ## Project structure
 
 ```
-├── server.ts                  # Express server: /api/chat, /api/tts, /api/stt, /api/health, Vite/static serving
+├── server.ts                  # Express server: /api/chat, /api/translate, /api/tts, /api/stt, /api/health, Vite/static serving
+├── liveBridge.ts              # /api/live WebSocket bridge to Gemini Live
 ├── src/
 │   ├── App.tsx                # App state and dashboard layout
 │   ├── assets/emmanuele/      # Tutor portraits (resting and speaking)
@@ -105,6 +111,7 @@ The billed API routes (`/api/chat`, `/api/tts`, `/api/stt`) are rate-limited per
 │   │   └── UserBadge.tsx
 │   ├── data/personas.ts       # Emmanuele's persona, starter message and saved phrases
 │   ├── utils/speech.ts        # Gemini TTS playback, browser TTS fallback, speech recognition
+│   ├── utils/liveCall.ts      # Gemini Live call client: mic streaming and audio playback
 │   └── types/index.ts
 └── index.html
 ```
