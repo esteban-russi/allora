@@ -1,0 +1,76 @@
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Never run two deploys at once; a newer push waits for the current one
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  REGION: ${{ vars.GCP_DEPLOY_REGION }}
+  SERVICE: ${{ vars.CLOUD_RUN_SERVICE }}
+  IMAGE: ${{ vars.GCP_DEPLOY_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.ARTIFACT_REPO }}/${{ vars.CLOUD_RUN_SERVICE }}:${{ github.sha }}
+
+jobs:
+  check:
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    needs: check
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write # needed to exchange the GitHub OIDC token with Google
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+
+      - name: Build and push image
+        run: |
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+
+      - name: Deploy to Cloud Run
+        id: deploy
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.SERVICE }}
+          region: ${{ env.REGION }}
+          image: ${{ env.IMAGE }}
+          # Live voice calls hold a WebSocket open, so allow long requests
+          flags: >-
+            --service-account=${{ vars.GCP_RUNTIME_SA }}
+            --allow-unauthenticated
+            --timeout=3600
+            --session-affinity
+            --max-instances=3
+          env_vars: |-
+            NODE_ENV=production
+            GCP_PROJECT=${{ vars.GCP_PROJECT_ID }}
+            GCP_REGION=global
+            GEMINI_CHAT_MODEL=gemini-3.5-flash
+            GEMINI_TTS_MODEL=gemini-3.8-flash-lite-tts
+            GEMINI_LIVE_MODEL=gemini-3.8-live
+            TRUST_PROXY_HOPS=1
+            RATE_LIMIT_PER_MINUTE=60
+
+      - name: Smoke test
+        run: curl --fail --silent --show-error --retry 3 --retry-delay 5 "${{ steps.deploy.outputs.url }}/api/health"

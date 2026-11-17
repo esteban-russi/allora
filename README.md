@@ -91,6 +91,20 @@ Speech recognition relies on the browser's Web Speech API, so voice calls work b
 
 The billed API routes (`/api/chat`, `/api/translate`, `/api/tts`, `/api/stt`) are rate-limited per IP (`RATE_LIMIT_PER_MINUTE`, default 60), and each IP can hold at most two open Live calls. When deploying behind a proxy such as Cloud Run, set `TRUST_PROXY_HOPS=1` so the limit applies to each client rather than to the proxy.
 
+## Deployment
+
+Every push to `main` runs the CI checks (type check, tests, build) and, if they pass, deploys to Cloud Run through `.github/workflows/deploy.yml`. The workflow builds the `Dockerfile` image, pushes it to Artifact Registry tagged with the commit SHA, deploys it, and checks `/api/health`. GitHub authenticates to Google Cloud through Workload Identity Federation, so no service-account keys are stored.
+
+The service runs as its own service account and calls Vertex AI with its built-in credentials, so it needs no `GEMINI_API_KEY`. Its environment variables are set in the workflow's `env_vars` block.
+
+One-time setup (needs `gcloud` and `gh` logged in with owner rights on the project and repo):
+
+```bash
+scripts/setup-gcp-deploy.sh <gcp-project-id> [region] [service-name]
+```
+
+The script enables the APIs, creates the Artifact Registry repo, the deployer and runtime service accounts and the identity pool, and writes the GitHub repo variables the workflow reads. You can also trigger a deploy by hand from the Actions tab (**Deploy to Cloud Run → Run workflow**).
+
 ## Project structure
 
 ```

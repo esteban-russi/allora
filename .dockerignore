@@ -1,0 +1,11 @@
+.git
+.github
+node_modules
+dist
+server.js
+coverage
+references
+tests
+.env*
+*.log
+CLAUDE.local.md
