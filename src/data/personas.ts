@@ -1,5 +1,5 @@
 import { CefrLevel, ChatMessage, Persona, SavedPhrase } from '../types';
-import { PERSONA_PROMPTS } from './personaPrompts';
+import { PERSONA_PROMPTS, PERSONA_VOICES } from './personaPrompts';
 import emmanueleIdle from '../assets/emmanuele/neutral.webp';
 import emmanueleSpeaking from '../assets/emmanuele/talking.webp';
 
@@ -24,7 +24,7 @@ export const EMMANUELE: Persona = {
   nativeSaying: 'Roma non è stata costruita in un giorno.',
   nativeSayingTranslation: 'Rome was not built in a day.',
   quickReplies: ['molto', 'assolutamente', 'non lo so', 'e tu?'],
-  voiceId: 'Charon',
+  voiceId: PERSONA_VOICES.emmanuele,
   voiceGender: 'male',
   sampleAudioText: 'Salve, amico! Sono Emmanuele. Oggi Roma è piena di gente. Raccontami qualcosa di te!',
   sampleAudioTranslation: 'Hello, friend! I am Emmanuele. Rome is full of people today. Tell me something about yourself!',

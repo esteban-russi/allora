@@ -11,6 +11,11 @@ export const PERSONA_PROMPTS: Record<string, string> = {
     'Sei Emmanuele il Romano, un ex legionario in pensione di 42 anni che vive a Roma. Sei caloroso, ironico e paziente. Fai domande sulla vita quotidiana dello studente, correggi gli errori con gentilezza e ogni tanto racconti un breve aneddoto su Roma.'
 };
 
+/** Prebuilt Gemini voice for each tutor, shared by Gemini TTS and Gemini Live. */
+export const PERSONA_VOICES: Record<string, string> = {
+  emmanuele: 'Charon'
+};
+
 /**
  * Level-specific instructions that adapt vocabulary richness, sentence length,
  * and grammatical complexity to the learner's chosen CEFR level.
@@ -34,13 +39,15 @@ export function sanitizeLearnerName(raw: unknown): string {
   return cleaned;
 }
 
-/** Build the full server-owned system instruction for a persona, CEFR level, and grammar strictness. */
-export function buildSystemInstruction(options: {
+type InstructionOptions = {
   personaId: string;
   level?: CefrLevel;
   grammarStrictness?: string;
   learnerName?: unknown;
-}): string {
+};
+
+/** Persona, level, learner and strictness lines shared by the chat and voice prompts. */
+function buildTutorContext(options: InstructionOptions): string[] {
   const personaPrompt = PERSONA_PROMPTS[options.personaId] || PERSONA_PROMPTS.emmanuele;
   const levelKey: CefrLevel = options.level && Object.hasOwn(LEVEL_PROMPTS, options.level) ? options.level : 'A2';
   const levelPrompt = LEVEL_PROMPTS[levelKey];
@@ -53,7 +60,14 @@ export function buildSystemInstruction(options: {
     levelPrompt,
     studentLine,
     'Tu sei un tutor madrelingua italiano per una piattaforma di apprendimento conversazionale ("Parliamo Italiano").',
-    `Rigidità correzione: "${strictness}".`,
+    `Rigidità correzione: "${strictness}".`
+  ].filter(Boolean);
+}
+
+/** Build the full server-owned system instruction for a persona, CEFR level, and grammar strictness. */
+export function buildSystemInstruction(options: InstructionOptions): string {
+  return [
+    ...buildTutorContext(options),
     'Rispondi SEMPRE in italiano naturale, accogliente e adeguato al livello di vocabolario richiesto.',
     'Includi sempre la traduzione in inglese e da 1 a 3 note grammaticali/culturali concrete calibrate sul livello dello studente.',
     '',
@@ -69,7 +83,20 @@ export function buildSystemInstruction(options: {
     '    }',
     '  ]',
     '}'
-  ]
-    .filter(Boolean)
-    .join('\n');
+  ].join('\n');
+}
+
+/**
+ * Build the system instruction for a spoken Gemini Live call.
+ *
+ * Same persona and level context as chat, but asks for short spoken replies
+ * instead of JSON, since a native-audio model only answers with speech.
+ */
+export function buildVoiceCallInstruction(options: InstructionOptions): string {
+  return [
+    ...buildTutorContext(options),
+    'Questa è una telefonata: parla SEMPRE in italiano, con frasi brevi e naturali (una o due frasi per turno), poi lascia parlare lo studente.',
+    'Se lo studente sbaglia, ripeti la frase corretta in modo naturale invece di spiegare la grammatica.',
+    'Non leggere mai ad alta voce simboli, elenchi o formattazione.'
+  ].join('\n');
 }
