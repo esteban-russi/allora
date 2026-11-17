@@ -1,10 +1,10 @@
 name: CI
 
+# Push-to-main runs these checks through deploy.yml, which calls this workflow
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
+  workflow_call:
 
 jobs:
   check:
