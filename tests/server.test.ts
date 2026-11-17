@@ -123,6 +123,24 @@ describe('POST /api/chat validation', () => {
   });
 });
 
+describe('POST /api/translate validation', () => {
+  it('rejects a request without text', async () => {
+    const res = await request(app).post('/api/translate').send({});
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects text longer than 2000 characters', async () => {
+    const res = await request(app).post('/api/translate').send({ text: 'x'.repeat(2001) });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/exceeds maximum length/);
+  });
+
+  it('returns 503 when no Gemini credentials are configured', async () => {
+    const res = await request(app).post('/api/translate').send({ text: 'Ciao' });
+    expect(res.status).toBe(503);
+  });
+});
+
 describe('POST /api/tts and /api/stt validation', () => {
   it('rejects TTS without text', async () => {
     const res = await request(app).post('/api/tts').send({});

@@ -40,7 +40,7 @@ app.set('trust proxy', TRUST_PROXY_HOPS);
 // parsed. A voice-call turn makes ~3 requests (STT, chat, TTS), so the default
 // leaves room for about 20 turns a minute.
 const RATE_LIMIT_PER_MINUTE = Number(process.env.RATE_LIMIT_PER_MINUTE) || 60;
-app.use(['/api/chat', '/api/tts', '/api/stt'], rateLimit({
+app.use(['/api/chat', '/api/translate', '/api/tts', '/api/stt'], rateLimit({
   windowMs: 60_000,
   limit: RATE_LIMIT_PER_MINUTE,
   standardHeaders: 'draft-7',
@@ -245,6 +245,36 @@ app.post('/api/chat', async (req, res) => {
       error: error.message || 'Error communicating with AI model',
       fallbackNeeded: true
     });
+  }
+});
+
+// English translation of one spoken line, used for Gemini Live call captions
+app.post('/api/translate', async (req, res) => {
+  try {
+    const { text } = req.body;
+    if (!text || typeof text !== 'string') {
+      return res.status(400).json({ error: 'Text is required for translation' });
+    }
+    if (text.length > 2000) {
+      return res.status(400).json({ error: 'Text exceeds maximum length of 2000 characters for translation' });
+    }
+    if (!HAS_GENAI_CREDENTIALS) {
+      return res.status(503).json({ error: 'Neither GCP_PROJECT nor GEMINI_API_KEY is configured' });
+    }
+
+    const response = await generateContentWithFallback({
+      model: CHAT_MODEL,
+      contents: [{ role: 'user', parts: [{ text }] }],
+      config: {
+        systemInstruction: 'Translate the Italian text the user sends into natural English. Reply with the translation only.',
+        temperature: 0.2,
+      }
+    });
+
+    res.json({ translation: response.text?.trim() ?? '' });
+  } catch (error: any) {
+    console.error('Translation error:', error);
+    res.status(500).json({ error: error.message || 'Translation failed' });
   }
 });
 
