@@ -51,7 +51,7 @@ Voice call     ◀── PCM audio ───▶  WS /api/live    ◀────
 Captions       ◀── English ──────  POST /api/translate ──────▶  gemini-3.8-flash
 ```
 
-The Gemini API key stays on the server. The browser only talks to the server's `/api/*` routes, including the `/api/live` WebSocket, which bridges each call to a Gemini Live session. On Vertex AI the Live model is served from the `global`, `us` and `eu` locations, so set `GCP_REGION` accordingly (`GEMINI_LIVE_MODEL` overrides the model).
+The Gemini API key stays on the server. The browser only talks to the server's `/api/*` routes, including the `/api/live` WebSocket, which bridges each call to a Gemini Live session. On Vertex AI the Live model is served only from the `us` and `eu` multi-regions (not `global`), so set `GCP_REGION` to one of those; the deployed service uses `eu` (`GEMINI_LIVE_MODEL` overrides the model).
 
 ## Tech stack
 

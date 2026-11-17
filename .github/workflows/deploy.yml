@@ -65,7 +65,8 @@ jobs:
           env_vars: |-
             NODE_ENV=production
             GCP_PROJECT=${{ vars.GCP_PROJECT_ID }}
-            GCP_REGION=global
+            # gemini-3.8-live is only served from the us/eu multi-regions, not global
+            GCP_REGION=eu
             GEMINI_CHAT_MODEL=gemini-3.5-flash
             GEMINI_TTS_MODEL=gemini-3.8-flash-lite-tts
             GEMINI_LIVE_MODEL=gemini-3.8-live
