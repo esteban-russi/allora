@@ -16,6 +16,9 @@ export const PERSONA_VOICES: Record<string, string> = {
   emmanuele: 'Charon'
 };
 
+/** Correction strictness values accepted by the chat and voice-call endpoints. */
+export const GRAMMAR_STRICTNESS_LEVELS = ['conversational', 'tutor', 'strict'];
+
 /**
  * Level-specific instructions that adapt vocabulary richness, sentence length,
  * and grammatical complexity to the learner's chosen CEFR level.

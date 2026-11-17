@@ -6,8 +6,9 @@ import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
 import { TextToSpeechClient } from '@google-cloud/text-to-speech';
 import { SpeechClient } from '@google-cloud/speech';
-import { PERSONA_PROMPTS, LEVEL_PROMPTS, buildSystemInstruction } from './src/data/personaPrompts';
+import { PERSONA_PROMPTS, LEVEL_PROMPTS, GRAMMAR_STRICTNESS_LEVELS, buildSystemInstruction } from './src/data/personaPrompts';
 import type { CefrLevel } from './src/types';
+import { attachLiveBridge } from './liveBridge';
 
 dotenv.config();
 
@@ -24,13 +25,16 @@ const GCP_REGION = process.env.GCP_REGION || 'europe-west2';
 // Split models: Chat / Pedagogical Tutor vs. Audio / TTS Generation
 const CHAT_MODEL = process.env.GEMINI_CHAT_MODEL || process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 const TTS_MODEL = process.env.GEMINI_TTS_MODEL || 'gemini-3.8-flash-lite-tts';
+// Native-audio model for real-time voice calls over the Live API
+const LIVE_MODEL = process.env.GEMINI_LIVE_MODEL || 'gemini-3.8-live';
 
 // Gemini is reachable through Vertex AI (GCP_PROJECT + ADC) or an AI Studio key
 const HAS_GENAI_CREDENTIALS = Boolean(GCP_PROJECT || process.env.GEMINI_API_KEY);
 
 // Behind a load balancer (e.g. Cloud Run) set TRUST_PROXY_HOPS=1 so req.ip is
 // the client's address rather than the proxy's, or every user shares one limit.
-app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS) || 0);
+const TRUST_PROXY_HOPS = Number(process.env.TRUST_PROXY_HOPS) || 0;
+app.set('trust proxy', TRUST_PROXY_HOPS);
 
 // Every Gemini / Cloud Speech call is billed. Cap each IP before the body is
 // parsed. A voice-call turn makes ~3 requests (STT, chat, TTS), so the default
@@ -117,6 +121,7 @@ app.get('/api/health', (req, res) => {
     models: {
       chat: CHAT_MODEL,
       tts: TTS_MODEL,
+      live: LIVE_MODEL,
     },
     gcp: {
       region: GCP_REGION,
@@ -131,8 +136,6 @@ app.get('/api/health', (req, res) => {
     }
   });
 });
-
-const GRAMMAR_STRICTNESS_LEVELS = ['conversational', 'tutor', 'strict'];
 
 // Gemini Conversational Chat API with Italian pedagogical grammar analysis
 app.post('/api/chat', async (req, res) => {
@@ -526,10 +529,16 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log(`Parliamo Italiano server listening on http://localhost:${PORT}`);
-    console.log(`[Config] Chat Model: ${CHAT_MODEL} | TTS Model: ${TTS_MODEL}`);
+    console.log(`[Config] Chat Model: ${CHAT_MODEL} | TTS Model: ${TTS_MODEL} | Live Model: ${LIVE_MODEL}`);
     console.log(`[Config] GCP Project: ${GCP_PROJECT || '(none - using API key)'} | Region: ${GCP_REGION}`);
+  });
+
+  attachLiveBridge(server, {
+    clients: HAS_GENAI_CREDENTIALS ? [primaryAi, fallbackAi].filter((ai): ai is GoogleGenAI => ai !== null) : [],
+    model: LIVE_MODEL,
+    trustProxyHops: TRUST_PROXY_HOPS,
   });
 }
 
