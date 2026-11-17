@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ChevronLeft, Keyboard, Lightbulb, Mic, MicOff, PhoneOff, Repeat2, Snail, X } from 'lucide-react';
-import { Persona, CharacterSpeakingState, DevSettings, LearnerProfile } from '../types';
+import { Persona, CharacterSpeakingState, DevSettings, LearnerProfile, VoiceCallEngine } from '../types';
 import { PersonaBadge } from './PersonaBadge';
 import { speechService, createSpeechRecognizer, AudioRecorder, transcribeAudioBlob } from '../utils/speech';
+import { LiveCall } from '../utils/liveCall';
 import { ITALIAN_PRACTICE_PHRASES } from '../data/personas';
 import { generateCallFallback } from '../data/fallbacks';
 import { useDialog } from '../hooks/useDialog';
@@ -19,6 +20,26 @@ interface CallExchange {
   text: string;
   translation: string;
   timestamp: string;
+}
+
+const LIVE_REPEAT_REQUEST = "Puoi ripetere l'ultima frase, per favore?";
+const LIVE_SLOW_REQUEST = 'Da ora in poi parla più lentamente e scandisci bene le parole, per favore.';
+const LIVE_NORMAL_SPEED_REQUEST = 'Puoi tornare a parlare a velocità normale.';
+
+/** Fetch an English caption for a spoken Italian line; empty when translation is unavailable. */
+async function translateLine(text: string): Promise<string> {
+  try {
+    const res = await fetch('/api/translate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text })
+    });
+    if (!res.ok) return '';
+    const data = await res.json();
+    return typeof data.translation === 'string' ? data.translation : '';
+  } catch {
+    return '';
+  }
 }
 
 /** Hands-free voice call with Emmanuele, laid out like a phone call screen. */
@@ -38,6 +59,8 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
   
   // Live transcript of the learner and the call's spoken lines
   const [liveUserTranscript, setLiveUserTranscript] = useState<string>('');
+  // Tutor words streaming in from Gemini Live before the turn completes
+  const [livePersonaTranscript, setLivePersonaTranscript] = useState<string>('');
   const [dialogueHistory, setDialogueHistory] = useState<CallExchange[]>([]);
 
   // Stable references to prevent runaway effect re-triggers
@@ -53,8 +76,17 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
   const isSlowRef = useRef<boolean>(isSlow);
   isSlowRef.current = isSlow;
 
+  const isMutedRef = useRef<boolean>(isMuted);
+  isMutedRef.current = isMuted;
+
   const dialogueHistoryRef = useRef<CallExchange[]>(dialogueHistory);
   dialogueHistoryRef.current = dialogueHistory;
+
+  // Gemini Live by default; switches to turn-based for the rest of the call if Live fails
+  const [engine, setEngine] = useState<VoiceCallEngine>(devSettings.voiceCallEngine);
+  const engineRef = useRef<VoiceCallEngine>(engine);
+  engineRef.current = engine;
+  const liveCallRef = useRef<LiveCall | null>(null);
 
   const timerRef = useRef<number | null>(null);
   const startTimeRef = useRef<number>(Date.now());
@@ -210,7 +242,7 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
 
   // Continuous hands-free live speech recognition loop (Cloud STT / Browser STT)
   useEffect(() => {
-    if (callStatus !== 'connected' || isMuted || speakingState !== 'listening') {
+    if (engine !== 'turn_based' || callStatus !== 'connected' || isMuted || speakingState !== 'listening') {
       if (recognizerRef.current) {
         try { recognizerRef.current.stop(); } catch { /* ignore */ }
       }
@@ -347,7 +379,82 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
         try { recognizerRef.current.stop(); } catch { /* ignore */ }
       }
     };
-  }, [callStatus, isMuted, speakingState, processLiveUserSpeech]);
+  }, [engine, callStatus, isMuted, speakingState, processLiveUserSpeech]);
+
+  const addExchange = (speaker: CallExchange['speaker'], text: string, translation = '') => {
+    const currentSec = Math.floor((Date.now() - startTimeRef.current) / 1000);
+    const exchange: CallExchange = { speaker, text, translation, timestamp: formatDuration(currentSec) };
+    setDialogueHistory(prev => [...prev, exchange]);
+    return exchange;
+  };
+
+  // Stream the call through Gemini Live; on failure continue turn-based with the same tutor
+  const startLiveCall = () => {
+    setSpeakingState('thinking');
+    const call = new LiveCall(
+      {
+        personaId: personaRef.current.id,
+        learnerLevel: learnerProfileRef.current?.level ?? 'A2',
+        grammarStrictness: devSettingsRef.current.grammarStrictness,
+        learnerName: learnerProfileRef.current?.name
+      },
+      {
+        onReady: () => setSpeakingState('listening'),
+        onUserTranscript: setLiveUserTranscript,
+        onPersonaTranscript: setLivePersonaTranscript,
+        onTurnComplete: (userText, personaText) => {
+          if (userText) addExchange('user', userText, 'Student voice input');
+          if (personaText) {
+            const exchange = addExchange('persona', personaText);
+            translateLine(personaText).then(translation => {
+              if (!translation) return;
+              setDialogueHistory(prev => prev.map(e => (e === exchange ? { ...e, translation } : e)));
+            });
+          }
+          setLiveUserTranscript('');
+          setLivePersonaTranscript('');
+        },
+        onSpeakingChange: (isSpeaking) => {
+          isAiSpeakingRef.current = isSpeaking;
+          setSpeakingState(isSpeaking ? 'speaking' : 'listening');
+        },
+        onError: (message, beforeReady) => {
+          console.warn('Gemini Live call failed, switching to turn-based:', message);
+          liveCallRef.current = null;
+          isAiSpeakingRef.current = false;
+          setLivePersonaTranscript('');
+          setEngine('turn_based');
+          if (beforeReady) {
+            handlePersonaSpeakRef.current(
+              personaRef.current.sampleAudioText,
+              personaRef.current.sampleAudioTranslation
+            );
+          } else {
+            setSpeakingState('listening');
+          }
+        }
+      }
+    );
+    call.setMuted(isMutedRef.current);
+    liveCallRef.current = call;
+    call.start();
+  };
+  const startLiveCallRef = useRef(startLiveCall);
+  startLiveCallRef.current = startLiveCall;
+
+  useEffect(() => {
+    liveCallRef.current?.setMuted(isMuted);
+  }, [isMuted]);
+
+  // Typed or suggested phrases count as a learner turn in either engine
+  const sendLearnerText = (text: string) => {
+    if (engine === 'realtime_live' && liveCallRef.current) {
+      addExchange('user', text, 'Student voice input');
+      liveCallRef.current.sendText(text);
+      return;
+    }
+    processLiveUserSpeech(text);
+  };
 
   // Connect call audio & lifecycle (Runs ONLY ONCE per call mount)
   useEffect(() => {
@@ -369,6 +476,10 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
       // Start with persona greeting exactly ONCE
       if (!greetingStartedRef.current) {
         greetingStartedRef.current = true;
+        if (engineRef.current === 'realtime_live') {
+          startLiveCallRef.current();
+          return;
+        }
         handlePersonaSpeakRef.current(
           personaRef.current.sampleAudioText,
           personaRef.current.sampleAudioTranslation
@@ -383,6 +494,8 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       if (listenDelayTimerRef.current) clearTimeout(listenDelayTimerRef.current);
       speechService.stopSpeaking();
+      liveCallRef.current?.stop();
+      liveCallRef.current = null;
       if (recognizerRef.current) {
         try { recognizerRef.current.stop(); } catch { /* ignore */ }
       }
@@ -399,6 +512,8 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
 
   const handleHangup = () => {
     speechService.stopSpeaking();
+    liveCallRef.current?.stop();
+    liveCallRef.current = null;
     speechService.playHangupTone();
     if (timerRef.current) clearInterval(timerRef.current);
     if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
@@ -418,6 +533,10 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
   const handleRepeat = () => {
     const last = [...dialogueHistory].reverse().find(e => e.speaker === 'persona');
     if (!last || isAiSpeakingRef.current) return;
+    if (liveCallRef.current) {
+      liveCallRef.current.sendText(LIVE_REPEAT_REQUEST);
+      return;
+    }
     isAiSpeakingRef.current = true;
     setSpeakingState('speaking');
     if (recognizerRef.current) {
@@ -431,6 +550,7 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
   };
 
   const lastPersonaLine = [...dialogueHistory].reverse().find(e => e.speaker === 'persona');
+  const personaLine = livePersonaTranscript ? { text: livePersonaTranscript, translation: '' } : lastPersonaLine;
   const lastUserLine = [...dialogueHistory].reverse().find(e => e.speaker === 'user');
   const userLine = liveUserTranscript || lastUserLine?.text;
 
@@ -511,11 +631,11 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
 
           {showSubtitles && (
             <div className="mt-6 space-y-3">
-              {lastPersonaLine && (
+              {personaLine && (
                 <div className="px-5 py-4 rounded-[20px] rounded-bl-md bg-cobalt-tint">
-                  <p className="font-serif text-[19px] leading-snug">{lastPersonaLine.text}</p>
-                  {lastPersonaLine.translation && (
-                    <p className="mt-1.5 text-[13px] text-ink-muted">{lastPersonaLine.translation}</p>
+                  <p className="font-serif text-[19px] leading-snug">{personaLine.text}</p>
+                  {personaLine.translation && (
+                    <p className="mt-1.5 text-[13px] text-ink-muted">{personaLine.translation}</p>
                   )}
                 </div>
               )}
@@ -547,7 +667,7 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
                       type="button"
                       onClick={() => {
                         setShowPromptAssistance(false);
-                        processLiveUserSpeech(item.it);
+                        sendLearnerText(item.it);
                       }}
                       className="w-full text-left px-3 py-2 rounded-2xl hover:bg-cobalt-tint transition-colors"
                     >
@@ -565,7 +685,10 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
         <div className="shrink-0 flex items-center justify-center gap-1.5 sm:gap-2 px-3 pt-2 pb-5">
           <button
             type="button"
-            onClick={() => setIsSlow(!isSlow)}
+            onClick={() => {
+              liveCallRef.current?.sendText(isSlow ? LIVE_NORMAL_SPEED_REQUEST : LIVE_SLOW_REQUEST);
+              setIsSlow(!isSlow);
+            }}
             aria-pressed={isSlow}
             className={`${chip} ${isSlow ? 'bg-cobalt border-cobalt text-canvas' : 'border-cobalt text-cobalt hover:bg-cobalt-tint'}`}
           >
