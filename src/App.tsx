@@ -44,6 +44,7 @@ export default function App() {
     voiceProvider: 'gemini_live',
     voiceId: EMMANUELE.voiceId,
     sttProvider: 'production_cloud',
+    voiceCallEngine: 'realtime_live',
     temperature: 0.7,
     speechRate: 0.95,
     audioSamplingRate: '24kHz',
