@@ -414,8 +414,6 @@ export class InMemorySessionStore implements SessionStore {
   }
 }
 
-export const defaultSessionStore = new InMemorySessionStore();
-
 /**
  * Initialize a new default learner session structure with a server-generated ID.
  *

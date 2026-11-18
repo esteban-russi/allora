@@ -12,8 +12,8 @@ import type { CefrLevel } from './src/types';
 import { attachLiveBridge, type LiveBridgeOptions } from './liveBridge';
 import { VertexCooldown, isPersistentVertexError, summarizeError } from './vertexCooldown';
 import { assertAuthConfig, authenticateHttpUser, isAuthEnforced } from './src/server/auth';
+import { defaultSessionStore } from './src/server/defaultSessionStore';
 import {
-  defaultSessionStore,
   initializeLearnerSession,
   parseSavedPhrases,
   type ConversationTurn

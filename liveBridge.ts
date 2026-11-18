@@ -13,8 +13,8 @@ import {
 } from './src/data/personaPrompts';
 import type { CefrLevel } from './src/types';
 import { authenticateWebSocketRequest, type AuthenticatedUser, type AuthOptions } from './src/server/auth';
+import { defaultSessionStore } from './src/server/defaultSessionStore';
 import {
-  defaultSessionStore,
   initializeLearnerSession,
   parseConversationTurn,
   type ConversationTurn,
