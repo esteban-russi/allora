@@ -2,7 +2,7 @@ import request from 'supertest';
 import type { GoogleGenAI } from '@google/genai';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { VertexCooldown } from '../vertexCooldown';
-import { app, buildChatContents, canReadMetrics, buildLiveClientOptions, cloudSttEncodingFor, parseModelJsonResponse, stripBase64DataUrlPrefix } from '../server';
+import { app, buildChatContents, buildFirebaseClientConfig, canReadMetrics, buildLiveClientOptions, cloudSttEncodingFor, parseModelJsonResponse, stripBase64DataUrlPrefix } from '../server';
 import { buildSystemInstruction, buildVoiceCallInstruction, LEVEL_PROMPTS, sanitizeLearnerName } from '../src/data/personaPrompts';
 
 describe('parseModelJsonResponse', () => {
@@ -393,5 +393,37 @@ describe('buildChatContents', () => {
     const contents = buildChatContents(history, [], 'fine');
     expect(contents).toHaveLength(7);
     expect(contents[0].parts[0].text).toBe('m2');
+  });
+});
+
+describe('buildFirebaseClientConfig', () => {
+  const env = { FIREBASE_API_KEY: 'api-key', FIREBASE_APP_ID: '1:123:web:abc', GCP_PROJECT: 'demo' };
+
+  it('defaults the auth domain to the project firebaseapp.com domain', () => {
+    expect(buildFirebaseClientConfig(env)).toEqual({
+      apiKey: 'api-key',
+      authDomain: 'demo.firebaseapp.com',
+      projectId: 'demo',
+      appId: '1:123:web:abc'
+    });
+  });
+
+  it('uses FIREBASE_AUTH_DOMAIN when set', () => {
+    expect(buildFirebaseClientConfig({ ...env, FIREBASE_AUTH_DOMAIN: 'login.example' })?.authDomain).toBe('login.example');
+  });
+
+  it.each(['FIREBASE_API_KEY', 'FIREBASE_APP_ID', 'GCP_PROJECT'])('returns null without %s', (key) => {
+    expect(buildFirebaseClientConfig({ ...env, [key]: ' ' })).toBeNull();
+  });
+});
+
+describe('GET /api/auth-config', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('serves null when Firebase is not configured', async () => {
+    vi.stubEnv('FIREBASE_API_KEY', '');
+    const res = await request(app).get('/api/auth-config');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ firebase: null });
   });
 });

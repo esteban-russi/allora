@@ -26,6 +26,7 @@ import {
 } from './src/server/privacyAndPolicy';
 import { defaultMetrics } from './src/server/metrics';
 import { scheduleMaintenance } from './src/server/maintenance';
+import type { FirebaseClientConfig } from './src/utils/firebaseAuth';
 
 dotenv.config();
 
@@ -180,6 +181,30 @@ app.get('/api/health', (_req, res) => {
       }
     },
   });
+});
+
+/**
+ * Build the public Firebase web config the client needs for anonymous sign-in.
+ *
+ * Args:
+ *   env: Environment to read FIREBASE_API_KEY, FIREBASE_APP_ID, GCP_PROJECT and the
+ *     optional FIREBASE_AUTH_DOMAIN from.
+ *
+ * Returns:
+ *   The config, or null when sign-in is not configured (the client then sends no token).
+ */
+export function buildFirebaseClientConfig(env: NodeJS.ProcessEnv = process.env): FirebaseClientConfig | null {
+  const apiKey = env.FIREBASE_API_KEY?.trim();
+  const appId = env.FIREBASE_APP_ID?.trim();
+  const projectId = env.GCP_PROJECT?.trim();
+  if (!apiKey || !appId || !projectId) return null;
+  const authDomain = env.FIREBASE_AUTH_DOMAIN?.trim() || `${projectId}.firebaseapp.com`;
+  return { apiKey, authDomain, projectId, appId };
+}
+
+// Firebase web config is public by design; serving it at runtime keeps it out of the image build
+app.get('/api/auth-config', (_req, res) => {
+  res.json({ firebase: buildFirebaseClientConfig() });
 });
 
 // Authentication and per-user rate limit middleware stack for billed routes

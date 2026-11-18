@@ -65,6 +65,8 @@ jobs:
           env_vars: |-
             NODE_ENV=production
             GCP_PROJECT=${{ vars.GCP_PROJECT_ID }}
+            FIREBASE_API_KEY=${{ vars.FIREBASE_API_KEY }}
+            FIREBASE_APP_ID=${{ vars.FIREBASE_APP_ID }}
             # gemini-3.8-live is only served from the us/eu multi-regions, not global
             GCP_REGION=eu
             GEMINI_CHAT_MODEL=gemini-3.5-flash
