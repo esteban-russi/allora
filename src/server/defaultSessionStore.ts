@@ -8,7 +8,8 @@ import { InMemorySessionStore, type SessionStore } from './sessionStore';
  *
  * Args:
  *   env: Environment with SESSION_STORE ("memory", the default, or "firestore") and,
- *     for Firestore, GCP_PROJECT. Credentials come from Application Default Credentials.
+ *     for Firestore, GCP_PROJECT (auto-detected when empty). Credentials come from
+ *     Application Default Credentials.
  *
  * Returns:
  *   The configured SessionStore.
@@ -20,7 +21,7 @@ export function createSessionStore(env: NodeJS.ProcessEnv = process.env): Sessio
   const kind = env.SESSION_STORE?.trim() || 'memory';
   if (kind === 'memory') return new InMemorySessionStore();
   if (kind === 'firestore') {
-    return new FirestoreSessionStore(new Firestore({ projectId: env.GCP_PROJECT, ignoreUndefinedProperties: true }));
+    return new FirestoreSessionStore(new Firestore({ projectId: env.GCP_PROJECT || undefined, ignoreUndefinedProperties: true }));
   }
   throw new Error(`SESSION_STORE must be "memory" or "firestore", got "${kind}"`);
 }
