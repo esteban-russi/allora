@@ -56,7 +56,7 @@ jobs:
           region: ${{ env.REGION }}
           image: ${{ env.IMAGE }}
           # Live voice calls hold a WebSocket open, so allow long requests.
-          # One instance until sessions move to Firestore: they live in server memory.
+          # One instance until Firestore sessions are checked in production; rate limits stay per instance.
           # No comments inside the folded block below: they reach gcloud as arguments.
           flags: >-
             --service-account=${{ vars.GCP_RUNTIME_SA }}
@@ -69,6 +69,7 @@ jobs:
           env_vars: |-
             NODE_ENV=production
             GCP_PROJECT=${{ vars.GCP_PROJECT_ID }}
+            SESSION_STORE=firestore
             FIREBASE_API_KEY=${{ vars.FIREBASE_API_KEY }}
             FIREBASE_APP_ID=${{ vars.FIREBASE_APP_ID }}
             GCP_REGION=eu
