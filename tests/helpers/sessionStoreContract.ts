@@ -168,6 +168,10 @@ export function describeSessionStoreContract(name: string, makeStore: SessionSto
       clock += 4000;
       expect(await store.getSession(session.sessionId, 'learner')).not.toBeNull();
 
+      await store.updateUpstreamHandle(session.sessionId, 'learner', 'handle');
+      clock += 4000;
+      expect(await store.getSession(session.sessionId, 'learner')).not.toBeNull();
+
       clock += 2000;
       expect(await store.getSession(session.sessionId, 'learner')).toBeNull();
       expect(await store.getActiveUserSession('learner')).toBeNull();

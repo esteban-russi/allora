@@ -350,12 +350,13 @@ export class InMemorySessionStore implements SessionStore {
   ): Promise<void> {
     const session = this.readOwned(sessionId, userId);
     if (!session) return;
-    this.write({
-      ...session,
-      upstreamResumptionHandle: handle,
-      upstreamModel: model ?? session.upstreamModel,
-      updatedAt: new Date(this.now()).toISOString()
-    });
+    this.write(
+      withRetention(
+        { ...session, upstreamResumptionHandle: handle, upstreamModel: model ?? session.upstreamModel },
+        this.now(),
+        this.retentionMs
+      )
+    );
   }
 
   /**
