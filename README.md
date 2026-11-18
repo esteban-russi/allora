@@ -99,7 +99,7 @@ On load the client signs the learner in anonymously with Firebase (`src/utils/fi
 
 **Learner sessions.** A session holds the learner's level, saved phrases and the last 50 conversation turns. The server assigns its ID, the client remembers it on the device, and both chat and Live turns are checkpointed to it. `GET /api/session` returns the latest session, `POST` creates or updates one, `DELETE /api/session/:id` deletes one and `DELETE /api/session` deletes all of a user's data. Sessions expire after 30 days without activity and are purged hourly.
 
-Sessions and the per-user limits are currently **kept in server memory**: they are lost on restart and not shared between Cloud Run instances.
+Sessions and the per-user limits are currently **kept in server memory**: they are lost on restart and not shared between Cloud Run instances, so the deploy runs a single instance (`--max-instances=1`) until they move to Firestore.
 
 **Live call resilience.** The client pings every 5 s and reconnects with backoff after 10 s without a reply; the server pings every 10 s and ends calls that stop answering, so a dead socket never holds the call slot. A reconnect for the same session replaces the old call and resumes the Gemini session with its stored resumption handle. If the handle is rejected, a fresh Gemini session starts with a recap of the recent turns; only if that also fails does the call continue turn by turn.
 

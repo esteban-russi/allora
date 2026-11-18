@@ -61,7 +61,8 @@ jobs:
             --allow-unauthenticated
             --timeout=3600
             --session-affinity
-            --max-instances=3
+            # One instance until sessions move to Firestore: they live in server memory
+            --max-instances=1
           env_vars: |-
             NODE_ENV=production
             GCP_PROJECT=${{ vars.GCP_PROJECT_ID }}
