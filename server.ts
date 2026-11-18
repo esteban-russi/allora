@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import express from 'express';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
@@ -6,10 +7,26 @@ import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
 import { TextToSpeechClient } from '@google-cloud/text-to-speech';
 import { SpeechClient } from '@google-cloud/speech';
-import { PERSONA_PROMPTS, LEVEL_PROMPTS, GRAMMAR_STRICTNESS_LEVELS, buildSystemInstruction } from './src/data/personaPrompts';
+import { PERSONA_PROMPTS, LEVEL_PROMPTS, GRAMMAR_STRICTNESS_LEVELS, buildSystemInstruction, sanitizeLearnerName } from './src/data/personaPrompts';
 import type { CefrLevel } from './src/types';
-import { attachLiveBridge } from './liveBridge';
+import { attachLiveBridge, type LiveBridgeOptions } from './liveBridge';
 import { VertexCooldown, isPersistentVertexError, summarizeError } from './vertexCooldown';
+import { assertAuthConfig, authenticateHttpUser, isAuthEnforced } from './src/server/auth';
+import {
+  defaultSessionStore,
+  initializeLearnerSession,
+  parseSavedPhrases,
+  type ConversationTurn
+} from './src/server/sessionStore';
+import { createUserRateLimitMiddleware, defaultUserLimiter } from './src/server/rateLimiter';
+import {
+  getPrivacyPolicyConfig,
+  isAiStudioFallbackPermitted,
+  logPrivacyAuditNotice
+} from './src/server/privacyAndPolicy';
+import { defaultMetrics } from './src/server/metrics';
+import { scheduleMaintenance } from './src/server/maintenance';
+import type { FirebaseClientConfig } from './src/utils/firebaseAuth';
 
 dotenv.config();
 
@@ -44,11 +61,9 @@ const HAS_GENAI_CREDENTIALS = Boolean(GCP_PROJECT || process.env.GEMINI_API_KEY)
 const TRUST_PROXY_HOPS = Number(process.env.TRUST_PROXY_HOPS) || 0;
 app.set('trust proxy', TRUST_PROXY_HOPS);
 
-// Every Gemini / Cloud Speech call is billed. Cap each IP before the body is
-// parsed. A voice-call turn makes ~3 requests (STT, chat, TTS), so the default
-// leaves room for about 20 turns a minute.
+// Outer perimeter rate limiting per IP
 const RATE_LIMIT_PER_MINUTE = Number(process.env.RATE_LIMIT_PER_MINUTE) || 60;
-app.use(['/api/chat', '/api/translate', '/api/tts', '/api/stt'], rateLimit({
+app.use(['/api/chat', '/api/translate', '/api/tts', '/api/stt', '/api/session'], rateLimit({
   windowMs: 60_000,
   limit: RATE_LIMIT_PER_MINUTE,
   standardHeaders: 'draft-7',
@@ -110,18 +125,28 @@ if (GCP_PROJECT) {
 // Vertex AI models that just failed with a configuration error (IAM, region,
 // model name) are skipped for a while instead of costing a round trip per request.
 const vertexCooldown = new VertexCooldown();
-const hasVertexFallback = (ai: GoogleGenAI) => ai === primaryAi && fallbackAi !== null;
 
-// Robust execution wrapper with fallback to AI Studio if Vertex AI request fails
-async function generateContentWithFallback(requestConfig: any) {
+// Execution wrapper enforcing data privacy rules (Vertex default vs AI Studio audit)
+async function generateContentWithFallback(requestConfig: any, isLearnerData = true) {
   const model = String(requestConfig.model);
-  if (fallbackAi && vertexCooldown.isCoolingDown(model)) {
+  const allowAiStudio = isAiStudioFallbackPermitted(isLearnerData);
+
+  if (allowAiStudio && fallbackAi && vertexCooldown.isCoolingDown(model)) {
     return await fallbackAi.models.generateContent(requestConfig);
   }
+
   try {
     return await primaryAi.models.generateContent(requestConfig);
   } catch (primaryErr: any) {
-    if (!fallbackAi) throw primaryErr;
+    if (!fallbackAi || !allowAiStudio) {
+      if (!allowAiStudio && fallbackAi) {
+        console.warn(
+          `[Data Privacy] Vertex AI request failed for ${model}. AI Studio failover skipped to enforce learner privacy (vertex_only): ${summarizeError(primaryErr)}`
+        );
+      }
+      throw primaryErr;
+    }
+
     if (isPersistentVertexError(primaryErr)) {
       vertexCooldown.trip(model);
       console.warn(
@@ -135,8 +160,8 @@ async function generateContentWithFallback(requestConfig: any) {
   }
 }
 
-// Health check endpoint with GCP & Model metadata
-app.get('/api/health', (req, res) => {
+// Health check endpoint with GCP, Model, Privacy, and Operational Metrics metadata
+app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
     models: {
@@ -154,12 +179,165 @@ app.get('/api/health', (req, res) => {
         cloudTts: Boolean(cloudTtsClient),
         cloudSpeech: Boolean(cloudSpeechClient),
       }
-    }
+    },
   });
 });
 
-// Gemini Conversational Chat API with Italian pedagogical grammar analysis
+/**
+ * Build the public Firebase web config the client needs for anonymous sign-in.
+ *
+ * Args:
+ *   env: Environment to read FIREBASE_API_KEY, FIREBASE_APP_ID, GCP_PROJECT and the
+ *     optional FIREBASE_AUTH_DOMAIN from.
+ *
+ * Returns:
+ *   The config, or null when sign-in is not configured (the client then sends no token).
+ */
+export function buildFirebaseClientConfig(env: NodeJS.ProcessEnv = process.env): FirebaseClientConfig | null {
+  const apiKey = env.FIREBASE_API_KEY?.trim();
+  const appId = env.FIREBASE_APP_ID?.trim();
+  const projectId = env.GCP_PROJECT?.trim();
+  if (!apiKey || !appId || !projectId) return null;
+  const authDomain = env.FIREBASE_AUTH_DOMAIN?.trim() || `${projectId}.firebaseapp.com`;
+  return { apiKey, authDomain, projectId, appId };
+}
+
+// Firebase web config is public by design; serving it at runtime keeps it out of the image build
+app.get('/api/auth-config', (_req, res) => {
+  res.json({ firebase: buildFirebaseClientConfig() });
+});
+
+// Authentication and per-user rate limit middleware stack for billed routes
+app.use(
+  ['/api/chat', '/api/translate', '/api/tts', '/api/stt', '/api/session'],
+  authenticateHttpUser(),
+  createUserRateLimitMiddleware(defaultUserLimiter)
+);
+
+/**
+ * Decide whether a user may read operational metrics.
+ *
+ * Args:
+ *   userId: Authenticated user ID.
+ *
+ * Returns:
+ *   True for IDs in METRICS_ADMIN_USER_IDS (comma separated), or anyone when auth is not enforced.
+ */
+export function canReadMetrics(userId: string): boolean {
+  if (!isAuthEnforced()) return true;
+  const admins = (process.env.METRICS_ADMIN_USER_IDS ?? '')
+    .split(',')
+    .map((id) => id.trim())
+    .filter(Boolean);
+  return admins.includes(userId);
+}
+
+// Operational metrics and privacy configuration: operators only, unlike /api/health
+app.get('/api/metrics', authenticateHttpUser(), (req, res) => {
+  if (!canReadMetrics(req.user!.userId)) {
+    return res.status(403).json({ error: 'Metrics are restricted to operators' });
+  }
+  res.json({ privacy: getPrivacyPolicyConfig(), metrics: defaultMetrics.getSummary() });
+});
+
+// Learner Session Endpoints (Session Continuity, Checkpointing, and GDPR Deletion)
+app.get('/api/session', async (req, res) => {
+  try {
+    const userId = req.user!.userId;
+    const session = await defaultSessionStore.getActiveUserSession(userId);
+    if (!session) {
+      return res.status(404).json({ error: 'No active session found for user' });
+    }
+    res.json(session);
+  } catch (err) {
+    console.error('[Session] Error fetching session:', summarizeError(err));
+    res.status(500).json({ error: 'Error fetching session' });
+  }
+});
+
+app.post('/api/session', async (req, res) => {
+  try {
+    const userId = req.user!.userId;
+    const {
+      sessionId,
+      personaId = 'emmanuele',
+      learnerName = '',
+      learnerLevel = 'A2',
+      grammarStrictness = 'tutor',
+      savedPhrases
+    } = req.body ?? {};
+
+    if (sessionId !== undefined && (typeof sessionId !== 'string' || !sessionId)) {
+      return res.status(400).json({ error: 'sessionId must be a non-empty string' });
+    }
+    if (typeof personaId !== 'string' || !Object.hasOwn(PERSONA_PROMPTS, personaId)) {
+      return res.status(400).json({ error: `Unknown personaId: ${String(personaId)}` });
+    }
+    if (typeof learnerLevel !== 'string' || !Object.hasOwn(LEVEL_PROMPTS, learnerLevel)) {
+      return res.status(400).json({ error: `learnerLevel must be one of ${Object.keys(LEVEL_PROMPTS).join(', ')}` });
+    }
+    if (!GRAMMAR_STRICTNESS_LEVELS.includes(grammarStrictness)) {
+      return res.status(400).json({ error: `grammarStrictness must be one of ${GRAMMAR_STRICTNESS_LEVELS.join(', ')}` });
+    }
+    const phrases = savedPhrases === undefined ? undefined : parseSavedPhrases(savedPhrases);
+    if (phrases === null) {
+      return res.status(400).json({ error: 'savedPhrases must be a list of {id, it, en} strings (max 500)' });
+    }
+
+    let session = sessionId ? await defaultSessionStore.getSession(sessionId, userId) : null;
+    if (sessionId && !session) {
+      return res.status(404).json({ error: 'Session not found or not owned by user' });
+    }
+
+    const fields = {
+      personaId,
+      learnerName: sanitizeLearnerName(learnerName),
+      learnerLevel: learnerLevel as CefrLevel,
+      grammarStrictness
+    };
+    session = session ? { ...session, ...fields } : initializeLearnerSession({ userId, ...fields });
+    if (phrases) {
+      session.progress = { ...session.progress, savedPhrases: phrases };
+    }
+
+    const saved = await defaultSessionStore.createOrUpdateSession(session);
+    res.json(saved);
+  } catch (err) {
+    console.error('[Session] Error saving session:', summarizeError(err));
+    res.status(500).json({ error: 'Error saving session' });
+  }
+});
+
+app.delete('/api/session/:sessionId', async (req, res) => {
+  try {
+    const userId = req.user!.userId;
+    const { sessionId } = req.params;
+    const deleted = await defaultSessionStore.deleteSession(sessionId, userId);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Session not found or not owned by user' });
+    }
+    res.json({ status: 'deleted', sessionId });
+  } catch (err) {
+    console.error('[Session] Error deleting session:', summarizeError(err));
+    res.status(500).json({ error: 'Error deleting session' });
+  }
+});
+
+app.delete('/api/session', async (req, res) => {
+  try {
+    const userId = req.user!.userId;
+    const count = await defaultSessionStore.deleteAllUserData(userId);
+    res.json({ status: 'all_data_deleted', sessionsDeleted: count });
+  } catch (err) {
+    console.error('[Session] Error deleting user data:', summarizeError(err));
+    res.status(500).json({ error: 'Error deleting user data' });
+  }
+});
+
+// Gemini Conversational Chat API with Italian pedagogical grammar analysis and session checkpointing
 app.post('/api/chat', async (req, res) => {
+
+  const startTime = Date.now();
   try {
     const {
       personaId,
@@ -168,7 +346,8 @@ app.post('/api/chat', async (req, res) => {
       temperature = 0.7,
       grammarStrictness = 'tutor',
       learnerLevel = 'A2',
-      learnerName
+      learnerName,
+      sessionId
     } = req.body;
 
     if (!userMessage || typeof userMessage !== 'string') {
@@ -178,8 +357,6 @@ app.post('/api/chat', async (req, res) => {
       return res.status(400).json({ error: 'userMessage exceeds maximum length of 2000 characters' });
     }
 
-    // The system prompt is built only from server-owned text, so a caller
-    // cannot repurpose the endpoint with their own instructions.
     const hasPersona = typeof personaId === 'string' && Object.hasOwn(PERSONA_PROMPTS, personaId);
     if (!hasPersona) {
       return res.status(400).json({ error: `Unknown personaId: ${String(personaId)}` });
@@ -205,22 +382,10 @@ app.post('/api/chat', async (req, res) => {
       learnerName
     });
 
-    // Map conversation history safely, skipping any malformed items
-    const contents: any[] = [];
-    if (Array.isArray(history)) {
-      for (const h of history.slice(-6)) {
-        if (h && typeof h === 'object' && typeof h.text === 'string' && h.text.trim().length > 0) {
-          contents.push({
-            role: h.sender === 'user' ? 'user' : 'model',
-            parts: [{ text: h.text }]
-          });
-        }
-      }
-    }
-    contents.push({
-      role: 'user',
-      parts: [{ text: userMessage }]
-    });
+    const userId = req.user!.userId;
+    const session =
+      typeof sessionId === 'string' && sessionId ? await defaultSessionStore.getSession(sessionId, userId) : null;
+    const contents = buildChatContents(history, session?.checkpointTurns ?? [], userMessage);
 
     const response = await generateContentWithFallback({
       model: CHAT_MODEL,
@@ -259,7 +424,34 @@ app.post('/api/chat', async (req, res) => {
       grammarNotes: []
     });
 
-    res.json(parsed);
+    // Checkpoint both sides of the exchange; a storage failure must not lose the reply
+    if (session) {
+      const timestamp = new Date().toISOString();
+      const userTurn: ConversationTurn = { id: `turn_${randomUUID()}`, sender: 'user', text: userMessage, timestamp };
+      const personaTurn: ConversationTurn = {
+        id: `turn_${randomUUID()}`,
+        sender: 'persona',
+        text: parsed.text,
+        translation: parsed.translation,
+        grammarNotes: parsed.grammarNotes,
+        timestamp,
+        turnDurationMs: Date.now() - startTime
+      };
+      try {
+        await defaultSessionStore.saveTurnCheckpoint(session.sessionId, userId, userTurn);
+        await defaultSessionStore.saveTurnCheckpoint(session.sessionId, userId, personaTurn);
+      } catch (err) {
+        console.error('[Session] Could not checkpoint chat turn:', summarizeError(err));
+      }
+    }
+
+    const usage = response.usageMetadata;
+    if (usage?.promptTokenCount !== undefined && usage.candidatesTokenCount !== undefined) {
+      defaultMetrics.recordChatTurn(usage.promptTokenCount, usage.candidatesTokenCount);
+    }
+
+    // sessionId is null when the client's ID is unknown or expired, so it can start a new one
+    res.json({ ...parsed, sessionId: session?.sessionId ?? null });
   } catch (error: any) {
     console.error('Chat generation error:', error);
     res.status(500).json({
@@ -269,7 +461,7 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
-// English translation of one spoken line, used for Gemini Live call captions
+// English translation of one spoken line
 app.post('/api/translate', async (req, res) => {
   try {
     const { text } = req.body;
@@ -453,7 +645,6 @@ export function cloudSttEncodingFor(mimeType: string): 'WEBM_OPUS' | 'OGG_OPUS' 
 }
 
 // Production-Grade Speech-to-Text (STT) Endpoint
-// Dual pipeline: Google Cloud Speech-to-Text with Gemini Multimodal Audio Transcription fallback
 app.post('/api/stt', async (req, res) => {
   try {
     const { audioBase64, mimeType = 'audio/webm', languageCode = 'it-IT' } = req.body;
@@ -464,9 +655,6 @@ app.post('/api/stt', async (req, res) => {
 
     const cleanBase64 = stripBase64DataUrlPrefix(audioBase64);
 
-    // 1. Try Google Cloud Speech-to-Text if the client is available and can decode
-    // this container. Safari records audio/mp4 (AAC), which Cloud STT does not accept,
-    // so those requests go straight to Gemini instead of failing a round-trip first.
     const cloudEncoding = cloudSttEncodingFor(mimeType);
     if (cloudSpeechClient && cloudEncoding) {
       try {
@@ -477,7 +665,6 @@ app.post('/api/stt', async (req, res) => {
             alternativeLanguageCodes: ['en-US'],
             enableAutomaticPunctuation: true,
             encoding: cloudEncoding,
-            // WAV carries its rate in the header; browser Opus capture is 48 kHz
             ...(cloudEncoding === 'LINEAR16' ? {} : { sampleRateHertz: 48000 }),
           }
         });
@@ -557,13 +744,90 @@ Return ONLY a valid JSON object matching this schema:
   }
 });
 
-// 404 handler for unknown API routes so they return structured JSON rather than falling through to SPA HTML
+// 404 handler for unknown API routes
 app.all('/api/*', (req, res) => {
   res.status(404).json({ error: `API route not found: ${req.method} ${req.path}` });
 });
 
+const CHAT_HISTORY_TURNS = 6;
+
+/**
+ * Build the Gemini `contents` for one chat turn.
+ *
+ * The client's own recent history wins. When it has none, e.g. after the app was
+ * restarted or a Live call fell back to turn-based, the session's saved checkpoint
+ * turns are used so the tutor keeps the thread of the conversation.
+ *
+ * Args:
+ *   history: Untrusted client history items (`{sender, text}`), possibly absent.
+ *   checkpointTurns: Saved turns of the learner session, oldest first.
+ *   userMessage: The learner's new message.
+ *
+ * Returns:
+ *   Gemini content entries, ending with the new user message.
+ */
+export function buildChatContents(
+  history: unknown,
+  checkpointTurns: ConversationTurn[],
+  userMessage: string
+): Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> {
+  const clientTurns = Array.isArray(history)
+    ? history.filter(
+        (h): h is { sender?: unknown; text: string } =>
+          Boolean(h) && typeof h === 'object' && typeof h.text === 'string' && h.text.trim().length > 0
+      )
+    : [];
+  const turns = clientTurns.length > 0 ? clientTurns : checkpointTurns;
+
+  return [
+    ...turns.slice(-CHAT_HISTORY_TURNS).map((turn) => ({
+      role: turn.sender === 'user' ? ('user' as const) : ('model' as const),
+      parts: [{ text: turn.text }]
+    })),
+    { role: 'user' as const, parts: [{ text: userMessage }] }
+  ];
+}
+
+/**
+ * Choose the Gemini clients a Live call may use and when Vertex AI is skipped.
+ *
+ * AI Studio joins the rotation only when privacy policy allows learner data there.
+ * The Vertex cooldown is used only when there is another client to skip to;
+ * otherwise one Vertex failure would leave no client at all for the whole cooldown.
+ *
+ * Args:
+ *   primaryAi: Vertex AI (or API-key) client.
+ *   fallbackAi: AI Studio client, or null when not configured.
+ *   fallbackPermitted: Whether policy allows learner audio on AI Studio.
+ *   cooldown: Shared Vertex cooldown tracker.
+ *   model: Live model name the cooldown is keyed by.
+ *
+ * Returns:
+ *   The `clients`, `skipClient` and `onClientFailed` bridge options.
+ */
+export function buildLiveClientOptions(
+  primaryAi: GoogleGenAI,
+  fallbackAi: GoogleGenAI | null,
+  fallbackPermitted: boolean,
+  cooldown: VertexCooldown,
+  model: string
+): Pick<LiveBridgeOptions, 'clients' | 'skipClient' | 'onClientFailed'> {
+  const liveFallbackAi = fallbackPermitted ? fallbackAi : null;
+  const canSkipVertex = (ai: GoogleGenAI) => ai === primaryAi && liveFallbackAi !== null;
+  return {
+    clients: liveFallbackAi ? [primaryAi, liveFallbackAi] : [primaryAi],
+    skipClient: (ai) => canSkipVertex(ai) && cooldown.isCoolingDown(model),
+    onClientFailed: (ai) => {
+      if (canSkipVertex(ai)) cooldown.trip(model);
+    }
+  };
+}
+
 // Setup Vite middleware in dev or static serving in production
 async function startServer() {
+  assertAuthConfig();
+  logPrivacyAuditNotice();
+  scheduleMaintenance(defaultSessionStore, defaultUserLimiter);
   const isProd = process.env.NODE_ENV === 'production';
 
   if (!isProd) {
@@ -575,7 +839,7 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     app.use(express.static(path.join(__dirname, 'dist')));
-    app.get('*', (req, res) => {
+    app.get('*', (_req, res) => {
       res.sendFile(path.join(__dirname, 'dist', 'index.html'));
     });
   }
@@ -587,13 +851,11 @@ async function startServer() {
   });
 
   attachLiveBridge(server, {
-    clients: HAS_GENAI_CREDENTIALS ? [primaryAi, fallbackAi].filter((ai): ai is GoogleGenAI => ai !== null) : [],
+    ...(HAS_GENAI_CREDENTIALS
+      ? buildLiveClientOptions(primaryAi, fallbackAi, isAiStudioFallbackPermitted(true), vertexCooldown, LIVE_MODEL)
+      : { clients: [] }),
     model: LIVE_MODEL,
     trustProxyHops: TRUST_PROXY_HOPS,
-    skipClient: (ai) => hasVertexFallback(ai) && vertexCooldown.isCoolingDown(LIVE_MODEL),
-    onClientFailed: (ai) => {
-      if (hasVertexFallback(ai)) vertexCooldown.trip(LIVE_MODEL);
-    },
   });
 }
 

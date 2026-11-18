@@ -9,3 +9,4 @@ coverage/
 !.env.example
 /references
 CLAUDE.local.md
+AGENTS.local.md

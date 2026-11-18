@@ -84,12 +84,28 @@ React 19 · TypeScript · Vite 8 · Tailwind CSS 4 · Motion · Lucide · Expres
 |---|---|
 | `npm run build` | Builds the frontend into `dist/` |
 | `npm start` | Serves the production build with Express |
-| `npm run lint` | Type-checks the project with `tsc --noEmit` |
+| `npm run lint` | Type-checks the project with `tsc --noEmit`, failing on unused code |
 | `npm test` | Runs the Vitest suite in `tests/` (offline; no GCP credentials needed) |
 
 Speech recognition relies on the browser's Web Speech API, so voice calls work best in Chrome or Edge.
 
-The billed API routes (`/api/chat`, `/api/translate`, `/api/tts`, `/api/stt`) are rate-limited per IP (`RATE_LIMIT_PER_MINUTE`, default 60), and each IP can hold at most two open Live calls. When deploying behind a proxy such as Cloud Run, set `TRUST_PROXY_HOPS=1` so the limit applies to each client rather than to the proxy.
+The billed API routes (`/api/chat`, `/api/translate`, `/api/tts`, `/api/stt`, `/api/session`) are rate-limited per IP (`RATE_LIMIT_PER_MINUTE`, default 60) and per user (60 a minute). Each user can hold one open Live call and each IP two. When deploying behind a proxy such as Cloud Run, set `TRUST_PROXY_HOPS=1` so the limit applies to each client rather than to the proxy.
+
+## Accounts, sessions and privacy
+
+**Authentication.** Billed routes and the Live socket need a Firebase Auth or Google Identity ID token. HTTP requests send it as `Authorization: Bearer <token>`; Live calls send it as the WebSocket subprotocol `auth, <token>`, never in the URL. Tokens are checked against Google's certificates, and their audience must be `GCP_PROJECT` (Firebase) or `GOOGLE_CLIENT_ID` (Google Identity). Auth is enforced when `NODE_ENV=production` or `ENFORCE_AUTH=true`, and the server refuses to start without one of those audiences. Locally, requests without a token run as a dev user (`x-dev-user-id` header or `devUserId` query) and `dev-token:<id>` tokens are accepted.
+
+On load the client signs the learner in anonymously with Firebase (`src/utils/firebaseAuth.ts`), using the public web config from `GET /api/auth-config`, and the same anonymous account is reused on that device. That needs `FIREBASE_API_KEY` and `FIREBASE_APP_ID` set on the server and Anonymous sign-in enabled in the Firebase project `GCP_PROJECT`; without them, the client sends no token, which only works when auth is not enforced. Anyone can create anonymous accounts, so the per-IP limits remain the backstop against abuse.
+
+**Learner sessions.** A session holds the learner's level, saved phrases and the last 50 conversation turns. The server assigns its ID, the client remembers it on the device, and both chat and Live turns are checkpointed to it. `GET /api/session` returns the latest session, `POST` creates or updates one, `DELETE /api/session/:id` deletes one and `DELETE /api/session` deletes all of a user's data. Sessions expire after 30 days without activity and are purged hourly.
+
+Sessions and the per-user limits are currently **kept in server memory**: they are lost on restart and not shared between Cloud Run instances, so the deploy runs a single instance (`--max-instances=1`) until they move to Firestore.
+
+**Live call resilience.** The client pings every 5 s and reconnects with backoff after 10 s without a reply; the server pings every 10 s and ends calls that stop answering, so a dead socket never holds the call slot. A reconnect for the same session replaces the old call and resumes the Gemini session with its stored resumption handle. If the handle is rejected, a fresh Gemini session starts with a recap of the recent turns; only if that also fails does the call continue turn by turn.
+
+**Privacy.** Learner audio and text go only to Vertex AI by default (`vertex_only`). Failover to Google AI Studio, whose terms allow prompts to be logged and reviewed, happens only with `ALLOW_AI_STUDIO_FALLBACK=true`, and is logged as an audit warning. Raw audio and transcripts are never logged.
+
+**Metrics.** `GET /api/metrics` reports p50/p90/p95 time to first audio and barge-in stop latency (measured on the device from speech detection), reconnect outcomes, Live lessons with audio minutes, and estimated chat and Live costs. When auth is enforced, only user IDs in `METRICS_ADMIN_USER_IDS` can read it. `/api/health` stays public and reports only status and configuration.
 
 ## Deployment
 
@@ -108,8 +124,8 @@ The script enables the APIs, creates the Artifact Registry repo, the deployer an
 ## Project structure
 
 ```
-├── server.ts                  # Express server: /api/chat, /api/translate, /api/tts, /api/stt, /api/health, Vite/static serving
-├── liveBridge.ts              # /api/live WebSocket bridge to Gemini Live
+├── server.ts                  # Express server: chat, translate, TTS, STT, sessions, health, metrics, Vite/static serving
+├── liveBridge.ts              # /api/live WebSocket bridge to Gemini Live: auth, call limits, heartbeat, resumption
 ├── src/
 │   ├── App.tsx                # App state and dashboard layout
 │   ├── assets/emmanuele/      # Tutor portraits (resting and speaking)
@@ -124,8 +140,11 @@ The script enables the APIs, creates the Artifact Registry repo, the deployer an
 │   │   ├── PersonaBadge.tsx
 │   │   └── UserBadge.tsx
 │   ├── data/personas.ts       # Emmanuele's persona, starter message and saved phrases
+│   ├── server/                # auth, sessionStore, rateLimiter, privacyAndPolicy, metrics, maintenance
+│   ├── utils/apiClient.ts     # Authenticated API calls and the ID token source
+│   ├── utils/learnerSession.ts # Remembers the learner session and links chat turns to it
 │   ├── utils/speech.ts        # Gemini TTS playback, browser TTS fallback, speech recognition
-│   ├── utils/liveCall.ts      # Gemini Live call client: mic streaming and audio playback
+│   ├── utils/liveCall.ts      # Gemini Live call client: mic streaming, playback, heartbeat, reconnect
 │   └── types/index.ts
 └── index.html
 ```

@@ -1,6 +1,8 @@
 import request from 'supertest';
-import { describe, expect, it } from 'vitest';
-import { app, cloudSttEncodingFor, parseModelJsonResponse, stripBase64DataUrlPrefix } from '../server';
+import type { GoogleGenAI } from '@google/genai';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { VertexCooldown } from '../vertexCooldown';
+import { app, buildChatContents, buildFirebaseClientConfig, canReadMetrics, buildLiveClientOptions, cloudSttEncodingFor, parseModelJsonResponse, stripBase64DataUrlPrefix } from '../server';
 import { buildSystemInstruction, buildVoiceCallInstruction, LEVEL_PROMPTS, sanitizeLearnerName } from '../src/data/personaPrompts';
 
 describe('parseModelJsonResponse', () => {
@@ -50,12 +52,42 @@ describe('cloudSttEncodingFor', () => {
 });
 
 describe('GET /api/health', () => {
-  it('reports status without leaking the GCP project ID', async () => {
+  it('reports status without leaking the GCP project ID, metrics, or privacy config', async () => {
     const res = await request(app).get('/api/health');
 
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('ok');
     expect(res.body.gcp).not.toHaveProperty('project');
+    expect(res.body).not.toHaveProperty('metrics');
+    expect(res.body).not.toHaveProperty('privacy');
+  });
+});
+
+describe('GET /api/metrics', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('serves metrics and privacy mode in local development', async () => {
+    const res = await request(app).get('/api/metrics').set('x-dev-user-id', 'local-dev');
+
+    expect(res.status).toBe(200);
+    expect(res.body.privacy.mode).toBe('vertex_only');
+    expect(res.body.metrics).toHaveProperty('ttfa');
+  });
+
+  it('restricts metrics to listed operators when auth is enforced', () => {
+    vi.stubEnv('ENFORCE_AUTH', 'true');
+    vi.stubEnv('METRICS_ADMIN_USER_IDS', 'ops-1, ops-2');
+
+    expect(canReadMetrics('ops-2')).toBe(true);
+    expect(canReadMetrics('learner-7')).toBe(false);
+  });
+
+  it('allows no one when auth is enforced and no operators are listed', () => {
+    vi.stubEnv('ENFORCE_AUTH', 'true');
+    vi.stubEnv('METRICS_ADMIN_USER_IDS', '');
+
+    expect(canReadMetrics('')).toBe(false);
+    expect(canReadMetrics('anyone')).toBe(false);
   });
 });
 
@@ -182,6 +214,105 @@ describe('API 404 fallback', () => {
   });
 });
 
+describe('/api/session endpoints', () => {
+  it('returns 404 when no session exists for the user', async () => {
+    const res = await request(app)
+      .get('/api/session')
+      .set('x-dev-user-id', 'fresh-user-without-session');
+    expect(res.status).toBe(404);
+  });
+
+  it('creates and persists a learner session via POST /api/session', async () => {
+    const res = await request(app)
+      .post('/api/session')
+      .set('x-dev-user-id', 'user-session-test')
+      .send({
+        learnerName: 'Enzo',
+        learnerLevel: 'B2',
+        grammarStrictness: 'strict'
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.learnerName).toBe('Enzo');
+    expect(res.body.learnerLevel).toBe('B2');
+    expect(res.body.sessionId).toBeDefined();
+
+    const sessionId = res.body.sessionId;
+
+    // Fetch the active session
+    const getRes = await request(app)
+      .get('/api/session')
+      .set('x-dev-user-id', 'user-session-test');
+    expect(getRes.status).toBe(200);
+    expect(getRes.body.sessionId).toBe(sessionId);
+
+    // Delete the specific session
+    const delRes = await request(app)
+      .delete(`/api/session/${sessionId}`)
+      .set('x-dev-user-id', 'user-session-test');
+    expect(delRes.status).toBe(200);
+    expect(delRes.body.status).toBe('deleted');
+
+    // Confirm session is gone
+    const checkRes = await request(app)
+      .get('/api/session')
+      .set('x-dev-user-id', 'user-session-test');
+    expect(checkRes.status).toBe(404);
+  });
+
+  it('refuses to write to a session ID owned by another user', async () => {
+    const victim = await request(app)
+      .post('/api/session')
+      .set('x-dev-user-id', 'session-victim')
+      .send({ learnerName: 'Lucia', learnerLevel: 'B1' });
+
+    const attack = await request(app)
+      .post('/api/session')
+      .set('x-dev-user-id', 'session-attacker')
+      .send({ sessionId: victim.body.sessionId, learnerName: 'Mallory' });
+    expect(attack.status).toBe(404);
+
+    const victimView = await request(app).get('/api/session').set('x-dev-user-id', 'session-victim');
+    expect(victimView.body.sessionId).toBe(victim.body.sessionId);
+    expect(victimView.body.learnerName).toBe('Lucia');
+  });
+
+  it('returns 404 when updating an unknown session ID instead of creating it', async () => {
+    const res = await request(app)
+      .post('/api/session')
+      .set('x-dev-user-id', 'session-guesser')
+      .send({ sessionId: 'sess_chosen-by-client', learnerName: 'Pia' });
+    expect(res.status).toBe(404);
+  });
+
+  it.each([
+    ['an unknown persona', { personaId: 'nobody' }],
+    ['an unknown level', { learnerLevel: 'Z9' }],
+    ['an unknown grammar strictness', { grammarStrictness: 'lenient' }],
+    ['malformed saved phrases', { savedPhrases: [{ id: 1 }] }],
+    ['a non-string sessionId', { sessionId: 123 }]
+  ])('rejects POST /api/session with %s', async (_label, body) => {
+    const res = await request(app).post('/api/session').set('x-dev-user-id', 'validation-user').send(body);
+    expect(res.status).toBe(400);
+  });
+
+  it('supports GDPR deletion of all user sessions via DELETE /api/session', async () => {
+    await request(app)
+      .post('/api/session')
+      .set('x-dev-user-id', 'gdpr-route-user')
+      .send({ learnerName: 'Sara' });
+
+    const delAllRes = await request(app)
+      .delete('/api/session')
+      .set('x-dev-user-id', 'gdpr-route-user');
+
+    expect(delAllRes.status).toBe(200);
+    expect(delAllRes.body.status).toBe('all_data_deleted');
+    expect(delAllRes.body.sessionsDeleted).toBeGreaterThanOrEqual(1);
+  });
+});
+
+
 describe('buildSystemInstruction & level prompts', () => {
   it('adapts vocabulary complexity instructions based on CEFR level', () => {
     const a1Prompt = buildSystemInstruction({ personaId: 'emmanuele', level: 'A1', learnerName: 'Giulia' });
@@ -209,5 +340,90 @@ describe('buildSystemInstruction & level prompts', () => {
     expect(prompt).toContain('Lo studente con cui parli si chiama Giulia.');
     expect(prompt).toContain('telefonata');
     expect(prompt).not.toContain('JSON');
+  });
+});
+
+describe('buildLiveClientOptions', () => {
+  const vertex = { name: 'vertex' } as unknown as GoogleGenAI;
+  const aiStudio = { name: 'ai-studio' } as unknown as GoogleGenAI;
+
+  it('keeps Vertex usable after a failure when AI Studio fallback is not permitted', () => {
+    const cooldown = new VertexCooldown();
+    const live = buildLiveClientOptions(vertex, aiStudio, false, cooldown, 'live-model');
+
+    expect(live.clients).toEqual([vertex]);
+    live.onClientFailed?.(vertex);
+    expect(cooldown.isCoolingDown('live-model')).toBe(false);
+    expect(live.skipClient?.(vertex)).toBe(false);
+  });
+
+  it('skips Vertex during its cooldown when AI Studio fallback is permitted', () => {
+    const cooldown = new VertexCooldown();
+    const live = buildLiveClientOptions(vertex, aiStudio, true, cooldown, 'live-model');
+
+    expect(live.clients).toEqual([vertex, aiStudio]);
+    live.onClientFailed?.(vertex);
+    expect(live.skipClient?.(vertex)).toBe(true);
+    expect(live.skipClient?.(aiStudio)).toBe(false);
+  });
+});
+
+describe('buildChatContents', () => {
+  const saved = [
+    { id: 't1', sender: 'user' as const, text: 'Vorrei un caffè', timestamp: '2026-11-18T10:00:00.000Z' },
+    { id: 't2', sender: 'persona' as const, text: 'Ecco il caffè!', timestamp: '2026-11-18T10:00:01.000Z' }
+  ];
+
+  it('uses the client history when it has one', () => {
+    const contents = buildChatContents([{ sender: 'user', text: 'Ciao' }], saved, 'Come stai?');
+    expect(contents).toEqual([
+      { role: 'user', parts: [{ text: 'Ciao' }] },
+      { role: 'user', parts: [{ text: 'Come stai?' }] }
+    ]);
+  });
+
+  it('falls back to saved checkpoint turns when the client sends no history', () => {
+    const contents = buildChatContents([], saved, 'E un cornetto?');
+    expect(contents.map((c) => c.role)).toEqual(['user', 'model', 'user']);
+    expect(contents[1].parts[0].text).toBe('Ecco il caffè!');
+  });
+
+  it('skips malformed history items and keeps the last six turns', () => {
+    const history = [null, { text: 42 }, ...Array.from({ length: 8 }, (_, i) => ({ sender: 'user', text: `m${i}` }))];
+    const contents = buildChatContents(history, [], 'fine');
+    expect(contents).toHaveLength(7);
+    expect(contents[0].parts[0].text).toBe('m2');
+  });
+});
+
+describe('buildFirebaseClientConfig', () => {
+  const env = { FIREBASE_API_KEY: 'api-key', FIREBASE_APP_ID: '1:123:web:abc', GCP_PROJECT: 'demo' };
+
+  it('defaults the auth domain to the project firebaseapp.com domain', () => {
+    expect(buildFirebaseClientConfig(env)).toEqual({
+      apiKey: 'api-key',
+      authDomain: 'demo.firebaseapp.com',
+      projectId: 'demo',
+      appId: '1:123:web:abc'
+    });
+  });
+
+  it('uses FIREBASE_AUTH_DOMAIN when set', () => {
+    expect(buildFirebaseClientConfig({ ...env, FIREBASE_AUTH_DOMAIN: 'login.example' })?.authDomain).toBe('login.example');
+  });
+
+  it.each(['FIREBASE_API_KEY', 'FIREBASE_APP_ID', 'GCP_PROJECT'])('returns null without %s', (key) => {
+    expect(buildFirebaseClientConfig({ ...env, [key]: ' ' })).toBeNull();
+  });
+});
+
+describe('GET /api/auth-config', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('serves null when Firebase is not configured', async () => {
+    vi.stubEnv('FIREBASE_API_KEY', '');
+    const res = await request(app).get('/api/auth-config');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ firebase: null });
   });
 });

@@ -1,9 +1,14 @@
+import { generateKeyPairSync, sign } from 'crypto';
 import { createServer, type Server } from 'http';
 import type { AddressInfo } from 'net';
-import type { LiveServerMessage } from '@google/genai';
+import type { GoogleGenAI, LiveServerMessage } from '@google/genai';
 import { afterEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
-import { attachLiveBridge, parseLiveCallParams, toClientFrames } from '../liveBridge';
+import { attachLiveBridge, buildRecapInstruction, parseLiveCallParams, toClientFrames } from '../liveBridge';
+import { InMemorySessionStore, initializeLearnerSession, type ConversationTurn } from '../src/server/sessionStore';
+import { MetricsCollector } from '../src/server/metrics';
+import { UserRateLimiter } from '../src/server/rateLimiter';
+import { fakeGemini, openCall, startBridgeServer, waitUntil, type TestCall } from './helpers/fakeGemini';
 
 const VALID_URL = '/api/live?personaId=emmanuele&learnerLevel=B1&grammarStrictness=strict&learnerName=Giulia&sampleRate=48000';
 
@@ -98,5 +103,325 @@ describe('attachLiveBridge upgrade handling', () => {
 
   it('returns 503 when no Gemini credentials are configured', async () => {
     expect(await handshakeStatus(VALID_URL)).toBe(503);
+  });
+});
+
+describe('attachLiveBridge slot accounting', () => {
+  let server: Server;
+  const sockets: WebSocket[] = [];
+
+  afterEach(async () => {
+    sockets.splice(0).forEach((ws) => ws.terminate());
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  /** Start the bridge with a session store whose calls never settle or always fail. */
+  async function startBridge(store: InMemorySessionStore, userLimiter: UserRateLimiter): Promise<number> {
+    server = createServer();
+    attachLiveBridge(server, {
+      // Never reached: these tests stop before a Gemini session is opened
+      clients: [{} as GoogleGenAI],
+      model: 'test-model',
+      trustProxyHops: 0,
+      sessionStore: store,
+      userLimiter
+    });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    return (server.address() as AddressInfo).port;
+  }
+
+  function connect(port: number, userId: string): { ws: WebSocket; status: Promise<number | 'closed'> } {
+    const ws = new WebSocket(`ws://localhost:${port}${VALID_URL}&devUserId=${userId}`);
+    sockets.push(ws);
+    const status = new Promise<number | 'closed'>((resolve) => {
+      ws.on('unexpected-response', (_req, res) => resolve(res.statusCode ?? 0));
+      ws.on('close', () => resolve('closed'));
+      ws.on('error', () => undefined);
+    });
+    return { ws, status };
+  }
+
+  const waitFor = async (check: () => boolean): Promise<void> => {
+    for (let i = 0; i < 100 && !check(); i++) await new Promise((r) => setTimeout(r, 10));
+    expect(check()).toBe(true);
+  };
+
+  class HangingStore extends InMemorySessionStore {
+    override createOrUpdateSession(): Promise<never> {
+      return new Promise(() => undefined);
+    }
+  }
+
+  class FailingStore extends InMemorySessionStore {
+    override async createOrUpdateSession(): Promise<never> {
+      throw new Error('store unavailable');
+    }
+  }
+
+  it('returns 500 and releases the call slot when the session store throws', async () => {
+    const limiter = new UserRateLimiter();
+    const port = await startBridge(new FailingStore(), limiter);
+
+    expect(await connect(port, 'store-fail-user').status).toBe(500);
+    // A leaked slot would turn the retry into a 429
+    expect(await connect(port, 'store-fail-user').status).toBe(500);
+    expect(limiter.getActiveCallCount('store-fail-user')).toBe(0);
+  });
+
+  it('releases the call slot when the client hangs up during setup', async () => {
+    const limiter = new UserRateLimiter();
+    const port = await startBridge(new HangingStore(), limiter);
+
+    const { ws } = connect(port, 'impatient-user');
+    await waitFor(() => limiter.getActiveCallCount('impatient-user') === 1);
+    ws.terminate();
+    await waitFor(() => limiter.getActiveCallCount('impatient-user') === 0);
+  });
+
+  it('counts concurrent upgrades from one IP before any of them finishes setup', async () => {
+    const limiter = new UserRateLimiter();
+    const port = await startBridge(new HangingStore(), limiter);
+
+    connect(port, 'ip-user-1');
+    connect(port, 'ip-user-2');
+    await waitFor(() => limiter.getActiveCallCount('ip-user-2') === 1);
+    expect(await connect(port, 'ip-user-3').status).toBe(429);
+  });
+});
+
+describe('attachLiveBridge liveness and reconnects', () => {
+  let server: Server;
+  const calls: TestCall[] = [];
+
+  afterEach(async () => {
+    calls.splice(0).forEach((call) => call.ws.terminate());
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  const call = (port: number, query: string, wsOptions = {}): TestCall => {
+    const opened = openCall(port, query, wsOptions);
+    calls.push(opened);
+    return opened;
+  };
+
+  it('terminates a call whose client stops answering pings and stops the Gemini session', async () => {
+    const gemini = fakeGemini();
+    const limiter = new UserRateLimiter();
+    ({ server } = await startBridgeServer({ clients: [gemini.ai], userLimiter: limiter, heartbeatIntervalMs: 30 }));
+    const port = (server.address() as AddressInfo).port;
+
+    // autoPong: false simulates a link that died without a FIN
+    const silent = call(port, `${VALID_URL}&devUserId=silent-user`, { autoPong: false });
+    await silent.waitForEvent('ready');
+
+    expect(await silent.closed).toBe(1006);
+    expect(await waitUntil(() => gemini.sessions[0].closed)).toBe(true);
+    expect(await waitUntil(() => limiter.getActiveCallCount('silent-user') === 0)).toBe(true);
+  });
+
+  it('keeps a responsive call open across heartbeats', async () => {
+    const gemini = fakeGemini();
+    ({ server } = await startBridgeServer({ clients: [gemini.ai], heartbeatIntervalMs: 30 }));
+    const port = (server.address() as AddressInfo).port;
+
+    const live = call(port, `${VALID_URL}&devUserId=chatty-user`);
+    await live.waitForEvent('ready');
+    await new Promise((r) => setTimeout(r, 150));
+    expect(live.ws.readyState).toBe(WebSocket.OPEN);
+  });
+
+  it('lets a reconnect for the same session replace the stale call instead of returning 429', async () => {
+    const gemini = fakeGemini();
+    ({ server } = await startBridgeServer({ clients: [gemini.ai] }));
+    const port = (server.address() as AddressInfo).port;
+
+    const first = call(port, `${VALID_URL}&devUserId=roaming-user`, { autoPong: false });
+    const { sessionId } = await first.waitForEvent('session_ready');
+
+    const second = call(port, `${VALID_URL}&devUserId=roaming-user&sessionId=${sessionId}`);
+    expect(await second.waitForEvent('session_ready')).toMatchObject({ sessionId });
+    await first.closed;
+    expect(gemini.sessions[0].closed).toBe(true);
+  });
+
+  it('still refuses a second concurrent call for a different session', async () => {
+    const gemini = fakeGemini();
+    ({ server } = await startBridgeServer({ clients: [gemini.ai] }));
+    const port = (server.address() as AddressInfo).port;
+
+    const first = call(port, `${VALID_URL}&devUserId=two-device-user`);
+    await first.waitForEvent('ready');
+
+    const status = await new Promise<number>((resolve) => {
+      const other = new WebSocket(`ws://localhost:${port}${VALID_URL}&devUserId=two-device-user`);
+      other.on('unexpected-response', (_req, res) => resolve(res.statusCode ?? 0));
+      other.on('error', () => undefined);
+    });
+    expect(status).toBe(429);
+  });
+});
+
+describe('attachLiveBridge upstream resumption', () => {
+  let server: Server;
+  const calls: TestCall[] = [];
+
+  afterEach(async () => {
+    calls.splice(0).forEach((call) => call.ws.terminate());
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  const turn = (sender: 'user' | 'persona', text: string): ConversationTurn => ({
+    id: `t-${text}`,
+    sender,
+    text,
+    timestamp: '2026-11-18T10:00:00.000Z'
+  });
+
+  /** Store a session for `userId` that already holds a resumption handle and two turns. */
+  async function sessionWithHandle(store: InMemorySessionStore, userId: string): Promise<string> {
+    const session = await store.createOrUpdateSession({
+      ...initializeLearnerSession({ userId }),
+      upstreamResumptionHandle: 'old-handle',
+      checkpointTurns: [turn('user', 'Vorrei un caffè'), turn('persona', 'Subito!')]
+    });
+    return session.sessionId;
+  }
+
+  it('resumes with the stored handle and keeps it off the client', async () => {
+    const store = new InMemorySessionStore();
+    const metrics = new MetricsCollector();
+    const gemini = fakeGemini();
+    ({ server } = await startBridgeServer({ clients: [gemini.ai], sessionStore: store, metrics }));
+    const port = (server.address() as AddressInfo).port;
+    const sessionId = await sessionWithHandle(store, 'resume-user');
+
+    const live = openCall(port, `${VALID_URL}&devUserId=resume-user&sessionId=${sessionId}`);
+    calls.push(live);
+    expect(await live.waitForEvent('session_ready')).toMatchObject({ sessionId, resumed: true });
+    expect(gemini.sessions[0].config.sessionResumption?.handle).toBe('old-handle');
+
+    gemini.sessions[0].emit({ sessionResumptionUpdate: { newHandle: 'new-handle' } } as LiveServerMessage);
+    await new Promise((r) => setTimeout(r, 20));
+    expect((await store.getSession(sessionId, 'resume-user'))?.upstreamResumptionHandle).toBe('new-handle');
+    expect(live.events.some((e) => JSON.stringify(e).includes('new-handle'))).toBe(false);
+    expect(metrics.getSummary().reconnect.resumedSuccessfully).toBe(1);
+  });
+
+  it('restarts a fresh upstream session with a recap when the handle is rejected', async () => {
+    const store = new InMemorySessionStore();
+    const metrics = new MetricsCollector();
+    const gemini = fakeGemini((config) => Boolean(config.sessionResumption?.handle));
+    ({ server } = await startBridgeServer({ clients: [gemini.ai], sessionStore: store, metrics }));
+    const port = (server.address() as AddressInfo).port;
+    const sessionId = await sessionWithHandle(store, 'restart-user');
+
+    const live = openCall(port, `${VALID_URL}&devUserId=restart-user&sessionId=${sessionId}`);
+    calls.push(live);
+    expect(await live.waitForEvent('session_ready')).toMatchObject({ sessionId, resumed: false });
+
+    expect(gemini.sessions).toHaveLength(1);
+    expect(String(gemini.sessions[0].config.systemInstruction)).toContain('Learner: Vorrei un caffè');
+    // No greeting: the learner is mid-conversation
+    expect(gemini.sessions[0].inputs).toEqual([]);
+    expect(metrics.getSummary().reconnect.restartedFresh).toBe(1);
+  });
+
+  it('falls back to turn-based and closes the socket when no upstream session can open', async () => {
+    const store = new InMemorySessionStore();
+    const metrics = new MetricsCollector();
+    const gemini = fakeGemini(() => true);
+    const limiter = new UserRateLimiter();
+    ({ server } = await startBridgeServer({ clients: [gemini.ai], sessionStore: store, metrics, userLimiter: limiter }));
+    const port = (server.address() as AddressInfo).port;
+    const sessionId = await sessionWithHandle(store, 'fallback-user');
+
+    const live = openCall(port, `${VALID_URL}&devUserId=fallback-user&sessionId=${sessionId}`);
+    calls.push(live);
+    expect(await live.waitForEvent('resumption_failed')).toMatchObject({ fallback: 'turn_based' });
+    expect(await live.closed).toBe(1000);
+    expect(await waitUntil(() => limiter.getActiveCallCount('fallback-user') === 0)).toBe(true);
+    expect(metrics.getSummary().reconnect.fallbackToTurnBased).toBe(1);
+  });
+});
+
+describe('buildRecapInstruction', () => {
+  it('returns nothing when there are no turns', () => {
+    expect(buildRecapInstruction([])).toBe('');
+  });
+
+  it('keeps only the most recent ten turns', () => {
+    const turns = Array.from({ length: 12 }, (_, i) => ({
+      id: `t${i}`,
+      sender: 'user' as const,
+      text: `frase ${i}`,
+      timestamp: '2026-11-18T10:00:00.000Z'
+    }));
+    const recap = buildRecapInstruction(turns);
+    expect(recap).not.toContain('frase 0');
+    expect(recap).not.toContain('frase 1\n');
+    expect(recap).toContain('frase 2');
+    expect(recap).toContain('frase 11');
+  });
+});
+
+describe('attachLiveBridge authentication', () => {
+  let server: Server;
+
+  afterEach(async () => {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  it('authenticates an ID token sent as a WebSocket subprotocol', async () => {
+    const { privateKey, publicKey } = generateKeyPairSync('rsa', {
+      modulusLength: 2048,
+      publicKeyEncoding: { type: 'spki', format: 'pem' },
+      privateKeyEncoding: { type: 'pkcs8', format: 'pem' }
+    });
+    const nowSec = Math.floor(Date.now() / 1000);
+    const encode = (part: object) => Buffer.from(JSON.stringify(part)).toString('base64url');
+    const signedData = `${encode({ alg: 'RS256', kid: 'k1' })}.${encode({
+      sub: 'protocol-user',
+      iss: 'https://securetoken.google.com/test-project',
+      aud: 'test-project',
+      exp: nowSec + 3600,
+      iat: nowSec
+    })}`;
+    const token = `${signedData}.${sign('RSA-SHA256', Buffer.from(signedData), privateKey).toString('base64url')}`;
+
+    const store = new InMemorySessionStore();
+    ({ server } = await startBridgeServer({
+      clients: [fakeGemini().ai],
+      sessionStore: store,
+      auth: { enforceAuth: true, projectId: 'test-project', certResolver: async () => publicKey }
+    }));
+    const port = (server.address() as AddressInfo).port;
+
+    const live = new WebSocket(`ws://localhost:${port}${VALID_URL}`, ['auth', token]);
+    await new Promise<void>((resolve) =>
+      live.on('message', (data) => {
+        if (JSON.parse(data.toString()).type === 'session_ready') resolve();
+      })
+    );
+
+    // The server must select a protocol the browser offered, or the browser drops the socket
+    expect(live.protocol).toBe('auth');
+    expect(await store.getActiveUserSession('protocol-user')).not.toBeNull();
+    live.terminate();
+  });
+
+  it('rejects a call without a token when auth is enforced', async () => {
+    ({ server } = await startBridgeServer({ clients: [fakeGemini().ai], auth: { enforceAuth: true, projectId: 'p' } }));
+    const port = (server.address() as AddressInfo).port;
+
+    const status = await new Promise<number>((resolve) => {
+      const live = new WebSocket(`ws://localhost:${port}${VALID_URL}`);
+      live.on('unexpected-response', (_req, res) => resolve(res.statusCode ?? 0));
+      live.on('error', () => undefined);
+    });
+    expect(status).toBe(401);
   });
 });

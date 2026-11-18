@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { EMMANUELE, INITIAL_MESSAGES, INITIAL_SAVED_PHRASES, TUTORS, createInitialMessages } from './data/personas';
 import { generatePersonaFallbackMessage } from './data/fallbacks';
 import { ChatMessage, DevSettings, GrammarNote, LearnerProfile, Persona, SavedPhrase } from './types';
@@ -12,6 +12,7 @@ import { UtilityPanel } from './components/UtilityPanel';
 import { OnboardingPage } from './components/OnboardingPage';
 import { useDialog } from './hooks/useDialog';
 import { speechService } from './utils/speech';
+import { postChat } from './utils/learnerSession';
 
 const countWords = (text: string) => text.trim().split(/\s+/).filter(Boolean).length;
 
@@ -106,18 +107,14 @@ export default function App() {
     setIsAiGenerating(true);
 
     try {
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          personaId: persona.id,
-          history: updated.slice(-6),
-          userMessage: text,
-          temperature: devSettings.temperature,
-          grammarStrictness: devSettings.grammarStrictness,
-          learnerLevel: learnerProfile?.level ?? 'A2',
-          learnerName: learnerProfile?.name
-        })
+      const res = await postChat({
+        personaId: persona.id,
+        history: updated.slice(-6),
+        userMessage: text,
+        temperature: devSettings.temperature,
+        grammarStrictness: devSettings.grammarStrictness,
+        learnerLevel: learnerProfile?.level ?? 'A2',
+        learnerName: learnerProfile?.name
       });
 
       if (res.ok) {
