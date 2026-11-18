@@ -1,180 +1,64 @@
 /** Tests for learner session lifecycle, checkpointing, and retention/deletion rules. */
 import { describe, expect, it } from 'vitest';
 import {
+  appendCheckpointTurn,
   InMemorySessionStore,
   initializeLearnerSession,
   parseConversationTurn,
   parseSavedPhrases,
-  SessionOwnershipError,
-  type ConversationTurn
+  toClientSession
 } from '../src/server/sessionStore';
+import { describeSessionStoreContract } from './helpers/sessionStoreContract';
 
-describe('InMemorySessionStore lifecycle', () => {
-  it('creates and retrieves a learner session by ID and userId', async () => {
-    const store = new InMemorySessionStore();
-    const session = initializeLearnerSession({
-      userId: 'user-alessandro',
-      personaId: 'emmanuele',
-      learnerName: 'Alessandro',
-      learnerLevel: 'B1'
-    });
+describeSessionStoreContract('InMemorySessionStore', ({ retentionMs, now }) => new InMemorySessionStore(retentionMs, now));
 
-    const saved = await store.createOrUpdateSession(session);
-    expect(saved.sessionId).toBe(session.sessionId);
+describe('InMemorySessionStore.purgeExpiredSessions', () => {
+  it('purges expired sessions and keeps active ones', async () => {
+    let clock = 1_000_000;
+    const store = new InMemorySessionStore(5000, () => clock);
+    await store.createOrUpdateSession(initializeLearnerSession({ userId: 'u1' }));
+    clock += 3000;
+    await store.createOrUpdateSession(initializeLearnerSession({ userId: 'u2' }));
 
-    const retrieved = await store.getSession(session.sessionId, 'user-alessandro');
-    expect(retrieved).not.toBeNull();
-    expect(retrieved?.learnerName).toBe('Alessandro');
-    expect(retrieved?.learnerLevel).toBe('B1');
+    clock += 3000;
+    expect(await store.purgeExpiredSessions()).toBe(1);
+    expect(await store.getActiveUserSession('u2')).not.toBeNull();
   });
+});
 
-  it('refuses to overwrite a session that belongs to another user', async () => {
-    const store = new InMemorySessionStore();
-    const owned = initializeLearnerSession({ userId: 'owner-user', learnerName: 'Giulia' });
-    await store.createOrUpdateSession(owned);
-
-    const hijack = { ...initializeLearnerSession({ userId: 'intruder-user' }), sessionId: owned.sessionId };
-    await expect(store.createOrUpdateSession(hijack)).rejects.toBeInstanceOf(SessionOwnershipError);
-    expect((await store.getSession(owned.sessionId, 'owner-user'))?.learnerName).toBe('Giulia');
-  });
-
-  it('generates a unique session ID for every new session', () => {
+describe('initializeLearnerSession', () => {
+  it('generates a unique server-side session ID for every new session', () => {
     const a = initializeLearnerSession({ userId: 'u' });
     const b = initializeLearnerSession({ userId: 'u' });
+    expect(a.sessionId).toMatch(/^sess_/);
     expect(a.sessionId).not.toBe(b.sessionId);
   });
+});
 
-  it('rejects access when a different userId attempts to read the session', async () => {
-    const store = new InMemorySessionStore();
-    const session = initializeLearnerSession({
-      userId: 'owner-user',
-      learnerName: 'Giulia'
-    });
-    await store.createOrUpdateSession(session);
+describe('toClientSession', () => {
+  it('drops the owner and Live resumption fields and keeps the rest', () => {
+    const session = { ...initializeLearnerSession({ userId: 'u' }), upstreamResumptionHandle: 'secret', upstreamModel: 'm' };
+    const view = toClientSession(session);
 
-    const stolen = await store.getSession(session.sessionId, 'intruder-user');
-    expect(stolen).toBeNull();
-  });
-
-  it('retrieves the active user session', async () => {
-    const store = new InMemorySessionStore();
-    const s1 = initializeLearnerSession({ userId: 'active-user', learnerLevel: 'A1' });
-    await store.createOrUpdateSession(s1);
-
-    const active = await store.getActiveUserSession('active-user');
-    expect(active?.sessionId).toBe(s1.sessionId);
-    expect(active?.learnerLevel).toBe('A1');
+    expect(view).not.toHaveProperty('userId');
+    expect(view).not.toHaveProperty('upstreamResumptionHandle');
+    expect(view).not.toHaveProperty('upstreamModel');
+    expect(view.sessionId).toBe(session.sessionId);
+    expect(session.userId).toBe('u');
   });
 });
 
-describe('Conversation checkpointing', () => {
-  it('saves conversation turn checkpoints and updates talking share percentage', async () => {
-    const store = new InMemorySessionStore();
-    const session = initializeLearnerSession({ userId: 'learner-1' });
-    await store.createOrUpdateSession(session);
-
-    const userTurn: ConversationTurn = {
-      id: 't1',
-      sender: 'user',
-      text: 'Ciao Emmanuele, come va oggi?',
-      timestamp: new Date().toISOString()
-    };
-    await store.saveTurnCheckpoint(session.sessionId, 'learner-1', userTurn);
-
-    const tutorTurn: ConversationTurn = {
-      id: 't2',
-      sender: 'persona',
-      text: 'Salve! Tutto bene a Roma. E tu che lavoro fai?',
-      translation: 'Hello! All good in Rome. And you, what do you do for work?',
-      timestamp: new Date().toISOString()
-    };
-    const updated = await store.saveTurnCheckpoint(session.sessionId, 'learner-1', tutorTurn);
-
-    expect(updated?.checkpointTurns.length).toBe(2);
-    expect(updated?.progress.totalTurns).toBe(2);
-    expect(updated?.progress.talkingSharePct).toBeGreaterThan(0);
+describe('appendCheckpointTurn', () => {
+  it('does not modify the session it is given', () => {
+    const session = initializeLearnerSession({ userId: 'u' });
+    appendCheckpointTurn(session, { id: 't', sender: 'user', text: 'ciao', timestamp: session.createdAt }, 0, 1000);
+    expect(session.checkpointTurns).toEqual([]);
   });
 
-  it('stores and clears upstream Gemini Live resumption handle', async () => {
-    const store = new InMemorySessionStore();
-    const session = initializeLearnerSession({ userId: 'resumption-user' });
-    await store.createOrUpdateSession(session);
-
-    await store.updateUpstreamHandle(
-      session.sessionId,
-      'resumption-user',
-      'gemini-handle-token-abc123',
-      'gemini-3.8-live'
-    );
-
-    let retrieved = await store.getSession(session.sessionId, 'resumption-user');
-    expect(retrieved?.upstreamResumptionHandle).toBe('gemini-handle-token-abc123');
-    expect(retrieved?.upstreamModel).toBe('gemini-3.8-live');
-
-    // Clear handle when expired
-    await store.updateUpstreamHandle(session.sessionId, 'resumption-user', null);
-    retrieved = await store.getSession(session.sessionId, 'resumption-user');
-    expect(retrieved?.upstreamResumptionHandle).toBeNull();
-  });
-});
-
-describe('Retention and GDPR Deletion Rules', () => {
-  it('expires sessions past retention TTL', async () => {
-    let simulatedTime = 1_000_000;
-    const store = new InMemorySessionStore(5000, () => simulatedTime); // 5s retention TTL
-
-    const session = initializeLearnerSession({ userId: 'expiring-user', retentionMs: 5000 });
-    await store.createOrUpdateSession(session);
-
-    // Within TTL
-    expect(await store.getSession(session.sessionId, 'expiring-user')).not.toBeNull();
-
-    // Advance past TTL
-    simulatedTime += 6000;
-    expect(await store.getSession(session.sessionId, 'expiring-user')).toBeNull();
-  });
-
-  it('purges all expired sessions', async () => {
-    let simulatedTime = 1_000_000;
-    const store = new InMemorySessionStore(5000, () => simulatedTime);
-
-    const s1 = initializeLearnerSession({ userId: 'u1', retentionMs: 5000 });
-    const s2 = initializeLearnerSession({ userId: 'u2', retentionMs: 5000 });
-    await store.createOrUpdateSession(s1);
-    await store.createOrUpdateSession(s2);
-
-    simulatedTime += 6000;
-    const purged = await store.purgeExpiredSessions();
-    expect(purged).toBe(2);
-  });
-
-  it('deletes a specific session on user request', async () => {
-    const store = new InMemorySessionStore();
-    const session = initializeLearnerSession({ userId: 'delete-user' });
-    await store.createOrUpdateSession(session);
-
-    const deleted = await store.deleteSession(session.sessionId, 'delete-user');
-    expect(deleted).toBe(true);
-
-    const check = await store.getSession(session.sessionId, 'delete-user');
-    expect(check).toBeNull();
-  });
-
-  it('deletes all user data on GDPR right-to-be-forgotten request', async () => {
-    const store = new InMemorySessionStore();
-    const s1 = initializeLearnerSession({ userId: 'gdpr-user' });
-    const s2 = initializeLearnerSession({ userId: 'gdpr-user' });
-    const sOther = initializeLearnerSession({ userId: 'keep-user' });
-
-    await store.createOrUpdateSession(s1);
-    await store.createOrUpdateSession(s2);
-    await store.createOrUpdateSession(sOther);
-
-    const deletedCount = await store.deleteAllUserData('gdpr-user');
-    expect(deletedCount).toBe(2);
-
-    expect(await store.getSession(s1.sessionId, 'gdpr-user')).toBeNull();
-    expect(await store.getSession(sOther.sessionId, 'keep-user')).not.toBeNull();
+  it('reports a zero talking share when no words were said', () => {
+    const session = initializeLearnerSession({ userId: 'u' });
+    const updated = appendCheckpointTurn(session, { id: 't', sender: 'user', text: '  ', timestamp: session.createdAt }, 0, 1000);
+    expect(updated.progress.talkingSharePct).toBe(0);
   });
 });
 

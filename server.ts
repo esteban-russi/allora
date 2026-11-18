@@ -12,10 +12,11 @@ import type { CefrLevel } from './src/types';
 import { attachLiveBridge, type LiveBridgeOptions } from './liveBridge';
 import { VertexCooldown, isPersistentVertexError, summarizeError } from './vertexCooldown';
 import { assertAuthConfig, authenticateHttpUser, isAuthEnforced } from './src/server/auth';
+import { defaultSessionStore } from './src/server/defaultSessionStore';
 import {
-  defaultSessionStore,
   initializeLearnerSession,
   parseSavedPhrases,
+  toClientSession,
   type ConversationTurn
 } from './src/server/sessionStore';
 import { createUserRateLimitMiddleware, defaultUserLimiter } from './src/server/rateLimiter';
@@ -248,7 +249,7 @@ app.get('/api/session', async (req, res) => {
     if (!session) {
       return res.status(404).json({ error: 'No active session found for user' });
     }
-    res.json(session);
+    res.json(toClientSession(session));
   } catch (err) {
     console.error('[Session] Error fetching session:', summarizeError(err));
     res.status(500).json({ error: 'Error fetching session' });
@@ -284,24 +285,30 @@ app.post('/api/session', async (req, res) => {
       return res.status(400).json({ error: 'savedPhrases must be a list of {id, it, en} strings (max 500)' });
     }
 
-    let session = sessionId ? await defaultSessionStore.getSession(sessionId, userId) : null;
-    if (sessionId && !session) {
-      return res.status(404).json({ error: 'Session not found or not owned by user' });
-    }
-
     const fields = {
       personaId,
       learnerName: sanitizeLearnerName(learnerName),
       learnerLevel: learnerLevel as CefrLevel,
       grammarStrictness
     };
-    session = session ? { ...session, ...fields } : initializeLearnerSession({ userId, ...fields });
+
+    if (sessionId) {
+      // Only the settings change, so a turn checkpointed at the same moment is kept
+      const updated = await defaultSessionStore.updateSessionSettings(sessionId, userId, {
+        ...fields,
+        savedPhrases: phrases
+      });
+      if (!updated) {
+        return res.status(404).json({ error: 'Session not found or not owned by user' });
+      }
+      return res.json(toClientSession(updated));
+    }
+
+    const session = initializeLearnerSession({ userId, ...fields });
     if (phrases) {
       session.progress = { ...session.progress, savedPhrases: phrases };
     }
-
-    const saved = await defaultSessionStore.createOrUpdateSession(session);
-    res.json(saved);
+    res.json(toClientSession(await defaultSessionStore.createOrUpdateSession(session)));
   } catch (err) {
     console.error('[Session] Error saving session:', summarizeError(err));
     res.status(500).json({ error: 'Error saving session' });

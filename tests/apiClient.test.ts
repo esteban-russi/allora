@@ -1,6 +1,6 @@
 /** Tests for the client's authenticated API helper. */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getAuthToken, postJson, setAuthTokenProvider } from '../src/utils/apiClient';
+import { getAuthToken, getWithAuth, postJson, setAuthTokenProvider } from '../src/utils/apiClient';
 
 afterEach(() => {
   setAuthTokenProvider(async () => null);
@@ -34,6 +34,23 @@ describe('postJson', () => {
 
     const init = fetchMock.mock.calls[0][1];
     expect(init.headers).toEqual({ 'Content-Type': 'application/json' });
+  });
+});
+
+describe('getWithAuth', () => {
+  it('sends the ID token as a bearer header', async () => {
+    const fetchMock = stubFetch();
+    setAuthTokenProvider(async () => 'id-token-123');
+
+    await getWithAuth('/api/session');
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/session', { headers: { Authorization: 'Bearer id-token-123' } });
+  });
+
+  it('sends no headers when signed out', async () => {
+    const fetchMock = stubFetch();
+    await getWithAuth('/api/session');
+    expect(fetchMock).toHaveBeenCalledWith('/api/session', {});
   });
 });
 

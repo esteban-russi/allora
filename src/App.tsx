@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { EMMANUELE, INITIAL_MESSAGES, INITIAL_SAVED_PHRASES, TUTORS, createInitialMessages } from './data/personas';
 import { generatePersonaFallbackMessage } from './data/fallbacks';
 import { ChatMessage, DevSettings, GrammarNote, LearnerProfile, Persona, SavedPhrase } from './types';
@@ -12,13 +12,16 @@ import { UtilityPanel } from './components/UtilityPanel';
 import { OnboardingPage } from './components/OnboardingPage';
 import { useDialog } from './hooks/useDialog';
 import { speechService } from './utils/speech';
-import { postChat } from './utils/learnerSession';
+import { loadLearnerSession, postChat, saveLearnerSettings, startLearnerSession, toChatMessages } from './utils/learnerSession';
 
 const countWords = (text: string) => text.trim().split(/\s+/).filter(Boolean).length;
+const GRAMMAR_STRICTNESS: DevSettings['grammarStrictness'][] = ['conversational', 'tutor', 'strict'];
 
 export default function App() {
   const [learnerProfile, setLearnerProfile] = useState<LearnerProfile | null>(null);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(true);
+  // True until the saved session (if any) has been loaded, so onboarding does not flash
+  const [isRestoring, setIsRestoring] = useState<boolean>(true);
 
   const persona: Persona = useMemo(
     () => TUTORS.find((t) => t.id === learnerProfile?.personaId) ?? EMMANUELE,
@@ -75,6 +78,40 @@ export default function App() {
     return total === 0 ? 0 : Math.round((learner / total) * 100);
   }, [messages]);
 
+  // Bring back the learner's profile, conversation and notebook from their saved session
+  useEffect(() => {
+    let cancelled = false;
+    loadLearnerSession()
+      .then((session) => {
+        if (cancelled || !session) return;
+        const tutor = TUTORS.find((t) => t.id === session.personaId) ?? EMMANUELE;
+        const profile: LearnerProfile = { name: session.learnerName, level: session.learnerLevel, personaId: tutor.id };
+        setLearnerProfile(profile);
+        setMessages([
+          ...createInitialMessages(tutor, profile.name, profile.level),
+          ...toChatMessages(session.checkpointTurns, tutor.id)
+        ]);
+        setSavedPhrases(session.progress.savedPhrases);
+        if (GRAMMAR_STRICTNESS.includes(session.grammarStrictness as DevSettings['grammarStrictness'])) {
+          setDevSettings((prev) => ({ ...prev, grammarStrictness: session.grammarStrictness as DevSettings['grammarStrictness'] }));
+        }
+        setIsOnboardingOpen(false);
+      })
+      .finally(() => {
+        if (!cancelled) setIsRestoring(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const updateSavedPhrases = (next: SavedPhrase[]) => {
+    setSavedPhrases(next);
+    if (learnerProfile) {
+      void saveLearnerSettings({ profile: learnerProfile, grammarStrictness: devSettings.grammarStrictness, savedPhrases: next });
+    }
+  };
+
   const speakIfAutoPlay = (text: string) => {
     if (!devSettings.autoPlayAudio) return;
     speechService.speakSmart(text, {
@@ -89,6 +126,8 @@ export default function App() {
     setLearnerProfile(profile);
     setIsOnboardingOpen(false);
     setMessages(createInitialMessages(selectedTutor, profile.name, profile.level));
+    // A new profile starts a new conversation; the notebook carries over
+    void startLearnerSession({ profile, grammarStrictness: devSettings.grammarStrictness, savedPhrases });
   };
 
   // Handle student sending message in chat with real server Gemini API integration
@@ -149,10 +188,10 @@ export default function App() {
   };
 
   const handleSavePhrase = (message: ChatMessage) => {
-    setSavedPhrases(prev =>
-      prev.some(p => p.id === message.id)
-        ? prev.filter(p => p.id !== message.id)
-        : [{ id: message.id, it: message.text, en: message.translation }, ...prev]
+    updateSavedPhrases(
+      savedPhrases.some(p => p.id === message.id)
+        ? savedPhrases.filter(p => p.id !== message.id)
+        : [{ id: message.id, it: message.text, en: message.translation }, ...savedPhrases]
     );
   };
 
@@ -177,8 +216,16 @@ export default function App() {
     talkingShare,
     onSwitchToVoice: startCall,
     onOpenProfile: () => setIsProfileModalOpen(true),
-    onRemovePhrase: (id: string) => setSavedPhrases(prev => prev.filter(p => p.id !== id))
+    onRemovePhrase: (id: string) => updateSavedPhrases(savedPhrases.filter(p => p.id !== id))
   };
+
+  if (isRestoring) {
+    return (
+      <div className="h-dvh w-full flex items-center justify-center bg-canvas text-ink" role="status" aria-live="polite">
+        Caricamento…
+      </div>
+    );
+  }
 
   if (!learnerProfile || isOnboardingOpen) {
     return (
@@ -260,7 +307,12 @@ export default function App() {
         isOpen={isDevLabOpen}
         onClose={() => setIsDevLabOpen(false)}
         settings={devSettings}
-        onSaveSettings={(updated) => setDevSettings(updated)}
+        onSaveSettings={(updated) => {
+          setDevSettings(updated);
+          if (learnerProfile && updated.grammarStrictness !== devSettings.grammarStrictness) {
+            void saveLearnerSettings({ profile: learnerProfile, grammarStrictness: updated.grammarStrictness, savedPhrases });
+          }
+        }}
         activePersonaName={persona.fullName}
       />
 

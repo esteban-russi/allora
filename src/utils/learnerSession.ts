@@ -1,7 +1,11 @@
-/** Remembers the learner session on this device and links chat requests to it. */
-import { postJson } from './apiClient';
+/** Remembers the learner session on this device, restores it on load, and links chat requests to it. */
+import type { ClientLearnerSession, ConversationTurn } from '../server/sessionStore';
+import type { CefrLevel, ChatMessage, GrammarNote, LearnerProfile, SavedPhrase } from '../types';
+import { getWithAuth, postJson } from './apiClient';
 
 const STORAGE_KEY = 'parliamo.learnerSessionId';
+const CEFR_LEVELS: CefrLevel[] = ['A1', 'A2', 'B1', 'B2', 'C1'];
+const NOTE_CATEGORIES: GrammarNote['category'][] = ['verb', 'idiom', 'grammar', 'vocabulary', 'cultural'];
 
 /**
  * Read the remembered learner session ID.
@@ -32,6 +36,13 @@ export function rememberLearnerSessionId(sessionId: string | null): void {
   }
 }
 
+/** What the learner chose in onboarding, plus their notebook. */
+export interface LearnerSettings {
+  profile: LearnerProfile;
+  grammarStrictness: string;
+  savedPhrases: SavedPhrase[];
+}
+
 export interface ChatRequest {
   personaId: string;
   userMessage: string;
@@ -42,20 +53,23 @@ export interface ChatRequest {
   learnerName?: string;
 }
 
-/**
- * Create a learner session on the server and remember its ID.
- *
- * Returns:
- *   The new session ID, or null if the server could not create one.
- */
-async function createLearnerSession(request: ChatRequest): Promise<string | null> {
+/** A session being created by onboarding; chat and settings wait for it so they never make a second one. */
+let pendingStart: Promise<string | null> | null = null;
+
+function settingsBody(settings: LearnerSettings) {
+  return {
+    personaId: settings.profile.personaId,
+    learnerName: settings.profile.name,
+    learnerLevel: settings.profile.level,
+    grammarStrictness: settings.grammarStrictness,
+    savedPhrases: settings.savedPhrases
+  };
+}
+
+/** POST /api/session and remember the returned ID; null on any failure. */
+async function postSession(body: Record<string, unknown>): Promise<string | null> {
   try {
-    const res = await postJson('/api/session', {
-      personaId: request.personaId,
-      learnerLevel: request.learnerLevel,
-      grammarStrictness: request.grammarStrictness,
-      learnerName: request.learnerName
-    });
+    const res = await postJson('/api/session', body);
     if (!res.ok) return null;
     const { sessionId } = await res.json();
     if (typeof sessionId !== 'string') return null;
@@ -64,6 +78,111 @@ async function createLearnerSession(request: ChatRequest): Promise<string | null
   } catch {
     return null;
   }
+}
+
+async function settledSessionId(): Promise<string | null> {
+  if (pendingStart) await pendingStart;
+  return getLearnerSessionId();
+}
+
+/**
+ * Start a new learner session (a new conversation) with these settings.
+ *
+ * Args:
+ *   settings: Profile, grammar strictness and saved phrases for the session.
+ *
+ * Returns:
+ *   The new session ID, or null if the server could not create one.
+ */
+export function startLearnerSession(settings: LearnerSettings): Promise<string | null> {
+  rememberLearnerSessionId(null);
+  pendingStart = postSession(settingsBody(settings));
+  return pendingStart;
+}
+
+/**
+ * Save the learner's settings and notebook to their current session.
+ *
+ * Starts a new session when there is none or the server no longer knows it.
+ *
+ * Args:
+ *   settings: Profile, grammar strictness and saved phrases to store.
+ *
+ * Returns:
+ *   True if the server saved them.
+ */
+export async function saveLearnerSettings(settings: LearnerSettings): Promise<boolean> {
+  const sessionId = await settledSessionId();
+  if (sessionId) {
+    try {
+      const res = await postJson('/api/session', { ...settingsBody(settings), sessionId });
+      if (res.ok) return true;
+      if (res.status !== 404) return false;
+    } catch {
+      return false;
+    }
+  }
+  return (await startLearnerSession(settings)) !== null;
+}
+
+function isClientSession(value: unknown): value is ClientLearnerSession {
+  const session = value as Partial<ClientLearnerSession> | null;
+  return (
+    !!session &&
+    typeof session.sessionId === 'string' &&
+    typeof session.personaId === 'string' &&
+    typeof session.learnerName === 'string' &&
+    CEFR_LEVELS.includes(session.learnerLevel as CefrLevel) &&
+    typeof session.grammarStrictness === 'string' &&
+    Array.isArray(session.checkpointTurns) &&
+    Array.isArray(session.progress?.savedPhrases)
+  );
+}
+
+/**
+ * Fetch the learner's latest session from the server and remember its ID.
+ *
+ * Returns:
+ *   The session, or null when there is none, the request fails, or the reply is malformed.
+ */
+export async function loadLearnerSession(): Promise<ClientLearnerSession | null> {
+  try {
+    const res = await getWithAuth('/api/session');
+    if (!res.ok) return null;
+    const session: unknown = await res.json();
+    if (!isClientSession(session)) return null;
+    rememberLearnerSessionId(session.sessionId);
+    return session;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Turn saved checkpoint turns back into chat messages.
+ *
+ * Args:
+ *   turns: Checkpointed turns, oldest first.
+ *   personaId: Tutor the conversation is with.
+ *
+ * Returns:
+ *   Chat messages with local display times; unknown grammar note categories become "grammar".
+ */
+export function toChatMessages(turns: ConversationTurn[], personaId: string): ChatMessage[] {
+  return turns.map((turn) => ({
+    id: turn.id,
+    sender: turn.sender,
+    personaId,
+    text: turn.text,
+    translation: turn.translation ?? '',
+    grammarNotes: turn.grammarNotes?.map((note) => ({
+      ...note,
+      category: NOTE_CATEGORIES.includes(note.category as GrammarNote['category'])
+        ? (note.category as GrammarNote['category'])
+        : 'grammar'
+    })),
+    timestamp: new Date(turn.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  }));
 }
 
 /**
@@ -79,7 +198,14 @@ async function createLearnerSession(request: ChatRequest): Promise<string | null
  *   The fetch Response, as from `postJson`.
  */
 export async function postChat(request: ChatRequest): Promise<Response> {
-  const sessionId = getLearnerSessionId() ?? (await createLearnerSession(request));
+  const sessionId =
+    (await settledSessionId()) ??
+    (await postSession({
+      personaId: request.personaId,
+      learnerLevel: request.learnerLevel,
+      grammarStrictness: request.grammarStrictness,
+      learnerName: request.learnerName
+    }));
   const res = await postJson('/api/chat', { ...request, sessionId: sessionId ?? undefined });
 
   if (res.ok && sessionId) {
