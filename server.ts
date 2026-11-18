@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import express from 'express';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
@@ -331,21 +332,10 @@ app.post('/api/chat', async (req, res) => {
       learnerName
     });
 
-    const contents: any[] = [];
-    if (Array.isArray(history)) {
-      for (const h of history.slice(-6)) {
-        if (h && typeof h === 'object' && typeof h.text === 'string' && h.text.trim().length > 0) {
-          contents.push({
-            role: h.sender === 'user' ? 'user' : 'model',
-            parts: [{ text: h.text }]
-          });
-        }
-      }
-    }
-    contents.push({
-      role: 'user',
-      parts: [{ text: userMessage }]
-    });
+    const userId = req.user!.userId;
+    const session =
+      typeof sessionId === 'string' && sessionId ? await defaultSessionStore.getSession(sessionId, userId) : null;
+    const contents = buildChatContents(history, session?.checkpointTurns ?? [], userMessage);
 
     const response = await generateContentWithFallback({
       model: CHAT_MODEL,
@@ -384,20 +374,25 @@ app.post('/api/chat', async (req, res) => {
       grammarNotes: []
     });
 
-    // Checkpoint conversation turn to session store if sessionId provided
-    const userId = req.user?.userId;
-    if (sessionId && userId) {
-      const turnDurationMs = Date.now() - startTime;
-      const turn: ConversationTurn = {
-        id: `turn_${Date.now()}`,
+    // Checkpoint both sides of the exchange; a storage failure must not lose the reply
+    if (session) {
+      const timestamp = new Date().toISOString();
+      const userTurn: ConversationTurn = { id: `turn_${randomUUID()}`, sender: 'user', text: userMessage, timestamp };
+      const personaTurn: ConversationTurn = {
+        id: `turn_${randomUUID()}`,
         sender: 'persona',
         text: parsed.text,
         translation: parsed.translation,
         grammarNotes: parsed.grammarNotes,
-        timestamp: new Date().toISOString(),
-        turnDurationMs
+        timestamp,
+        turnDurationMs: Date.now() - startTime
       };
-      await defaultSessionStore.saveTurnCheckpoint(sessionId, userId, turn);
+      try {
+        await defaultSessionStore.saveTurnCheckpoint(session.sessionId, userId, userTurn);
+        await defaultSessionStore.saveTurnCheckpoint(session.sessionId, userId, personaTurn);
+      } catch (err) {
+        console.error('[Session] Could not checkpoint chat turn:', summarizeError(err));
+      }
     }
 
     // Record privacy-safe lesson metrics
@@ -407,7 +402,8 @@ app.post('/api/chat', async (req, res) => {
       0
     );
 
-    res.json(parsed);
+    // sessionId is null when the client's ID is unknown or expired, so it can start a new one
+    res.json({ ...parsed, sessionId: session?.sessionId ?? null });
   } catch (error: any) {
     console.error('Chat generation error:', error);
     res.status(500).json({
@@ -704,6 +700,45 @@ Return ONLY a valid JSON object matching this schema:
 app.all('/api/*', (req, res) => {
   res.status(404).json({ error: `API route not found: ${req.method} ${req.path}` });
 });
+
+const CHAT_HISTORY_TURNS = 6;
+
+/**
+ * Build the Gemini `contents` for one chat turn.
+ *
+ * The client's own recent history wins. When it has none, e.g. after the app was
+ * restarted or a Live call fell back to turn-based, the session's saved checkpoint
+ * turns are used so the tutor keeps the thread of the conversation.
+ *
+ * Args:
+ *   history: Untrusted client history items (`{sender, text}`), possibly absent.
+ *   checkpointTurns: Saved turns of the learner session, oldest first.
+ *   userMessage: The learner's new message.
+ *
+ * Returns:
+ *   Gemini content entries, ending with the new user message.
+ */
+export function buildChatContents(
+  history: unknown,
+  checkpointTurns: ConversationTurn[],
+  userMessage: string
+): Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> {
+  const clientTurns = Array.isArray(history)
+    ? history.filter(
+        (h): h is { sender?: unknown; text: string } =>
+          Boolean(h) && typeof h === 'object' && typeof h.text === 'string' && h.text.trim().length > 0
+      )
+    : [];
+  const turns = clientTurns.length > 0 ? clientTurns : checkpointTurns;
+
+  return [
+    ...turns.slice(-CHAT_HISTORY_TURNS).map((turn) => ({
+      role: turn.sender === 'user' ? ('user' as const) : ('model' as const),
+      parts: [{ text: turn.text }]
+    })),
+    { role: 'user' as const, parts: [{ text: userMessage }] }
+  ];
+}
 
 /**
  * Choose the Gemini clients a Live call may use and when Vertex AI is skipped.

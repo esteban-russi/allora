@@ -2,7 +2,7 @@ import request from 'supertest';
 import type { GoogleGenAI } from '@google/genai';
 import { describe, expect, it } from 'vitest';
 import { VertexCooldown } from '../vertexCooldown';
-import { app, buildLiveClientOptions, cloudSttEncodingFor, parseModelJsonResponse, stripBase64DataUrlPrefix } from '../server';
+import { app, buildChatContents, buildLiveClientOptions, cloudSttEncodingFor, parseModelJsonResponse, stripBase64DataUrlPrefix } from '../server';
 import { buildSystemInstruction, buildVoiceCallInstruction, LEVEL_PROMPTS, sanitizeLearnerName } from '../src/data/personaPrompts';
 
 describe('parseModelJsonResponse', () => {
@@ -338,5 +338,33 @@ describe('buildLiveClientOptions', () => {
     live.onClientFailed?.(vertex);
     expect(live.skipClient?.(vertex)).toBe(true);
     expect(live.skipClient?.(aiStudio)).toBe(false);
+  });
+});
+
+describe('buildChatContents', () => {
+  const saved = [
+    { id: 't1', sender: 'user' as const, text: 'Vorrei un caffè', timestamp: '2026-11-18T10:00:00.000Z' },
+    { id: 't2', sender: 'persona' as const, text: 'Ecco il caffè!', timestamp: '2026-11-18T10:00:01.000Z' }
+  ];
+
+  it('uses the client history when it has one', () => {
+    const contents = buildChatContents([{ sender: 'user', text: 'Ciao' }], saved, 'Come stai?');
+    expect(contents).toEqual([
+      { role: 'user', parts: [{ text: 'Ciao' }] },
+      { role: 'user', parts: [{ text: 'Come stai?' }] }
+    ]);
+  });
+
+  it('falls back to saved checkpoint turns when the client sends no history', () => {
+    const contents = buildChatContents([], saved, 'E un cornetto?');
+    expect(contents.map((c) => c.role)).toEqual(['user', 'model', 'user']);
+    expect(contents[1].parts[0].text).toBe('Ecco il caffè!');
+  });
+
+  it('skips malformed history items and keeps the last six turns', () => {
+    const history = [null, { text: 42 }, ...Array.from({ length: 8 }, (_, i) => ({ sender: 'user', text: `m${i}` }))];
+    const contents = buildChatContents(history, [], 'fine');
+    expect(contents).toHaveLength(7);
+    expect(contents[0].parts[0].text).toBe('m2');
   });
 });

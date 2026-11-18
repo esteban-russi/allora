@@ -276,6 +276,8 @@ export class LiveCall {
         break;
       }
       case 'turn_complete':
+        this.checkpoint('user', this.userText.trim());
+        this.checkpoint('persona', this.personaText.trim());
         this.handlers.onTurnComplete(this.userText.trim(), this.personaText.trim());
         this.userText = '';
         this.personaText = '';
@@ -291,6 +293,18 @@ export class LiveCall {
         this.fail(event.message ?? 'Gemini Live error');
         break;
     }
+  }
+
+  /** Save one side of a finished exchange to the learner session, so a reconnect can recap it. */
+  private checkpoint(sender: 'user' | 'persona', text: string): void {
+    if (!text || this.socket?.readyState !== WebSocket.OPEN) return;
+    this.socket.send(
+      JSON.stringify({
+        type: 'checkpoint_turn',
+        // The server rejects turns longer than 2000 characters
+        turn: { id: `turn_${crypto.randomUUID()}`, sender, text: text.slice(0, 2000), timestamp: new Date().toISOString() }
+      })
+    );
   }
 
   private startCapture(): void {

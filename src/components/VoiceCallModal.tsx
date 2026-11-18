@@ -8,6 +8,7 @@ import { ITALIAN_PRACTICE_PHRASES } from '../data/personas';
 import { generateCallFallback } from '../data/fallbacks';
 import { useDialog } from '../hooks/useDialog';
 import { postJson } from '../utils/apiClient';
+import { getLearnerSessionId, postChat, rememberLearnerSessionId } from '../utils/learnerSession';
 
 interface VoiceCallModalProps {
   persona: Persona;
@@ -208,9 +209,10 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
     activeTranscriptRef.current = '';
 
     try {
-      const res = await postJson('/api/chat', {
+      const res = await postChat({
         personaId: personaRef.current.id,
-        history: dialogueHistoryRef.current.slice(-4),
+        // The server reads `sender`; call exchanges name it `speaker`
+        history: dialogueHistoryRef.current.slice(-4).map(({ speaker, text }) => ({ sender: speaker, text })),
         userMessage: trimmed,
         temperature: devSettingsRef.current.temperature,
         grammarStrictness: devSettingsRef.current.grammarStrictness,
@@ -389,13 +391,12 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
         personaId: personaRef.current.id,
         learnerLevel: learnerProfileRef.current?.level ?? 'A2',
         grammarStrictness: devSettingsRef.current.grammarStrictness,
-        learnerName: learnerProfileRef.current?.name
+        learnerName: learnerProfileRef.current?.name,
+        sessionId: getLearnerSessionId() ?? undefined
       },
       {
         onReady: () => setSpeakingState('listening'),
-        onSessionReady: (sessionId, resumed) => {
-          console.log(`[VoiceCall] Session ${sessionId} confirmed (resumed: ${resumed})`);
-        },
+        onSessionReady: (sessionId) => rememberLearnerSessionId(sessionId),
         onResumptionFailed: (_fallback, message) => {
           console.warn('[VoiceCall] Upstream Live resumption failed, falling back to turn-based:', message);
           liveCallRef.current?.stop();

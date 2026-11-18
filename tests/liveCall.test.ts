@@ -94,4 +94,20 @@ describe('LiveCall reconnects', () => {
     expect(onResumptionFailed).toHaveBeenCalledWith('turn_based', 'expired');
     expect(FakeSocket.instances).toHaveLength(1);
   });
+
+  it('checkpoints both sides of a finished exchange to the server', async () => {
+    const { call, socket } = await startCall();
+    socket.receive({ type: 'input_transcript', text: 'Vorrei ' });
+    socket.receive({ type: 'input_transcript', text: 'un caffè' });
+    socket.receive({ type: 'output_transcript', text: 'Subito!' });
+    socket.receive({ type: 'turn_complete' });
+
+    const turns = socket.sentEvents().filter((e) => e.type === 'checkpoint_turn').map((e) => e.turn);
+    expect(turns).toMatchObject([
+      { sender: 'user', text: 'Vorrei un caffè' },
+      { sender: 'persona', text: 'Subito!' }
+    ]);
+    call.stop();
+  });
 });
+
