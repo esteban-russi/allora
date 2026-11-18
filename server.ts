@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
 import { TextToSpeechClient } from '@google-cloud/text-to-speech';
 import { SpeechClient } from '@google-cloud/speech';
-import { PERSONA_PROMPTS, LEVEL_PROMPTS, GRAMMAR_STRICTNESS_LEVELS, buildSystemInstruction } from './src/data/personaPrompts';
+import { PERSONA_PROMPTS, LEVEL_PROMPTS, GRAMMAR_STRICTNESS_LEVELS, buildSystemInstruction, sanitizeLearnerName } from './src/data/personaPrompts';
 import type { CefrLevel } from './src/types';
 import { attachLiveBridge } from './liveBridge';
 import { VertexCooldown, isPersistentVertexError, summarizeError } from './vertexCooldown';
@@ -14,6 +14,7 @@ import { assertAuthConfig, authenticateHttpUser } from './src/server/auth';
 import {
   defaultSessionStore,
   initializeLearnerSession,
+  parseSavedPhrases,
   type ConversationTurn
 } from './src/server/sessionStore';
 import { createUserRateLimitMiddleware, defaultUserLimiter } from './src/server/rateLimiter';
@@ -198,8 +199,9 @@ app.get('/api/session', async (req, res) => {
       return res.status(404).json({ error: 'No active session found for user' });
     }
     res.json(session);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message || 'Error fetching session' });
+  } catch (err) {
+    console.error('[Session] Error fetching session:', summarizeError(err));
+    res.status(500).json({ error: 'Error fetching session' });
   }
 });
 
@@ -213,35 +215,46 @@ app.post('/api/session', async (req, res) => {
       learnerLevel = 'A2',
       grammarStrictness = 'tutor',
       savedPhrases
-    } = req.body;
+    } = req.body ?? {};
+
+    if (sessionId !== undefined && (typeof sessionId !== 'string' || !sessionId)) {
+      return res.status(400).json({ error: 'sessionId must be a non-empty string' });
+    }
+    if (typeof personaId !== 'string' || !Object.hasOwn(PERSONA_PROMPTS, personaId)) {
+      return res.status(400).json({ error: `Unknown personaId: ${String(personaId)}` });
+    }
+    if (typeof learnerLevel !== 'string' || !Object.hasOwn(LEVEL_PROMPTS, learnerLevel)) {
+      return res.status(400).json({ error: `learnerLevel must be one of ${Object.keys(LEVEL_PROMPTS).join(', ')}` });
+    }
+    if (!GRAMMAR_STRICTNESS_LEVELS.includes(grammarStrictness)) {
+      return res.status(400).json({ error: `grammarStrictness must be one of ${GRAMMAR_STRICTNESS_LEVELS.join(', ')}` });
+    }
+    const phrases = savedPhrases === undefined ? undefined : parseSavedPhrases(savedPhrases);
+    if (phrases === null) {
+      return res.status(400).json({ error: 'savedPhrases must be a list of {id, it, en} strings (max 500)' });
+    }
 
     let session = sessionId ? await defaultSessionStore.getSession(sessionId, userId) : null;
     if (sessionId && !session) {
       return res.status(404).json({ error: 'Session not found or not owned by user' });
     }
 
-    if (!session) {
-      session = initializeLearnerSession({
-        userId,
-        personaId,
-        learnerName,
-        learnerLevel,
-        grammarStrictness
-      });
-    } else {
-      session.personaId = personaId;
-      session.learnerName = learnerName;
-      session.learnerLevel = learnerLevel;
-      session.grammarStrictness = grammarStrictness;
-      if (Array.isArray(savedPhrases)) {
-        session.progress.savedPhrases = savedPhrases;
-      }
+    const fields = {
+      personaId,
+      learnerName: sanitizeLearnerName(learnerName),
+      learnerLevel: learnerLevel as CefrLevel,
+      grammarStrictness
+    };
+    session = session ? { ...session, ...fields } : initializeLearnerSession({ userId, ...fields });
+    if (phrases) {
+      session.progress = { ...session.progress, savedPhrases: phrases };
     }
 
     const saved = await defaultSessionStore.createOrUpdateSession(session);
     res.json(saved);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message || 'Error saving session' });
+  } catch (err) {
+    console.error('[Session] Error saving session:', summarizeError(err));
+    res.status(500).json({ error: 'Error saving session' });
   }
 });
 
@@ -254,8 +267,9 @@ app.delete('/api/session/:sessionId', async (req, res) => {
       return res.status(404).json({ error: 'Session not found or not owned by user' });
     }
     res.json({ status: 'deleted', sessionId });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message || 'Error deleting session' });
+  } catch (err) {
+    console.error('[Session] Error deleting session:', summarizeError(err));
+    res.status(500).json({ error: 'Error deleting session' });
   }
 });
 
@@ -264,8 +278,9 @@ app.delete('/api/session', async (req, res) => {
     const userId = req.user!.userId;
     const count = await defaultSessionStore.deleteAllUserData(userId);
     res.json({ status: 'all_data_deleted', sessionsDeleted: count });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message || 'Error deleting user data' });
+  } catch (err) {
+    console.error('[Session] Error deleting user data:', summarizeError(err));
+    res.status(500).json({ error: 'Error deleting user data' });
   }
 });
 

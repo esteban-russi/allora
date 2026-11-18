@@ -15,7 +15,7 @@ import { authenticateWebSocketRequest, type AuthenticatedUser } from './src/serv
 import {
   defaultSessionStore,
   initializeLearnerSession,
-  type ConversationTurn,
+  parseConversationTurn,
   type LearnerSession,
   type SessionStore
 } from './src/server/sessionStore';
@@ -324,12 +324,9 @@ async function runLiveCall(
           const update = (message as unknown as { sessionResumptionUpdate?: { newHandle?: string } })
             .sessionResumptionUpdate;
           if (update?.newHandle) {
-            sessionStore.updateUpstreamHandle(
-              sessionRecord.sessionId,
-              user.userId,
-              update.newHandle,
-              options.model
-            );
+            sessionStore
+              .updateUpstreamHandle(sessionRecord.sessionId, user.userId, update.newHandle, options.model)
+              .catch((err) => console.error('[Gemini Live] Could not store resumption handle:', err));
           }
 
           const frames = toClientFrames(message);
@@ -414,13 +411,17 @@ async function runLiveCall(
         liveSession?.sendRealtimeInput({ text: message.text.slice(0, MAX_TEXT_LENGTH) });
       }
 
-      // Checkpoint completed exchange
-      if (message?.type === 'checkpoint_turn' && typeof message.turn === 'object') {
-        sessionStore.saveTurnCheckpoint(
-          sessionRecord.sessionId,
-          user.userId,
-          message.turn as ConversationTurn
-        );
+      // Checkpoint completed exchange; the turn is untrusted client input
+      if (message?.type === 'checkpoint_turn') {
+        const turn = parseConversationTurn(message.turn);
+        if (!turn) {
+          // Drop it rather than sending 'error', which makes the client end the call
+          console.warn('[Gemini Live] Ignoring invalid checkpoint_turn payload');
+          return;
+        }
+        sessionStore
+          .saveTurnCheckpoint(sessionRecord.sessionId, user.userId, turn)
+          .catch((err) => console.error('[Gemini Live] Could not save turn checkpoint:', err));
       }
     } catch {
       // Ignore malformed control messages

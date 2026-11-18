@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   InMemorySessionStore,
   initializeLearnerSession,
+  parseConversationTurn,
+  parseSavedPhrases,
   SessionOwnershipError,
   type ConversationTurn
 } from '../src/server/sessionStore';
@@ -173,5 +175,44 @@ describe('Retention and GDPR Deletion Rules', () => {
 
     expect(await store.getSession(s1.sessionId, 'gdpr-user')).toBeNull();
     expect(await store.getSession(sOther.sessionId, 'keep-user')).not.toBeNull();
+  });
+});
+
+describe('parseConversationTurn', () => {
+  const validTurn = {
+    id: 'turn-1',
+    sender: 'user',
+    text: 'Ciao, come stai?',
+    timestamp: '2026-11-18T10:00:00.000Z'
+  };
+
+  it('accepts a valid turn and drops unknown fields', () => {
+    expect(parseConversationTurn({ ...validTurn, injected: 'x' })).toEqual(validTurn);
+  });
+
+  it.each([
+    ['null', null],
+    ['an empty object', {}],
+    ['a missing text', { ...validTurn, text: undefined }],
+    ['a non-string text', { ...validTurn, text: 42 }],
+    ['an unknown sender', { ...validTurn, sender: 'admin' }],
+    ['an unparseable timestamp', { ...validTurn, timestamp: 'yesterday' }],
+    ['an oversized text', { ...validTurn, text: 'a'.repeat(2001) }],
+    ['malformed grammar notes', { ...validTurn, grammarNotes: [{ wordOrPhrase: 1 }] }]
+  ])('rejects %s', (_label, value) => {
+    expect(parseConversationTurn(value)).toBeNull();
+  });
+});
+
+describe('parseSavedPhrases', () => {
+  it('accepts well-formed phrases', () => {
+    const phrases = [{ id: 'p1', it: 'Buongiorno', en: 'Good morning' }];
+    expect(parseSavedPhrases(phrases)).toEqual(phrases);
+  });
+
+  it('rejects non-arrays, malformed entries, and oversized lists', () => {
+    expect(parseSavedPhrases('nope')).toBeNull();
+    expect(parseSavedPhrases([{ id: 'p1', it: 'Ciao' }])).toBeNull();
+    expect(parseSavedPhrases(Array.from({ length: 501 }, (_, i) => ({ id: `p${i}`, it: 'a', en: 'b' })))).toBeNull();
   });
 });

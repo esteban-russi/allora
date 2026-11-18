@@ -4,6 +4,13 @@ import type { CefrLevel } from '../types';
 
 export const DEFAULT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000; // 30-day inactivity retention
 
+const MAX_ID_LENGTH = 100;
+const MAX_TURN_TEXT_LENGTH = 2000;
+const MAX_NOTE_FIELD_LENGTH = 500;
+const MAX_GRAMMAR_NOTES = 20;
+const MAX_SAVED_PHRASES = 500;
+const MAX_PHRASE_LENGTH = 500;
+
 export interface ConversationTurn {
   id: string;
   sender: 'user' | 'persona';
@@ -49,6 +56,86 @@ export interface CreateSessionOptions {
   learnerLevel?: CefrLevel;
   grammarStrictness?: string;
   retentionMs?: number;
+}
+
+function isBoundedString(value: unknown, maxLength: number): value is string {
+  return typeof value === 'string' && value.length <= maxLength;
+}
+
+/**
+ * Validate an untrusted conversation turn and copy only its known fields.
+ *
+ * Args:
+ *   value: Raw turn from a client message.
+ *
+ * Returns:
+ *   A clean ConversationTurn, or null if any field is missing, mistyped, or too long.
+ */
+export function parseConversationTurn(value: unknown): ConversationTurn | null {
+  if (!value || typeof value !== 'object') return null;
+  const raw = value as Record<string, unknown>;
+
+  if (!isBoundedString(raw.id, MAX_ID_LENGTH) || !raw.id) return null;
+  if (raw.sender !== 'user' && raw.sender !== 'persona') return null;
+  if (!isBoundedString(raw.text, MAX_TURN_TEXT_LENGTH)) return null;
+  if (!isBoundedString(raw.timestamp, MAX_ID_LENGTH) || Number.isNaN(Date.parse(raw.timestamp))) return null;
+  if (raw.translation !== undefined && !isBoundedString(raw.translation, MAX_TURN_TEXT_LENGTH)) return null;
+  if (raw.turnDurationMs !== undefined && !(typeof raw.turnDurationMs === 'number' && raw.turnDurationMs >= 0)) {
+    return null;
+  }
+
+  let grammarNotes: ConversationTurn['grammarNotes'];
+  if (raw.grammarNotes !== undefined) {
+    if (!Array.isArray(raw.grammarNotes) || raw.grammarNotes.length > MAX_GRAMMAR_NOTES) return null;
+    grammarNotes = [];
+    for (const note of raw.grammarNotes) {
+      const { wordOrPhrase, explanation, category } = (note ?? {}) as Record<string, unknown>;
+      if (
+        !isBoundedString(wordOrPhrase, MAX_NOTE_FIELD_LENGTH) ||
+        !isBoundedString(explanation, MAX_NOTE_FIELD_LENGTH) ||
+        !isBoundedString(category, MAX_NOTE_FIELD_LENGTH)
+      ) {
+        return null;
+      }
+      grammarNotes.push({ wordOrPhrase, explanation, category });
+    }
+  }
+
+  return {
+    id: raw.id,
+    sender: raw.sender,
+    text: raw.text,
+    timestamp: raw.timestamp,
+    ...(raw.translation !== undefined && { translation: raw.translation as string }),
+    ...(grammarNotes && { grammarNotes }),
+    ...(raw.turnDurationMs !== undefined && { turnDurationMs: raw.turnDurationMs as number })
+  };
+}
+
+/**
+ * Validate an untrusted list of saved notebook phrases.
+ *
+ * Args:
+ *   value: Raw `savedPhrases` from a request body.
+ *
+ * Returns:
+ *   Clean phrases, or null if the list or any entry is malformed or too large.
+ */
+export function parseSavedPhrases(value: unknown): LearnerProgress['savedPhrases'] | null {
+  if (!Array.isArray(value) || value.length > MAX_SAVED_PHRASES) return null;
+  const phrases: LearnerProgress['savedPhrases'] = [];
+  for (const entry of value) {
+    const { id, it, en } = (entry ?? {}) as Record<string, unknown>;
+    if (
+      !isBoundedString(id, MAX_ID_LENGTH) ||
+      !isBoundedString(it, MAX_PHRASE_LENGTH) ||
+      !isBoundedString(en, MAX_PHRASE_LENGTH)
+    ) {
+      return null;
+    }
+    phrases.push({ id, it, en });
+  }
+  return phrases;
 }
 
 /** Raised when a write targets a session ID that belongs to another user. */

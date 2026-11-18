@@ -256,6 +256,17 @@ describe('/api/session endpoints', () => {
     expect(res.status).toBe(404);
   });
 
+  it.each([
+    ['an unknown persona', { personaId: 'nobody' }],
+    ['an unknown level', { learnerLevel: 'Z9' }],
+    ['an unknown grammar strictness', { grammarStrictness: 'lenient' }],
+    ['malformed saved phrases', { savedPhrases: [{ id: 1 }] }],
+    ['a non-string sessionId', { sessionId: 123 }]
+  ])('rejects POST /api/session with %s', async (_label, body) => {
+    const res = await request(app).post('/api/session').set('x-dev-user-id', 'validation-user').send(body);
+    expect(res.status).toBe(400);
+  });
+
   it('supports GDPR deletion of all user sessions via DELETE /api/session', async () => {
     await request(app)
       .post('/api/session')
