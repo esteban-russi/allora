@@ -506,10 +506,10 @@ export function attachLiveBridge(server: Server, options: LiveBridgeOptions): vo
     if (parsed.params.sessionId) {
       sessionRecord = await sessionStore.getSession(parsed.params.sessionId, user.userId);
     }
+    // An unknown or foreign sessionId starts a fresh session under a new server-generated ID
     if (!sessionRecord) {
       sessionRecord = await sessionStore.createOrUpdateSession(
         initializeLearnerSession({
-          sessionId: parsed.params.sessionId,
           userId: user.userId,
           personaId: parsed.params.personaId,
           learnerName: parsed.params.learnerName,

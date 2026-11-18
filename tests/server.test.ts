@@ -231,6 +231,31 @@ describe('/api/session endpoints', () => {
     expect(checkRes.status).toBe(404);
   });
 
+  it('refuses to write to a session ID owned by another user', async () => {
+    const victim = await request(app)
+      .post('/api/session')
+      .set('x-dev-user-id', 'session-victim')
+      .send({ learnerName: 'Lucia', learnerLevel: 'B1' });
+
+    const attack = await request(app)
+      .post('/api/session')
+      .set('x-dev-user-id', 'session-attacker')
+      .send({ sessionId: victim.body.sessionId, learnerName: 'Mallory' });
+    expect(attack.status).toBe(404);
+
+    const victimView = await request(app).get('/api/session').set('x-dev-user-id', 'session-victim');
+    expect(victimView.body.sessionId).toBe(victim.body.sessionId);
+    expect(victimView.body.learnerName).toBe('Lucia');
+  });
+
+  it('returns 404 when updating an unknown session ID instead of creating it', async () => {
+    const res = await request(app)
+      .post('/api/session')
+      .set('x-dev-user-id', 'session-guesser')
+      .send({ sessionId: 'sess_chosen-by-client', learnerName: 'Pia' });
+    expect(res.status).toBe(404);
+  });
+
   it('supports GDPR deletion of all user sessions via DELETE /api/session', async () => {
     await request(app)
       .post('/api/session')

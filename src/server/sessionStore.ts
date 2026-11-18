@@ -1,4 +1,5 @@
 /** Persistent learner sessions, conversation checkpoints, and retention/deletion lifecycle. */
+import { randomUUID } from 'crypto';
 import type { CefrLevel } from '../types';
 
 export const DEFAULT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000; // 30-day inactivity retention
@@ -42,13 +43,20 @@ export interface LearnerSession {
 }
 
 export interface CreateSessionOptions {
-  sessionId?: string;
   userId: string;
   personaId?: string;
   learnerName?: string;
   learnerLevel?: CefrLevel;
   grammarStrictness?: string;
   retentionMs?: number;
+}
+
+/** Raised when a write targets a session ID that belongs to another user. */
+export class SessionOwnershipError extends Error {
+  constructor(sessionId: string) {
+    super(`Session ${sessionId} belongs to another user`);
+    this.name = 'SessionOwnershipError';
+  }
 }
 
 export interface SessionStore {
@@ -127,8 +135,16 @@ export class InMemorySessionStore implements SessionStore {
    *
    * Returns:
    *   The persisted session.
+   *
+   * Raises:
+   *   SessionOwnershipError: If the session ID is already held by a different user.
    */
   async createOrUpdateSession(session: LearnerSession): Promise<LearnerSession> {
+    const existing = this.sessions.get(session.sessionId);
+    if (existing && existing.userId !== session.userId) {
+      throw new SessionOwnershipError(session.sessionId);
+    }
+
     const nowIso = new Date(this.now()).toISOString();
     const expiresAtIso = new Date(this.now() + this.retentionMs).toISOString();
 
@@ -273,7 +289,9 @@ export class InMemorySessionStore implements SessionStore {
 export const defaultSessionStore = new InMemorySessionStore();
 
 /**
- * Initialize a new default learner session structure.
+ * Initialize a new default learner session structure with a server-generated ID.
+ *
+ * IDs are never taken from the client, so one user cannot claim another's ID.
  *
  * Args:
  *   options: Session creation parameters.
@@ -288,7 +306,7 @@ export function initializeLearnerSession(options: CreateSessionOptions): Learner
   const level: CefrLevel = options.learnerLevel ?? 'A2';
 
   return {
-    sessionId: options.sessionId ?? `sess_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+    sessionId: `sess_${randomUUID()}`,
     userId: options.userId,
     personaId: options.personaId ?? 'emmanuele',
     learnerName: options.learnerName ?? '',

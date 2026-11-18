@@ -216,10 +216,12 @@ app.post('/api/session', async (req, res) => {
     } = req.body;
 
     let session = sessionId ? await defaultSessionStore.getSession(sessionId, userId) : null;
+    if (sessionId && !session) {
+      return res.status(404).json({ error: 'Session not found or not owned by user' });
+    }
 
     if (!session) {
       session = initializeLearnerSession({
-        sessionId,
         userId,
         personaId,
         learnerName,

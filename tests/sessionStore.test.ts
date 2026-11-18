@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   InMemorySessionStore,
   initializeLearnerSession,
+  SessionOwnershipError,
   type ConversationTurn
 } from '../src/server/sessionStore';
 
@@ -23,6 +24,22 @@ describe('InMemorySessionStore lifecycle', () => {
     expect(retrieved).not.toBeNull();
     expect(retrieved?.learnerName).toBe('Alessandro');
     expect(retrieved?.learnerLevel).toBe('B1');
+  });
+
+  it('refuses to overwrite a session that belongs to another user', async () => {
+    const store = new InMemorySessionStore();
+    const owned = initializeLearnerSession({ userId: 'owner-user', learnerName: 'Giulia' });
+    await store.createOrUpdateSession(owned);
+
+    const hijack = { ...initializeLearnerSession({ userId: 'intruder-user' }), sessionId: owned.sessionId };
+    await expect(store.createOrUpdateSession(hijack)).rejects.toBeInstanceOf(SessionOwnershipError);
+    expect((await store.getSession(owned.sessionId, 'owner-user'))?.learnerName).toBe('Giulia');
+  });
+
+  it('generates a unique session ID for every new session', () => {
+    const a = initializeLearnerSession({ userId: 'u' });
+    const b = initializeLearnerSession({ userId: 'u' });
+    expect(a.sessionId).not.toBe(b.sessionId);
   });
 
   it('rejects access when a different userId attempts to read the session', async () => {
