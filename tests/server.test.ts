@@ -50,12 +50,15 @@ describe('cloudSttEncodingFor', () => {
 });
 
 describe('GET /api/health', () => {
-  it('reports status without leaking the GCP project ID', async () => {
+  it('reports status and data privacy mode without leaking the GCP project ID', async () => {
     const res = await request(app).get('/api/health');
 
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('ok');
     expect(res.body.gcp).not.toHaveProperty('project');
+    expect(res.body).toHaveProperty('privacy');
+    expect(res.body.privacy.mode).toBe('vertex_only');
+    expect(res.body).toHaveProperty('metrics');
   });
 });
 
@@ -181,6 +184,69 @@ describe('API 404 fallback', () => {
     expect(res.body.error).toMatch(/API route not found/);
   });
 });
+
+describe('/api/session endpoints', () => {
+  it('returns 404 when no session exists for the user', async () => {
+    const res = await request(app)
+      .get('/api/session')
+      .set('x-dev-user-id', 'fresh-user-without-session');
+    expect(res.status).toBe(404);
+  });
+
+  it('creates and persists a learner session via POST /api/session', async () => {
+    const res = await request(app)
+      .post('/api/session')
+      .set('x-dev-user-id', 'user-session-test')
+      .send({
+        learnerName: 'Enzo',
+        learnerLevel: 'B2',
+        grammarStrictness: 'strict'
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.learnerName).toBe('Enzo');
+    expect(res.body.learnerLevel).toBe('B2');
+    expect(res.body.sessionId).toBeDefined();
+
+    const sessionId = res.body.sessionId;
+
+    // Fetch the active session
+    const getRes = await request(app)
+      .get('/api/session')
+      .set('x-dev-user-id', 'user-session-test');
+    expect(getRes.status).toBe(200);
+    expect(getRes.body.sessionId).toBe(sessionId);
+
+    // Delete the specific session
+    const delRes = await request(app)
+      .delete(`/api/session/${sessionId}`)
+      .set('x-dev-user-id', 'user-session-test');
+    expect(delRes.status).toBe(200);
+    expect(delRes.body.status).toBe('deleted');
+
+    // Confirm session is gone
+    const checkRes = await request(app)
+      .get('/api/session')
+      .set('x-dev-user-id', 'user-session-test');
+    expect(checkRes.status).toBe(404);
+  });
+
+  it('supports GDPR deletion of all user sessions via DELETE /api/session', async () => {
+    await request(app)
+      .post('/api/session')
+      .set('x-dev-user-id', 'gdpr-route-user')
+      .send({ learnerName: 'Sara' });
+
+    const delAllRes = await request(app)
+      .delete('/api/session')
+      .set('x-dev-user-id', 'gdpr-route-user');
+
+    expect(delAllRes.status).toBe(200);
+    expect(delAllRes.body.status).toBe('all_data_deleted');
+    expect(delAllRes.body.sessionsDeleted).toBeGreaterThanOrEqual(1);
+  });
+});
+
 
 describe('buildSystemInstruction & level prompts', () => {
   it('adapts vocabulary complexity instructions based on CEFR level', () => {
