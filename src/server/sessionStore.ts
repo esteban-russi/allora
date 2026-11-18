@@ -157,11 +157,107 @@ export interface SessionStore {
   purgeExpiredSessions(): Promise<number>;
 }
 
-/** In-memory implementation of SessionStore supporting checkpoints and TTL expiry. */
+const MAX_CHECKPOINT_TURNS = 50;
+
+/**
+ * Check whether a session has passed its retention expiry.
+ *
+ * Args:
+ *   session: Stored session.
+ *   nowMs: Current time in milliseconds.
+ *
+ * Returns:
+ *   True once `expiresAt` is at or before now.
+ */
+export function isSessionExpired(session: LearnerSession, nowMs: number): boolean {
+  return new Date(session.expiresAt).getTime() <= nowMs;
+}
+
+/**
+ * Mark a session as updated now and restart its retention window.
+ *
+ * Args:
+ *   session: Session to stamp.
+ *   nowMs: Current time in milliseconds.
+ *   retentionMs: Inactivity period after which the session expires.
+ *
+ * Returns:
+ *   A new session object with `updatedAt` and `expiresAt` set.
+ */
+export function withRetention(session: LearnerSession, nowMs: number, retentionMs: number): LearnerSession {
+  return {
+    ...session,
+    updatedAt: new Date(nowMs).toISOString(),
+    expiresAt: new Date(nowMs + retentionMs).toISOString()
+  };
+}
+
+/**
+ * Append a turn to a session, keeping the last 50 and recomputing the talking share.
+ *
+ * Args:
+ *   session: Session to extend.
+ *   turn: Finished conversation turn.
+ *   nowMs: Current time in milliseconds.
+ *   retentionMs: Inactivity period after which the session expires.
+ *
+ * Returns:
+ *   A new session object; the input is not modified.
+ */
+export function appendCheckpointTurn(
+  session: LearnerSession,
+  turn: ConversationTurn,
+  nowMs: number,
+  retentionMs: number
+): LearnerSession {
+  const turns = [...session.checkpointTurns, turn].slice(-MAX_CHECKPOINT_TURNS);
+
+  let userWords = 0;
+  let totalWords = 0;
+  for (const t of turns) {
+    const words = t.text.trim().split(/\s+/).filter(Boolean).length;
+    totalWords += words;
+    if (t.sender === 'user') userWords += words;
+  }
+  const talkingSharePct = totalWords > 0 ? Math.round((userWords / totalWords) * 100) : 0;
+
+  return withRetention(
+    {
+      ...session,
+      checkpointTurns: turns,
+      progress: { ...session.progress, totalTurns: turns.length, talkingSharePct }
+    },
+    nowMs,
+    retentionMs
+  );
+}
+
+/**
+ * In-memory SessionStore, for local development and tests.
+ *
+ * Sessions are copied on the way in and out, so callers cannot change stored state
+ * without going through the store, the same as with a database.
+ */
 export class InMemorySessionStore implements SessionStore {
   private sessions = new Map<string, LearnerSession>();
 
   constructor(private retentionMs: number = DEFAULT_RETENTION_MS, private now: () => number = Date.now) {}
+
+  /** Synchronous owned read, so read-modify-write methods cannot interleave. */
+  private readOwned(sessionId: string, userId: string): LearnerSession | null {
+    const session = this.sessions.get(sessionId);
+    if (!session || session.userId !== userId) return null;
+    if (isSessionExpired(session, this.now())) {
+      this.sessions.delete(sessionId);
+      return null;
+    }
+    return session;
+  }
+
+  private write(session: LearnerSession): LearnerSession {
+    this.sessions.set(session.sessionId, structuredClone(session));
+    return structuredClone(session);
+  }
 
   /**
    * Retrieve a learner session by ID, verifying ownership and retention period.
@@ -174,16 +270,8 @@ export class InMemorySessionStore implements SessionStore {
    *   The session if found, valid, and owned by user; null otherwise.
    */
   async getSession(sessionId: string, userId: string): Promise<LearnerSession | null> {
-    const session = this.sessions.get(sessionId);
-    if (!session || session.userId !== userId) return null;
-
-    const expiresAtMs = new Date(session.expiresAt).getTime();
-    if (expiresAtMs <= this.now()) {
-      this.sessions.delete(sessionId);
-      return null;
-    }
-
-    return session;
+    const session = this.readOwned(sessionId, userId);
+    return session ? structuredClone(session) : null;
   }
 
   /**
@@ -197,21 +285,11 @@ export class InMemorySessionStore implements SessionStore {
    */
   async getActiveUserSession(userId: string): Promise<LearnerSession | null> {
     let latest: LearnerSession | null = null;
-    const nowMs = this.now();
-
-    for (const session of this.sessions.values()) {
-      if (session.userId !== userId) continue;
-      const expiresAtMs = new Date(session.expiresAt).getTime();
-      if (expiresAtMs <= nowMs) {
-        this.sessions.delete(session.sessionId);
-        continue;
-      }
-      if (!latest || new Date(session.updatedAt).getTime() > new Date(latest.updatedAt).getTime()) {
-        latest = session;
-      }
+    for (const session of [...this.sessions.values()]) {
+      if (session.userId !== userId || !this.readOwned(session.sessionId, userId)) continue;
+      if (!latest || session.updatedAt > latest.updatedAt) latest = session;
     }
-
-    return latest;
+    return latest ? structuredClone(latest) : null;
   }
 
   /**
@@ -231,22 +309,11 @@ export class InMemorySessionStore implements SessionStore {
     if (existing && existing.userId !== session.userId) {
       throw new SessionOwnershipError(session.sessionId);
     }
-
-    const nowIso = new Date(this.now()).toISOString();
-    const expiresAtIso = new Date(this.now() + this.retentionMs).toISOString();
-
-    const stored: LearnerSession = {
-      ...session,
-      updatedAt: nowIso,
-      expiresAt: expiresAtIso
-    };
-
-    this.sessions.set(session.sessionId, stored);
-    return stored;
+    return this.write(withRetention(session, this.now(), this.retentionMs));
   }
 
   /**
-   * Append a conversation turn to the session's checkpoint history.
+   * Append a conversation turn to the session's checkpoint history (last 50 kept).
    *
    * Args:
    *   sessionId: Target session identifier.
@@ -261,38 +328,9 @@ export class InMemorySessionStore implements SessionStore {
     userId: string,
     turn: ConversationTurn
   ): Promise<LearnerSession | null> {
-    const session = await this.getSession(sessionId, userId);
+    const session = this.readOwned(sessionId, userId);
     if (!session) return null;
-
-    const updatedTurns = [...session.checkpointTurns, turn];
-    // Keep up to 50 recent checkpoint turns per session
-    if (updatedTurns.length > 50) {
-      updatedTurns.splice(0, updatedTurns.length - 50);
-    }
-
-    let userWords = 0;
-    let totalWords = 0;
-    for (const t of updatedTurns) {
-      const words = t.text.trim().split(/\s+/).filter(Boolean).length;
-      totalWords += words;
-      if (t.sender === 'user') userWords += words;
-    }
-    const talkingSharePct = totalWords > 0 ? Math.round((userWords / totalWords) * 100) : 0;
-
-    const updatedSession: LearnerSession = {
-      ...session,
-      checkpointTurns: updatedTurns,
-      progress: {
-        ...session.progress,
-        totalTurns: updatedTurns.length,
-        talkingSharePct
-      },
-      updatedAt: new Date(this.now()).toISOString(),
-      expiresAt: new Date(this.now() + this.retentionMs).toISOString()
-    };
-
-    this.sessions.set(sessionId, updatedSession);
-    return updatedSession;
+    return this.write(appendCheckpointTurn(session, turn, this.now(), this.retentionMs));
   }
 
   /**
@@ -310,12 +348,14 @@ export class InMemorySessionStore implements SessionStore {
     handle: string | null,
     model?: string
   ): Promise<void> {
-    const session = await this.getSession(sessionId, userId);
+    const session = this.readOwned(sessionId, userId);
     if (!session) return;
-
-    session.upstreamResumptionHandle = handle;
-    if (model) session.upstreamModel = model;
-    session.updatedAt = new Date(this.now()).toISOString();
+    this.write({
+      ...session,
+      upstreamResumptionHandle: handle,
+      upstreamModel: model ?? session.upstreamModel,
+      updatedAt: new Date(this.now()).toISOString()
+    });
   }
 
   /**
@@ -364,7 +404,7 @@ export class InMemorySessionStore implements SessionStore {
     let purgedCount = 0;
     const nowMs = this.now();
     for (const [id, session] of this.sessions.entries()) {
-      if (new Date(session.expiresAt).getTime() <= nowMs) {
+      if (isSessionExpired(session, nowMs)) {
         this.sessions.delete(id);
         purgedCount++;
       }
