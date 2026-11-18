@@ -1,9 +1,11 @@
 import { createServer, type Server } from 'http';
 import type { AddressInfo } from 'net';
-import type { LiveServerMessage } from '@google/genai';
+import type { GoogleGenAI, LiveServerMessage } from '@google/genai';
 import { afterEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 import { attachLiveBridge, parseLiveCallParams, toClientFrames } from '../liveBridge';
+import { InMemorySessionStore } from '../src/server/sessionStore';
+import { UserRateLimiter } from '../src/server/rateLimiter';
 
 const VALID_URL = '/api/live?personaId=emmanuele&learnerLevel=B1&grammarStrictness=strict&learnerName=Giulia&sampleRate=48000';
 
@@ -98,5 +100,89 @@ describe('attachLiveBridge upgrade handling', () => {
 
   it('returns 503 when no Gemini credentials are configured', async () => {
     expect(await handshakeStatus(VALID_URL)).toBe(503);
+  });
+});
+
+describe('attachLiveBridge slot accounting', () => {
+  let server: Server;
+  const sockets: WebSocket[] = [];
+
+  afterEach(async () => {
+    sockets.splice(0).forEach((ws) => ws.terminate());
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  /** Start the bridge with a session store whose calls never settle or always fail. */
+  async function startBridge(store: InMemorySessionStore, userLimiter: UserRateLimiter): Promise<number> {
+    server = createServer();
+    attachLiveBridge(server, {
+      // Never reached: these tests stop before a Gemini session is opened
+      clients: [{} as GoogleGenAI],
+      model: 'test-model',
+      trustProxyHops: 0,
+      sessionStore: store,
+      userLimiter
+    });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    return (server.address() as AddressInfo).port;
+  }
+
+  function connect(port: number, userId: string): { ws: WebSocket; status: Promise<number | 'closed'> } {
+    const ws = new WebSocket(`ws://localhost:${port}${VALID_URL}&devUserId=${userId}`);
+    sockets.push(ws);
+    const status = new Promise<number | 'closed'>((resolve) => {
+      ws.on('unexpected-response', (_req, res) => resolve(res.statusCode ?? 0));
+      ws.on('close', () => resolve('closed'));
+      ws.on('error', () => undefined);
+    });
+    return { ws, status };
+  }
+
+  const waitFor = async (check: () => boolean): Promise<void> => {
+    for (let i = 0; i < 100 && !check(); i++) await new Promise((r) => setTimeout(r, 10));
+    expect(check()).toBe(true);
+  };
+
+  class HangingStore extends InMemorySessionStore {
+    override createOrUpdateSession(): Promise<never> {
+      return new Promise(() => undefined);
+    }
+  }
+
+  class FailingStore extends InMemorySessionStore {
+    override async createOrUpdateSession(): Promise<never> {
+      throw new Error('store unavailable');
+    }
+  }
+
+  it('returns 500 and releases the call slot when the session store throws', async () => {
+    const limiter = new UserRateLimiter();
+    const port = await startBridge(new FailingStore(), limiter);
+
+    expect(await connect(port, 'store-fail-user').status).toBe(500);
+    // A leaked slot would turn the retry into a 429
+    expect(await connect(port, 'store-fail-user').status).toBe(500);
+    expect(limiter.getActiveCallCount('store-fail-user')).toBe(0);
+  });
+
+  it('releases the call slot when the client hangs up during setup', async () => {
+    const limiter = new UserRateLimiter();
+    const port = await startBridge(new HangingStore(), limiter);
+
+    const { ws } = connect(port, 'impatient-user');
+    await waitFor(() => limiter.getActiveCallCount('impatient-user') === 1);
+    ws.terminate();
+    await waitFor(() => limiter.getActiveCallCount('impatient-user') === 0);
+  });
+
+  it('counts concurrent upgrades from one IP before any of them finishes setup', async () => {
+    const limiter = new UserRateLimiter();
+    const port = await startBridge(new HangingStore(), limiter);
+
+    connect(port, 'ip-user-1');
+    connect(port, 'ip-user-2');
+    await waitFor(() => limiter.getActiveCallCount('ip-user-2') === 1);
+    expect(await connect(port, 'ip-user-3').status).toBe(429);
   });
 });

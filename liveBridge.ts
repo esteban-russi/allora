@@ -1,4 +1,5 @@
 /** WebSocket bridge between mobile voice calls and a Gemini Live session with resumption and separate lifecycles. */
+import { randomUUID } from 'crypto';
 import { STATUS_CODES, type IncomingMessage, type Server } from 'http';
 import type { Duplex } from 'stream';
 import { GoogleGenAI, Modality, type LiveConnectConfig, type LiveServerMessage, type Session } from '@google/genai';
@@ -457,9 +458,34 @@ export function attachLiveBridge(server: Server, options: LiveBridgeOptions): vo
   const userLimiter = options.userLimiter ?? defaultUserLimiter;
   const sessionStore = options.sessionStore ?? defaultSessionStore;
 
-  server.on('upgrade', async (req: IncomingMessage, socket: Duplex, head: Buffer) => {
+  /**
+   * Take the user's call slot and an IP slot together, synchronously, so concurrent
+   * upgrades cannot all pass the check before any of them increments the count.
+   *
+   * Returns:
+   *   An idempotent release function, or an error message if a limit is reached.
+   */
+  const reserveSlots = (userId: string, ip: string): (() => void) | string => {
+    if ((sessionsPerIp.get(ip) ?? 0) >= MAX_SESSIONS_PER_IP) return 'Too many open voice calls';
+    const connectionId = `conn_${randomUUID()}`;
+    if (!userLimiter.acquireLiveCall(userId, connectionId)) {
+      return 'Active voice call already in progress for this account';
+    }
+    sessionsPerIp.set(ip, (sessionsPerIp.get(ip) ?? 0) + 1);
+
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      userLimiter.releaseLiveCall(userId, connectionId);
+      const remaining = (sessionsPerIp.get(ip) ?? 1) - 1;
+      if (remaining > 0) sessionsPerIp.set(ip, remaining);
+      else sessionsPerIp.delete(ip);
+    };
+  };
+
+  const handleLiveUpgrade = async (req: IncomingMessage, socket: Duplex, head: Buffer): Promise<void> => {
     const url = req.url ?? '';
-    if (new URL(url, 'http://localhost').pathname !== LIVE_PATH) return;
 
     // Reject cross-origin requests
     const origin = req.headers.origin;
@@ -479,61 +505,66 @@ export function attachLiveBridge(server: Server, options: LiveBridgeOptions): vo
       return;
     }
 
-    // Authenticate user
     const user = await authenticateWebSocketRequest(req);
+    if (socket.destroyed) return;
     if (!user) {
       rejectUpgrade(socket, 401, 'Unauthorized: Valid Firebase or Google Identity token required');
       return;
     }
 
-    // Per-user call concurrency limit (allows 1 active call per user)
-    const connectionId = `conn_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-    if (!userLimiter.acquireLiveCall(user.userId, connectionId)) {
-      rejectUpgrade(socket, 429, 'Active voice call already in progress for this account');
+    const release = reserveSlots(user.userId, clientIp(req, options.trustProxyHops));
+    if (typeof release === 'string') {
+      rejectUpgrade(socket, 429, release);
       return;
     }
+    // Covers every later exit: rejection, a client that hangs up mid-setup, and the
+    // upgraded WebSocket closing (it closes this same socket)
+    socket.once('close', release);
+    // HTTP server sockets are half-open: a client hang-up only emits 'end', so close
+    // it ourselves until ws takes over the socket
+    const destroyOnEnd = () => socket.destroy();
+    socket.once('end', destroyOnEnd);
 
-    // Fallback IP concurrency check
-    const ip = clientIp(req, options.trustProxyHops);
-    const openSessions = sessionsPerIp.get(ip) ?? 0;
-    if (openSessions >= MAX_SESSIONS_PER_IP) {
-      userLimiter.releaseLiveCall(user.userId, connectionId);
-      rejectUpgrade(socket, 429, 'Too many open voice calls');
-      return;
-    }
+    try {
+      let sessionRecord: LearnerSession | null = null;
+      if (parsed.params.sessionId) {
+        sessionRecord = await sessionStore.getSession(parsed.params.sessionId, user.userId);
+      }
+      // An unknown or foreign sessionId starts a fresh session under a new server-generated ID
+      if (!sessionRecord) {
+        sessionRecord = await sessionStore.createOrUpdateSession(
+          initializeLearnerSession({
+            userId: user.userId,
+            personaId: parsed.params.personaId,
+            learnerName: parsed.params.learnerName,
+            learnerLevel: parsed.params.learnerLevel,
+            grammarStrictness: parsed.params.grammarStrictness
+          })
+        );
+      }
+      if (socket.destroyed) return;
+      socket.off('end', destroyOnEnd);
 
-    // Retrieve or initialize LearnerSession
-    let sessionRecord: LearnerSession | null = null;
-    if (parsed.params.sessionId) {
-      sessionRecord = await sessionStore.getSession(parsed.params.sessionId, user.userId);
-    }
-    // An unknown or foreign sessionId starts a fresh session under a new server-generated ID
-    if (!sessionRecord) {
-      sessionRecord = await sessionStore.createOrUpdateSession(
-        initializeLearnerSession({
-          userId: user.userId,
-          personaId: parsed.params.personaId,
-          learnerName: parsed.params.learnerName,
-          learnerLevel: parsed.params.learnerLevel,
-          grammarStrictness: parsed.params.grammarStrictness
-        })
-      );
-    }
-
-    wss.handleUpgrade(req, socket, head, (ws) => {
-      sessionsPerIp.set(ip, (sessionsPerIp.get(ip) ?? 0) + 1);
-
-      ws.on('close', () => {
-        userLimiter.releaseLiveCall(user.userId, connectionId);
-        const remaining = (sessionsPerIp.get(ip) ?? 1) - 1;
-        if (remaining > 0) sessionsPerIp.set(ip, remaining);
-        else sessionsPerIp.delete(ip);
+      const record = sessionRecord;
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        ws.on('close', release);
+        runLiveCall(ws, parsed.params, user, record, options).catch((err) => {
+          console.error('[Gemini Live] Bridge error:', err);
+          ws.close(1011, 'Internal error');
+        });
       });
+    } catch (err) {
+      release();
+      throw err;
+    }
+  };
 
-      runLiveCall(ws, parsed.params, user, sessionRecord, options).catch((err) => {
-        console.error('[Gemini Live] Bridge error:', err);
-        ws.close(1011, 'Internal error');
-      });
+  server.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => {
+    if (new URL(req.url ?? '', 'http://localhost').pathname !== LIVE_PATH) return;
+
+    handleLiveUpgrade(req, socket, head).catch((err) => {
+      console.error('[Gemini Live] Upgrade error:', err);
+      if (!socket.destroyed) rejectUpgrade(socket, 500, 'Could not start the voice call');
     });
   });
 }
