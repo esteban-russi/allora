@@ -10,7 +10,7 @@ import { PERSONA_PROMPTS, LEVEL_PROMPTS, GRAMMAR_STRICTNESS_LEVELS, buildSystemI
 import type { CefrLevel } from './src/types';
 import { attachLiveBridge } from './liveBridge';
 import { VertexCooldown, isPersistentVertexError, summarizeError } from './vertexCooldown';
-import { authenticateHttpUser } from './src/server/auth';
+import { assertAuthConfig, authenticateHttpUser } from './src/server/auth';
 import {
   defaultSessionStore,
   initializeLearnerSession,
@@ -691,6 +691,7 @@ app.all('/api/*', (req, res) => {
 
 // Setup Vite middleware in dev or static serving in production
 async function startServer() {
+  assertAuthConfig();
   logPrivacyAuditNotice();
   const isProd = process.env.NODE_ENV === 'production';
 

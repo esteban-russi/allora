@@ -15,10 +15,48 @@ export interface AuthOptions {
   enforceAuth?: boolean;
   /** Firebase or Google Cloud project ID for audience and issuer validation. */
   projectId?: string;
-  /** Optional Google OAuth client ID for Google Identity token audience validation. */
+  /** Google OAuth client ID for Google Identity token audience validation. */
   googleClientId?: string;
   /** Custom certificate resolver, useful for deterministic offline testing. */
   certResolver?: (kid: string) => Promise<string | null>;
+}
+
+const DEV_TOKEN_PREFIX = 'dev-token:';
+
+/**
+ * Decide whether real token verification is required.
+ *
+ * Args:
+ *   options: Explicit override via `enforceAuth`.
+ *
+ * Returns:
+ *   True when `enforceAuth` is set, `ENFORCE_AUTH=true`, or `NODE_ENV=production`.
+ */
+export function isAuthEnforced(options: AuthOptions = {}): boolean {
+  return options.enforceAuth ?? (process.env.ENFORCE_AUTH === 'true' || process.env.NODE_ENV === 'production');
+}
+
+/**
+ * Fail fast when auth is enforced but no token audience is configured.
+ *
+ * Without a project ID or client ID, ID tokens minted for other apps could not be
+ * told apart from ours, so every token is rejected; this surfaces that at startup.
+ *
+ * Args:
+ *   options: Authentication configuration options.
+ *
+ * Raises:
+ *   Error: If auth is enforced and neither GCP_PROJECT nor GOOGLE_CLIENT_ID is set.
+ */
+export function assertAuthConfig(options: AuthOptions = {}): void {
+  if (!isAuthEnforced(options)) return;
+  const projectId = options.projectId || process.env.GCP_PROJECT;
+  const googleClientId = options.googleClientId || process.env.GOOGLE_CLIENT_ID;
+  if (!projectId && !googleClientId) {
+    throw new Error(
+      'Auth is enforced but no token audience is configured: set GCP_PROJECT (Firebase) or GOOGLE_CLIENT_ID (Google Identity)'
+    );
+  }
 }
 
 declare global {
@@ -155,9 +193,10 @@ export async function verifyIdToken(
 ): Promise<AuthenticatedUser | null> {
   if (!token || typeof token !== 'string') return null;
 
-  // Development/Test mock token fast-path
-  if (token.startsWith('dev-token:')) {
-    const parts = token.slice('dev-token:'.length).split(':');
+  // Dev tokens are only honoured when real verification is not enforced
+  if (token.startsWith(DEV_TOKEN_PREFIX)) {
+    if (isAuthEnforced(options)) return null;
+    const parts = token.slice(DEV_TOKEN_PREFIX.length).split(':');
     const userId = parts[0] || 'dev-user';
     const email = parts[1] || `${userId}@example.com`;
     return {
@@ -190,29 +229,30 @@ export async function verifyIdToken(
   const iss = String(payload.iss ?? '');
   const aud = String(payload.aud ?? '');
   const expectedProjectId = options.projectId || process.env.GCP_PROJECT;
+  const expectedClientId = options.googleClientId || process.env.GOOGLE_CLIENT_ID;
 
-  let certPem: string | null = null;
-  let authProvider: 'firebase' | 'google' = 'firebase';
-
-  if (options.certResolver) {
-    certPem = await options.certResolver(kid);
-  } else if (iss.startsWith('https://securetoken.google.com/')) {
+  // Issuer and audience are always checked: an unset expected audience rejects the
+  // token rather than accepting ID tokens minted for any other app.
+  let authProvider: 'firebase' | 'google';
+  let certsUrl: string;
+  let certsCache: CachedCerts | null;
+  if (iss === `https://securetoken.google.com/${expectedProjectId}`) {
+    if (!expectedProjectId || aud !== expectedProjectId) return null;
     authProvider = 'firebase';
-    const tokenProject = iss.replace('https://securetoken.google.com/', '');
-    if (expectedProjectId && tokenProject !== expectedProjectId) return null;
-    if (expectedProjectId && aud !== expectedProjectId) return null;
-
-    const certs = await fetchGoogleCerts(FIREBASE_CERTS_URL, cachedFirebaseCerts);
-    certPem = certs[kid] ?? null;
+    certsUrl = FIREBASE_CERTS_URL;
+    certsCache = cachedFirebaseCerts;
   } else if (iss === 'https://accounts.google.com' || iss === 'accounts.google.com') {
+    if (!expectedClientId || aud !== expectedClientId) return null;
     authProvider = 'google';
-    if (options.googleClientId && aud !== options.googleClientId) return null;
-
-    const certs = await fetchGoogleCerts(GOOGLE_CERTS_URL, cachedGoogleCerts);
-    certPem = certs[kid] ?? null;
+    certsUrl = GOOGLE_CERTS_URL;
+    certsCache = cachedGoogleCerts;
   } else {
     return null;
   }
+
+  const certPem = options.certResolver
+    ? await options.certResolver(kid)
+    : ((await fetchGoogleCerts(certsUrl, certsCache))[kid] ?? null);
 
   if (!certPem) return null;
 
@@ -280,8 +320,7 @@ export function extractTokenFromRequest(req: IncomingMessage): string | null {
  *   Express middleware handler.
  */
 export function authenticateHttpUser(options: AuthOptions = {}) {
-  const isProd = process.env.NODE_ENV === 'production';
-  const enforceAuth = options.enforceAuth ?? (process.env.ENFORCE_AUTH === 'true' || isProd);
+  const enforceAuth = isAuthEnforced(options);
 
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     const token = extractTokenFromRequest(req);
@@ -334,15 +373,13 @@ export async function authenticateWebSocketRequest(
   req: IncomingMessage,
   options: AuthOptions = {}
 ): Promise<AuthenticatedUser | null> {
-  const isProd = process.env.NODE_ENV === 'production';
-  const enforceAuth = options.enforceAuth ?? (process.env.ENFORCE_AUTH === 'true' || isProd);
   const token = extractTokenFromRequest(req);
 
   if (token) {
     return await verifyIdToken(token, options);
   }
 
-  if (!enforceAuth) {
+  if (!isAuthEnforced(options)) {
     const url = req.url ?? '';
     const query = new URL(url, 'http://localhost').searchParams;
     const devUserId = query.get('devUserId') ?? 'dev-learner-default';

@@ -1,8 +1,9 @@
 /** Tests for authentication, token parsing, and user verification. */
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { IncomingMessage } from 'http';
-import { generateKeyPairSync } from 'crypto';
+import { generateKeyPairSync, sign } from 'crypto';
 import {
+  assertAuthConfig,
   decodeJwt,
   extractTokenFromRequest,
   verifyIdToken,
@@ -29,9 +30,13 @@ describe('decodeJwt', () => {
   });
 });
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe('verifyIdToken with dev tokens', () => {
   it('accepts dev token fast-path with userId and email', async () => {
-    const user = await verifyIdToken('dev-token:marco:marco@roma.it');
+    const user = await verifyIdToken('dev-token:marco:marco@roma.it', { enforceAuth: false });
     expect(user).toEqual({
       userId: 'marco',
       email: 'marco@roma.it',
@@ -41,12 +46,21 @@ describe('verifyIdToken with dev tokens', () => {
   });
 
   it('defaults email when omitted in dev token', async () => {
-    const user = await verifyIdToken('dev-token:giulia');
+    const user = await verifyIdToken('dev-token:giulia', { enforceAuth: false });
     expect(user).toMatchObject({
       userId: 'giulia',
       email: 'giulia@example.com',
       authProvider: 'dev'
     });
+  });
+
+  it('rejects dev tokens when auth is enforced', async () => {
+    expect(await verifyIdToken('dev-token:victim', { enforceAuth: true })).toBeNull();
+  });
+
+  it('rejects dev tokens in production by default', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    expect(await verifyIdToken('dev-token:victim')).toBeNull();
   });
 });
 
@@ -62,10 +76,27 @@ describe('verifyIdToken with RSA signature verification', () => {
     const b64Payload = Buffer.from(JSON.stringify(payload)).toString('base64url');
     const signedData = `${header}.${b64Payload}`;
 
-    const { sign } = require('crypto');
     const signature = sign('RSA-SHA256', Buffer.from(signedData, 'utf8'), privateKey);
     return `${signedData}.${signature.toString('base64url')}`;
   }
+
+  function firebaseClaims(project = 'test-project'): Record<string, unknown> {
+    const nowSec = Math.floor(Date.now() / 1000);
+    return {
+      sub: 'firebase-user-99',
+      iss: `https://securetoken.google.com/${project}`,
+      aud: project,
+      exp: nowSec + 3600,
+      iat: nowSec - 10
+    };
+  }
+
+  function googleClaims(aud: string): Record<string, unknown> {
+    const nowSec = Math.floor(Date.now() / 1000);
+    return { sub: 'google-user-7', iss: 'https://accounts.google.com', aud, exp: nowSec + 3600, iat: nowSec - 10 };
+  }
+
+  const resolver = async (kid: string) => (kid === 'test-kid' ? publicKey : null);
 
   it('verifies a valid signed JWT using a custom certificate resolver', async () => {
     const nowSec = Math.floor(Date.now() / 1000);
@@ -91,12 +122,13 @@ describe('verifyIdToken with RSA signature verification', () => {
   it('rejects an expired token', async () => {
     const nowSec = Math.floor(Date.now() / 1000);
     const expiredToken = createSignedJwt({
-      sub: 'user-old',
+      ...firebaseClaims(),
       exp: nowSec - 60, // expired 1 minute ago
       iat: nowSec - 3600
     });
 
     const user = await verifyIdToken(expiredToken, {
+      projectId: 'test-project',
       certResolver: async () => publicKey
     });
 
@@ -105,16 +137,60 @@ describe('verifyIdToken with RSA signature verification', () => {
 
   it('rejects an unknown key ID', async () => {
     const nowSec = Math.floor(Date.now() / 1000);
-    const token = createSignedJwt(
-      { sub: 'user-test', exp: nowSec + 1000, iat: nowSec },
-      'unknown-kid'
-    );
+    const token = createSignedJwt({ ...firebaseClaims(), exp: nowSec + 1000, iat: nowSec }, 'unknown-kid');
 
     const user = await verifyIdToken(token, {
+      projectId: 'test-project',
       certResolver: async (kid) => (kid === 'known-kid' ? publicKey : null)
     });
 
     expect(user).toBeNull();
+  });
+
+  it('rejects a Firebase token issued for another project', async () => {
+    const token = createSignedJwt(firebaseClaims('other-project'));
+    expect(await verifyIdToken(token, { projectId: 'test-project', certResolver: resolver })).toBeNull();
+  });
+
+  it('rejects a Firebase token when no project ID is configured', async () => {
+    vi.stubEnv('GCP_PROJECT', '');
+    const token = createSignedJwt(firebaseClaims());
+    expect(await verifyIdToken(token, { certResolver: resolver })).toBeNull();
+  });
+
+  it('accepts a Google token whose audience matches the configured client ID', async () => {
+    const token = createSignedJwt(googleClaims('our-client'));
+    const user = await verifyIdToken(token, { googleClientId: 'our-client', certResolver: resolver });
+    expect(user).toMatchObject({ userId: 'google-user-7', authProvider: 'google' });
+  });
+
+  it('rejects a Google token minted for another OAuth client', async () => {
+    const token = createSignedJwt(googleClaims('someone-elses-client'));
+    expect(await verifyIdToken(token, { googleClientId: 'our-client', certResolver: resolver })).toBeNull();
+  });
+
+  it('rejects a Google token when no client ID is configured', async () => {
+    vi.stubEnv('GOOGLE_CLIENT_ID', '');
+    const token = createSignedJwt(googleClaims('any-client'));
+    expect(await verifyIdToken(token, { certResolver: resolver })).toBeNull();
+  });
+});
+
+describe('assertAuthConfig', () => {
+  it('throws when auth is enforced without any token audience', () => {
+    vi.stubEnv('GCP_PROJECT', '');
+    vi.stubEnv('GOOGLE_CLIENT_ID', '');
+    expect(() => assertAuthConfig({ enforceAuth: true })).toThrow(/no token audience/);
+  });
+
+  it('passes when auth is enforced and a project ID is configured', () => {
+    expect(() => assertAuthConfig({ enforceAuth: true, projectId: 'test-project' })).not.toThrow();
+  });
+
+  it('does nothing when auth is not enforced', () => {
+    vi.stubEnv('GCP_PROJECT', '');
+    vi.stubEnv('GOOGLE_CLIENT_ID', '');
+    expect(() => assertAuthConfig({ enforceAuth: false })).not.toThrow();
   });
 });
 
