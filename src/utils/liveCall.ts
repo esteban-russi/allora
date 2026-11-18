@@ -163,7 +163,7 @@ export class LiveCall {
 
     socket.onopen = () => {
       this.lastPongTime = Date.now();
-      this.startHeartbeat();
+      this.startHeartbeat(sampleRate);
       this.reconnectAttempts = 0;
     };
 
@@ -183,17 +183,36 @@ export class LiveCall {
     };
   }
 
-  private startHeartbeat(): void {
+  private startHeartbeat(sampleRate: number): void {
     this.clearTimers();
     this.heartbeatTimer = window.setInterval(() => {
       if (this.socket?.readyState === WebSocket.OPEN) {
         this.socket.send(JSON.stringify({ type: 'ping' }));
         if (Date.now() - this.lastPongTime > HEARTBEAT_TIMEOUT_MS) {
           console.warn('[LiveCall] Heartbeat timeout: mobile silent network drop detected. Reconnecting...');
-          this.socket.close();
+          this.abandonSocketAndReconnect(sampleRate);
         }
       }
     }, HEARTBEAT_INTERVAL_MS);
+  }
+
+  /**
+   * Drop a dead socket and reconnect now.
+   *
+   * On a dead link close() waits for a closing handshake that never arrives, so
+   * onclose (and the reconnect) could be delayed by tens of seconds.
+   */
+  private abandonSocketAndReconnect(sampleRate: number): void {
+    const dead = this.socket;
+    if (dead) {
+      dead.onopen = null;
+      dead.onmessage = null;
+      dead.onclose = null;
+      dead.close();
+    }
+    this.socket = null;
+    this.clearTimers();
+    this.attemptReconnect(sampleRate);
   }
 
   private attemptReconnect(sampleRate: number): void {
@@ -271,7 +290,9 @@ export class LiveCall {
   }
 
   private startCapture(): void {
-    if (!this.audioContext || !this.micStream) return;
+    // The server sends 'ready' again after every reconnect; a second worklet would
+    // send every mic frame twice. The existing node already writes to this.socket.
+    if (this.captureNode || !this.audioContext || !this.micStream) return;
     const source = this.audioContext.createMediaStreamSource(this.micStream);
     this.captureNode = new AudioWorkletNode(this.audioContext, 'pcm-capture', { numberOfOutputs: 0 });
     this.captureNode.port.onmessage = (event: MessageEvent<ArrayBuffer>) => {
