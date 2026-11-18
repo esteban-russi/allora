@@ -277,6 +277,28 @@ describe('/api/session endpoints', () => {
     expect(victimView.body.learnerName).toBe('Lucia');
   });
 
+  it('updates the settings and saved phrases of an existing session', async () => {
+    const created = await request(app)
+      .post('/api/session')
+      .set('x-dev-user-id', 'settings-user')
+      .send({ learnerName: 'Enzo', learnerLevel: 'A2' });
+
+    const res = await request(app)
+      .post('/api/session')
+      .set('x-dev-user-id', 'settings-user')
+      .send({
+        sessionId: created.body.sessionId,
+        learnerName: 'Enzo',
+        learnerLevel: 'B1',
+        savedPhrases: [{ id: 'p1', it: 'Ciao', en: 'Hi' }]
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.sessionId).toBe(created.body.sessionId);
+    expect(res.body.learnerLevel).toBe('B1');
+    expect(res.body.progress.savedPhrases).toEqual([{ id: 'p1', it: 'Ciao', en: 'Hi' }]);
+  });
+
   it('returns 404 when updating an unknown session ID instead of creating it', async () => {
     const res = await request(app)
       .post('/api/session')

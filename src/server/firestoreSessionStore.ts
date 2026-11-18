@@ -2,12 +2,14 @@
 import { Firestore, Timestamp, type CollectionReference, type DocumentData } from '@google-cloud/firestore';
 import {
   appendCheckpointTurn,
+  applySessionSettings,
   DEFAULT_RETENTION_MS,
   isSessionExpired,
   SessionOwnershipError,
   withRetention,
   type ConversationTurn,
   type LearnerSession,
+  type SessionSettings,
   type SessionStore
 } from './sessionStore';
 
@@ -177,6 +179,27 @@ export class FirestoreSessionStore implements SessionStore {
   ): Promise<LearnerSession | null> {
     return this.modify(sessionId, userId, (session) =>
       appendCheckpointTurn(session, turn, this.now(), this.retentionMs)
+    );
+  }
+
+  /**
+   * Change the learner's profile settings and saved phrases without touching turns.
+   *
+   * Args:
+   *   sessionId: Target session identifier.
+   *   userId: Authenticated user identifier.
+   *   settings: New settings.
+   *
+   * Returns:
+   *   Updated LearnerSession, or null if session was not found.
+   */
+  async updateSessionSettings(
+    sessionId: string,
+    userId: string,
+    settings: SessionSettings
+  ): Promise<LearnerSession | null> {
+    return this.modify(sessionId, userId, (session) =>
+      applySessionSettings(session, settings, this.now(), this.retentionMs)
     );
   }
 

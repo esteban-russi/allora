@@ -146,11 +146,21 @@ export class SessionOwnershipError extends Error {
   }
 }
 
+/** Learner-editable fields of a session; `savedPhrases` is left unchanged when absent. */
+export interface SessionSettings {
+  personaId: string;
+  learnerName: string;
+  learnerLevel: CefrLevel;
+  grammarStrictness: string;
+  savedPhrases?: LearnerProgress['savedPhrases'];
+}
+
 export interface SessionStore {
   getSession(sessionId: string, userId: string): Promise<LearnerSession | null>;
   getActiveUserSession(userId: string): Promise<LearnerSession | null>;
   createOrUpdateSession(session: LearnerSession): Promise<LearnerSession>;
   saveTurnCheckpoint(sessionId: string, userId: string, turn: ConversationTurn): Promise<LearnerSession | null>;
+  updateSessionSettings(sessionId: string, userId: string, settings: SessionSettings): Promise<LearnerSession | null>;
   updateUpstreamHandle(sessionId: string, userId: string, handle: string | null, model?: string): Promise<void>;
   deleteSession(sessionId: string, userId: string): Promise<boolean>;
   deleteAllUserData(userId: string): Promise<number>;
@@ -230,6 +240,40 @@ export function appendCheckpointTurn(
     nowMs,
     retentionMs
   );
+}
+
+/**
+ * Apply learner-editable settings to a session, recording a level change in its history.
+ *
+ * Args:
+ *   session: Session to update.
+ *   settings: New profile fields, and saved phrases when present.
+ *   nowMs: Current time in milliseconds.
+ *   retentionMs: Inactivity period after which the session expires.
+ *
+ * Returns:
+ *   A new session object; turns and the resumption handle are kept as they were.
+ */
+export function applySessionSettings(
+  session: LearnerSession,
+  settings: SessionSettings,
+  nowMs: number,
+  retentionMs: number
+): LearnerSession {
+  const { savedPhrases, ...profile } = settings;
+  const levelChanged = settings.learnerLevel !== session.progress.cefrLevel;
+  const progress = {
+    ...session.progress,
+    ...(savedPhrases && { savedPhrases }),
+    ...(levelChanged && {
+      cefrLevel: settings.learnerLevel,
+      levelHistory: [
+        ...session.progress.levelHistory,
+        { level: settings.learnerLevel, timestamp: new Date(nowMs).toISOString() }
+      ]
+    })
+  };
+  return withRetention({ ...session, ...profile, progress }, nowMs, retentionMs);
 }
 
 /**
@@ -331,6 +375,27 @@ export class InMemorySessionStore implements SessionStore {
     const session = this.readOwned(sessionId, userId);
     if (!session) return null;
     return this.write(appendCheckpointTurn(session, turn, this.now(), this.retentionMs));
+  }
+
+  /**
+   * Change the learner's profile settings and saved phrases without touching turns.
+   *
+   * Args:
+   *   sessionId: Target session identifier.
+   *   userId: Authenticated user identifier.
+   *   settings: New settings.
+   *
+   * Returns:
+   *   Updated LearnerSession, or null if session was not found.
+   */
+  async updateSessionSettings(
+    sessionId: string,
+    userId: string,
+    settings: SessionSettings
+  ): Promise<LearnerSession | null> {
+    const session = this.readOwned(sessionId, userId);
+    if (!session) return null;
+    return this.write(applySessionSettings(session, settings, this.now(), this.retentionMs));
   }
 
   /**

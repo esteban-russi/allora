@@ -142,6 +142,47 @@ export function describeSessionStoreContract(name: string, makeStore: SessionSto
       expect((await store.getSession(session.sessionId, 'owner'))?.checkpointTurns).toEqual([]);
     });
 
+    it('updates settings without losing a turn checkpointed at the same time', async () => {
+      const store = setup();
+      const session = initializeLearnerSession({ userId: 'learner', learnerLevel: 'A2' });
+      await store.createOrUpdateSession(session);
+      const settings = {
+        personaId: 'emmanuele',
+        learnerName: 'Giulia',
+        learnerLevel: 'B1' as const,
+        grammarStrictness: 'strict',
+        savedPhrases: [{ id: 'p1', it: 'Ciao', en: 'Hi' }]
+      };
+
+      await Promise.all([
+        store.updateSessionSettings(session.sessionId, 'learner', settings),
+        store.saveTurnCheckpoint(session.sessionId, 'learner', turn('t1', 'user', 'Ciao'))
+      ]);
+
+      const read = await store.getSession(session.sessionId, 'learner');
+      expect(read?.checkpointTurns.map((t) => t.id)).toEqual(['t1']);
+      expect(read?.learnerName).toBe('Giulia');
+      expect(read?.progress.savedPhrases).toEqual(settings.savedPhrases);
+      expect(read?.progress.cefrLevel).toBe('B1');
+      expect(read?.progress.levelHistory.map((h) => h.level)).toEqual(['A2', 'B1']);
+    });
+
+    it('keeps saved phrases when settings arrive without them, and ignores other users', async () => {
+      const store = setup();
+      const session = initializeLearnerSession({ userId: 'learner' });
+      await store.createOrUpdateSession({
+        ...session,
+        progress: { ...session.progress, savedPhrases: [{ id: 'p1', it: 'Ciao', en: 'Hi' }] }
+      });
+      const settings = { personaId: 'emmanuele', learnerName: 'Pia', learnerLevel: 'A2' as const, grammarStrictness: 'tutor' };
+
+      expect(await store.updateSessionSettings(session.sessionId, 'intruder', settings)).toBeNull();
+      const updated = await store.updateSessionSettings(session.sessionId, 'learner', settings);
+
+      expect(updated?.progress.savedPhrases).toHaveLength(1);
+      expect(updated?.progress.levelHistory).toHaveLength(1);
+    });
+
     it('stores and clears the Live resumption handle', async () => {
       const store = setup();
       const session = initializeLearnerSession({ userId: 'learner' });
