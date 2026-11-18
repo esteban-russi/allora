@@ -55,20 +55,22 @@ jobs:
           service: ${{ env.SERVICE }}
           region: ${{ env.REGION }}
           image: ${{ env.IMAGE }}
-          # Live voice calls hold a WebSocket open, so allow long requests
+          # Live voice calls hold a WebSocket open, so allow long requests.
+          # One instance until sessions move to Firestore: they live in server memory.
+          # No comments inside the folded block below: they reach gcloud as arguments.
           flags: >-
             --service-account=${{ vars.GCP_RUNTIME_SA }}
             --allow-unauthenticated
             --timeout=3600
             --session-affinity
-            # One instance until sessions move to Firestore: they live in server memory
             --max-instances=1
+          # gemini-3.8-live is only served from the us/eu multi-regions, not global (GCP_REGION=eu).
+          # No comments inside env_vars either: each line becomes a variable.
           env_vars: |-
             NODE_ENV=production
             GCP_PROJECT=${{ vars.GCP_PROJECT_ID }}
             FIREBASE_API_KEY=${{ vars.FIREBASE_API_KEY }}
             FIREBASE_APP_ID=${{ vars.FIREBASE_APP_ID }}
-            # gemini-3.8-live is only served from the us/eu multi-regions, not global
             GCP_REGION=eu
             GEMINI_CHAT_MODEL=gemini-3.5-flash
             GEMINI_TTS_MODEL=gemini-3.8-flash-lite-tts
