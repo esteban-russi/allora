@@ -49,13 +49,25 @@ describe('MetricsCollector', () => {
     expect(new MetricsCollector().getSummary().reconnect.resumptionRatePct).toBeNull();
   });
 
-  it('estimates cost per completed lesson without storing raw audio or transcripts', () => {
+  it('counts a Live call as a lesson only when an exchange was completed', () => {
     const metrics = new MetricsCollector();
-    // Lesson 1: 500 input tokens, 300 output tokens, 120s of live audio
-    metrics.recordCompletedLesson(500, 300, 120);
+    metrics.recordLiveCallEnded(0, 30); // hung up before the tutor answered
+    metrics.recordLiveCallEnded(3, 120);
+    metrics.recordLiveCallEnded(5, 240);
+
+    const { liveLessons } = metrics.getSummary();
+    expect(liveLessons.completed).toBe(2);
+    expect(liveLessons.avgAudioSec).toBe(180);
+    expect(liveLessons.avgEstimatedCostUsd).toBeGreaterThan(0);
+  });
+
+  it('prices chat turns separately from Live lessons', () => {
+    const metrics = new MetricsCollector();
+    metrics.recordChatTurn(1000, 1000);
 
     const summary = metrics.getSummary();
-    expect(summary.lessonsCompleted).toBe(1);
-    expect(summary.avgCostPerCompletedLessonUsd).toBeGreaterThan(0);
+    expect(summary.chatTurns.count).toBe(1);
+    expect(summary.chatTurns.avgEstimatedCostUsd).toBeCloseTo(0.00075, 6);
+    expect(summary.liveLessons.completed).toBe(0);
   });
 });

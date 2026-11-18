@@ -11,7 +11,7 @@ import { PERSONA_PROMPTS, LEVEL_PROMPTS, GRAMMAR_STRICTNESS_LEVELS, buildSystemI
 import type { CefrLevel } from './src/types';
 import { attachLiveBridge, type LiveBridgeOptions } from './liveBridge';
 import { VertexCooldown, isPersistentVertexError, summarizeError } from './vertexCooldown';
-import { assertAuthConfig, authenticateHttpUser } from './src/server/auth';
+import { assertAuthConfig, authenticateHttpUser, isAuthEnforced } from './src/server/auth';
 import {
   defaultSessionStore,
   initializeLearnerSession,
@@ -179,8 +179,6 @@ app.get('/api/health', (req, res) => {
         cloudSpeech: Boolean(cloudSpeechClient),
       }
     },
-    privacy: getPrivacyPolicyConfig(),
-    metrics: defaultMetrics.getSummary()
   });
 });
 
@@ -190,6 +188,32 @@ app.use(
   authenticateHttpUser(),
   createUserRateLimitMiddleware(defaultUserLimiter)
 );
+
+/**
+ * Decide whether a user may read operational metrics.
+ *
+ * Args:
+ *   userId: Authenticated user ID.
+ *
+ * Returns:
+ *   True for IDs in METRICS_ADMIN_USER_IDS (comma separated), or anyone when auth is not enforced.
+ */
+export function canReadMetrics(userId: string): boolean {
+  if (!isAuthEnforced()) return true;
+  const admins = (process.env.METRICS_ADMIN_USER_IDS ?? '')
+    .split(',')
+    .map((id) => id.trim())
+    .filter(Boolean);
+  return admins.includes(userId);
+}
+
+// Operational metrics and privacy configuration: operators only, unlike /api/health
+app.get('/api/metrics', authenticateHttpUser(), (req, res) => {
+  if (!canReadMetrics(req.user!.userId)) {
+    return res.status(403).json({ error: 'Metrics are restricted to operators' });
+  }
+  res.json({ privacy: getPrivacyPolicyConfig(), metrics: defaultMetrics.getSummary() });
+});
 
 // Learner Session Endpoints (Session Continuity, Checkpointing, and GDPR Deletion)
 app.get('/api/session', async (req, res) => {
@@ -396,12 +420,10 @@ app.post('/api/chat', async (req, res) => {
       }
     }
 
-    // Record privacy-safe lesson metrics
-    defaultMetrics.recordCompletedLesson(
-      Math.ceil(userMessage.length / 4),
-      Math.ceil((parsed.text.length + (parsed.translation?.length || 0)) / 4),
-      0
-    );
+    const usage = response.usageMetadata;
+    if (usage?.promptTokenCount !== undefined && usage.candidatesTokenCount !== undefined) {
+      defaultMetrics.recordChatTurn(usage.promptTokenCount, usage.candidatesTokenCount);
+    }
 
     // sessionId is null when the client's ID is unknown or expired, so it can start a new one
     res.json({ ...parsed, sessionId: session?.sessionId ?? null });

@@ -31,6 +31,8 @@ const MAX_SESSIONS_PER_IP = 2;
 const MAX_TEXT_LENGTH = 500;
 const MAX_FRAME_BYTES = 256 * 1024;
 const DEFAULT_HEARTBEAT_INTERVAL_MS = 10_000;
+/** Gemini Live returns 24 kHz 16-bit mono PCM. */
+const MODEL_SAMPLE_RATE = 24000;
 const SETUP_TIMEOUT_MS = 10_000;
 const GREETING_PROMPT =
   '(Lo studente ha appena risposto alla telefonata. Salutalo brevemente e fagli una domanda semplice.)';
@@ -289,8 +291,15 @@ async function runLiveCall(
   const sessionStore = options.sessionStore ?? defaultSessionStore;
   const metrics = options.metrics ?? defaultMetrics;
 
+  // Counted for the lesson metrics: audio streamed each way and finished exchanges
+  let inputAudioBytes = 0;
+  let outputAudioBytes = 0;
+  let completedExchanges = 0;
+
   const send = (frame: Buffer | LiveClientEvent) => {
     if (ws.readyState !== WebSocket.OPEN) return;
+    if (Buffer.isBuffer(frame)) outputAudioBytes += frame.length;
+    else if (frame.type === 'turn_complete') completedExchanges++;
     ws.send(Buffer.isBuffer(frame) ? frame : JSON.stringify(frame));
   };
 
@@ -323,6 +332,9 @@ async function runLiveCall(
   // Disconnecting the mobile socket closes upstream liveSession, but leaves LearnerSession intact in store
   ws.on('close', () => {
     liveSession?.close();
+    // 16-bit mono PCM: 2 bytes per sample
+    const audioSec = inputAudioBytes / (2 * params.sampleRate) + outputAudioBytes / (2 * MODEL_SAMPLE_RATE);
+    metrics.recordLiveCallEnded(completedExchanges, audioSec);
   });
 
   const onUpstreamMessage = (message: LiveServerMessage) => {
@@ -397,6 +409,7 @@ async function runLiveCall(
   ws.on('message', (data: RawData, isBinary: boolean) => {
     if (isBinary) {
       const chunk = Buffer.isBuffer(data) ? data : Buffer.concat(Array.isArray(data) ? data : [Buffer.from(data)]);
+      inputAudioBytes += chunk.length;
       liveSession?.sendRealtimeInput({ audio: { data: chunk.toString('base64'), mimeType: audioMimeType } });
       return;
     }

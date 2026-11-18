@@ -1,11 +1,4 @@
-/** Privacy-preserving operational metrics for mobile live voice and lesson telemetry. */
-
-export interface LessonCostEstimate {
-  inputTokens: number;
-  outputTokens: number;
-  audioDurationSec: number;
-  estimatedCostUsd: number;
-}
+/** Privacy-preserving operational metrics for Live voice calls and chat lessons. */
 
 export interface ReconnectStats {
   attempts: number;
@@ -33,13 +26,37 @@ export interface MetricsSummary {
     /** Share of reconnects that resumed the upstream session; null before any reconnect. */
     resumptionRatePct: number | null;
   };
-  lessonsCompleted: number;
-  avgCostPerCompletedLessonUsd: number;
+  /** Live calls that finished with at least one completed exchange. */
+  liveLessons: {
+    completed: number;
+    avgAudioSec: number;
+    avgEstimatedCostUsd: number;
+  };
+  /** Turn-based /api/chat requests, priced from Gemini's reported token usage. */
+  chatTurns: {
+    count: number;
+    avgEstimatedCostUsd: number;
+  };
 }
 
-const AUDIO_COST_PER_MINUTE = 0.003; // ~$0.003 per minute of Gemini Live native audio
-const FLASH_INPUT_PER_1K = 0.00015;
-const FLASH_OUTPUT_PER_1K = 0.0006;
+// Rough list-price estimates for a cost trend line, not billing figures; update them
+// when pricing changes. Live audio is priced per minute streamed in either direction.
+const LIVE_AUDIO_USD_PER_MINUTE_ESTIMATE = 0.003;
+const CHAT_INPUT_USD_PER_1K_TOKENS_ESTIMATE = 0.00015;
+const CHAT_OUTPUT_USD_PER_1K_TOKENS_ESTIMATE = 0.0006;
+const MAX_SAMPLES = 1000;
+
+/** Keep only the most recent MAX_SAMPLES values. */
+function pushBounded(samples: number[], value: number): void {
+  samples.push(value);
+  if (samples.length > MAX_SAMPLES) samples.shift();
+}
+
+const average = (values: number[]): number =>
+  values.length > 0 ? values.reduce((sum, v) => sum + v, 0) / values.length : 0;
+
+// Per-turn costs are fractions of a cent, so keep micro-dollar precision
+const roundUsd = (usd: number): number => Math.round(usd * 1_000_000) / 1_000_000;
 
 /** Privacy-preserving operational metrics collector. */
 export class MetricsCollector {
@@ -51,12 +68,8 @@ export class MetricsCollector {
     restartedFresh: 0,
     fallbackToTurnBased: 0
   };
-  private completedLessons: LessonCostEstimate[] = [];
-  private enableTranscriptLogging: boolean;
-
-  constructor() {
-    this.enableTranscriptLogging = process.env.ENABLE_TRANSCRIPT_LOGGING === 'true';
-  }
+  private liveLessonAudioSec: number[] = [];
+  private chatTurnCostsUsd: number[] = [];
 
   /**
    * Record Time to First Audio (TTFA) latency.
@@ -66,8 +79,7 @@ export class MetricsCollector {
    */
   recordTtfa(latencyMs: number): void {
     if (Number.isFinite(latencyMs) && latencyMs > 0 && latencyMs < 30_000) {
-      this.ttfaSamples.push(Math.round(latencyMs));
-      if (this.ttfaSamples.length > 1000) this.ttfaSamples.shift();
+      pushBounded(this.ttfaSamples, Math.round(latencyMs));
     }
   }
 
@@ -79,8 +91,7 @@ export class MetricsCollector {
    */
   recordBargeInStop(stopMs: number): void {
     if (Number.isFinite(stopMs) && stopMs >= 0 && stopMs < 10_000) {
-      this.bargeInSamples.push(Math.round(stopMs));
-      if (this.bargeInSamples.length > 1000) this.bargeInSamples.shift();
+      pushBounded(this.bargeInSamples, Math.round(stopMs));
     }
   }
 
@@ -98,46 +109,29 @@ export class MetricsCollector {
   }
 
   /**
-   * Record a completed conversation lesson and estimate its cost.
+   * Record a finished Live call as a lesson if the learner and tutor completed an exchange.
    *
    * Args:
-   *   inputTokens: Estimated text tokens sent.
-   *   outputTokens: Estimated text tokens generated.
-   *   audioDurationSec: Total audio streamed in seconds.
+   *   completedExchanges: Number of `turn_complete` events in the call.
+   *   audioSec: Audio streamed in both directions, in seconds.
    */
-  recordCompletedLesson(inputTokens: number, outputTokens: number, audioDurationSec: number): void {
-    const audioCost = (audioDurationSec / 60) * AUDIO_COST_PER_MINUTE;
-    const tokenCost = (inputTokens / 1000) * FLASH_INPUT_PER_1K + (outputTokens / 1000) * FLASH_OUTPUT_PER_1K;
-    const estimatedCostUsd = Math.round((audioCost + tokenCost) * 10000) / 10000;
-
-    this.completedLessons.push({
-      inputTokens,
-      outputTokens,
-      audioDurationSec,
-      estimatedCostUsd
-    });
-    if (this.completedLessons.length > 500) this.completedLessons.shift();
+  recordLiveCallEnded(completedExchanges: number, audioSec: number): void {
+    if (completedExchanges < 1 || !Number.isFinite(audioSec) || audioSec < 0) return;
+    pushBounded(this.liveLessonAudioSec, audioSec);
   }
 
   /**
-   * Log an operational event without raw audio or verbatim learner transcripts.
+   * Record one turn-based chat reply priced from Gemini's token usage.
    *
    * Args:
-   *   event: Metric event name.
-   *   metadata: Privacy-safe metadata fields.
+   *   inputTokens: Prompt tokens reported by Gemini.
+   *   outputTokens: Response tokens reported by Gemini.
    */
-  logSafeEvent(event: string, metadata: Record<string, unknown>): void {
-    // Strip sensitive fields if accidentally included
-    const sanitized: Record<string, unknown> = { ...metadata };
-    if (!this.enableTranscriptLogging) {
-      delete sanitized.transcript;
-      delete sanitized.userMessage;
-      delete sanitized.audioBase64;
-      delete sanitized.audioContent;
-      delete sanitized.rawText;
-    }
-
-    console.log(JSON.stringify({ event, ...sanitized, ts: new Date().toISOString() }));
+  recordChatTurn(inputTokens: number, outputTokens: number): void {
+    const cost =
+      (inputTokens / 1000) * CHAT_INPUT_USD_PER_1K_TOKENS_ESTIMATE +
+      (outputTokens / 1000) * CHAT_OUTPUT_USD_PER_1K_TOKENS_ESTIMATE;
+    if (Number.isFinite(cost) && cost >= 0) pushBounded(this.chatTurnCostsUsd, cost);
   }
 
   private calculatePercentile(samples: number[], p: number): number {
@@ -154,12 +148,11 @@ export class MetricsCollector {
    *   Summary object containing p50/p90/p95 TTFA, barge-in stop latency, reconnect stats, and cost.
    */
   getSummary(): MetricsSummary {
-    const totalCost = this.completedLessons.reduce((acc, l) => acc + l.estimatedCostUsd, 0);
-    const avgCost = this.completedLessons.length > 0 ? totalCost / this.completedLessons.length : 0;
     const resumptionRatePct =
       this.reconnectStats.attempts > 0
         ? Math.round((this.reconnectStats.resumedSuccessfully / this.reconnectStats.attempts) * 100)
         : null;
+    const avgAudioSec = average(this.liveLessonAudioSec);
 
     return {
       ttfa: {
@@ -178,8 +171,15 @@ export class MetricsCollector {
         ...this.reconnectStats,
         resumptionRatePct
       },
-      lessonsCompleted: this.completedLessons.length,
-      avgCostPerCompletedLessonUsd: Math.round(avgCost * 10000) / 10000
+      liveLessons: {
+        completed: this.liveLessonAudioSec.length,
+        avgAudioSec: Math.round(avgAudioSec),
+        avgEstimatedCostUsd: roundUsd((avgAudioSec / 60) * LIVE_AUDIO_USD_PER_MINUTE_ESTIMATE)
+      },
+      chatTurns: {
+        count: this.chatTurnCostsUsd.length,
+        avgEstimatedCostUsd: roundUsd(average(this.chatTurnCostsUsd))
+      }
     };
   }
 }

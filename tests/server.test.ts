@@ -1,8 +1,8 @@
 import request from 'supertest';
 import type { GoogleGenAI } from '@google/genai';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { VertexCooldown } from '../vertexCooldown';
-import { app, buildChatContents, buildLiveClientOptions, cloudSttEncodingFor, parseModelJsonResponse, stripBase64DataUrlPrefix } from '../server';
+import { app, buildChatContents, canReadMetrics, buildLiveClientOptions, cloudSttEncodingFor, parseModelJsonResponse, stripBase64DataUrlPrefix } from '../server';
 import { buildSystemInstruction, buildVoiceCallInstruction, LEVEL_PROMPTS, sanitizeLearnerName } from '../src/data/personaPrompts';
 
 describe('parseModelJsonResponse', () => {
@@ -52,15 +52,42 @@ describe('cloudSttEncodingFor', () => {
 });
 
 describe('GET /api/health', () => {
-  it('reports status and data privacy mode without leaking the GCP project ID', async () => {
+  it('reports status without leaking the GCP project ID, metrics, or privacy config', async () => {
     const res = await request(app).get('/api/health');
 
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('ok');
     expect(res.body.gcp).not.toHaveProperty('project');
-    expect(res.body).toHaveProperty('privacy');
+    expect(res.body).not.toHaveProperty('metrics');
+    expect(res.body).not.toHaveProperty('privacy');
+  });
+});
+
+describe('GET /api/metrics', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('serves metrics and privacy mode in local development', async () => {
+    const res = await request(app).get('/api/metrics').set('x-dev-user-id', 'local-dev');
+
+    expect(res.status).toBe(200);
     expect(res.body.privacy.mode).toBe('vertex_only');
-    expect(res.body).toHaveProperty('metrics');
+    expect(res.body.metrics).toHaveProperty('ttfa');
+  });
+
+  it('restricts metrics to listed operators when auth is enforced', () => {
+    vi.stubEnv('ENFORCE_AUTH', 'true');
+    vi.stubEnv('METRICS_ADMIN_USER_IDS', 'ops-1, ops-2');
+
+    expect(canReadMetrics('ops-2')).toBe(true);
+    expect(canReadMetrics('learner-7')).toBe(false);
+  });
+
+  it('allows no one when auth is enforced and no operators are listed', () => {
+    vi.stubEnv('ENFORCE_AUTH', 'true');
+    vi.stubEnv('METRICS_ADMIN_USER_IDS', '');
+
+    expect(canReadMetrics('')).toBe(false);
+    expect(canReadMetrics('anyone')).toBe(false);
   });
 });
 
