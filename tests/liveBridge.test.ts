@@ -6,6 +6,7 @@ import { WebSocket } from 'ws';
 import { attachLiveBridge, parseLiveCallParams, toClientFrames } from '../liveBridge';
 import { InMemorySessionStore } from '../src/server/sessionStore';
 import { UserRateLimiter } from '../src/server/rateLimiter';
+import { fakeGemini, openCall, startBridgeServer, waitUntil, type TestCall } from './helpers/fakeGemini';
 
 const VALID_URL = '/api/live?personaId=emmanuele&learnerLevel=B1&grammarStrictness=strict&learnerName=Giulia&sampleRate=48000';
 
@@ -184,5 +185,78 @@ describe('attachLiveBridge slot accounting', () => {
     connect(port, 'ip-user-2');
     await waitFor(() => limiter.getActiveCallCount('ip-user-2') === 1);
     expect(await connect(port, 'ip-user-3').status).toBe(429);
+  });
+});
+
+describe('attachLiveBridge liveness and reconnects', () => {
+  let server: Server;
+  const calls: TestCall[] = [];
+
+  afterEach(async () => {
+    calls.splice(0).forEach((call) => call.ws.terminate());
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  const call = (port: number, query: string, wsOptions = {}): TestCall => {
+    const opened = openCall(port, query, wsOptions);
+    calls.push(opened);
+    return opened;
+  };
+
+  it('terminates a call whose client stops answering pings and stops the Gemini session', async () => {
+    const gemini = fakeGemini();
+    const limiter = new UserRateLimiter();
+    ({ server } = await startBridgeServer({ clients: [gemini.ai], userLimiter: limiter, heartbeatIntervalMs: 30 }));
+    const port = (server.address() as AddressInfo).port;
+
+    // autoPong: false simulates a link that died without a FIN
+    const silent = call(port, `${VALID_URL}&devUserId=silent-user`, { autoPong: false });
+    await silent.waitForEvent('ready');
+
+    expect(await silent.closed).toBe(1006);
+    expect(await waitUntil(() => gemini.sessions[0].closed)).toBe(true);
+    expect(await waitUntil(() => limiter.getActiveCallCount('silent-user') === 0)).toBe(true);
+  });
+
+  it('keeps a responsive call open across heartbeats', async () => {
+    const gemini = fakeGemini();
+    ({ server } = await startBridgeServer({ clients: [gemini.ai], heartbeatIntervalMs: 30 }));
+    const port = (server.address() as AddressInfo).port;
+
+    const live = call(port, `${VALID_URL}&devUserId=chatty-user`);
+    await live.waitForEvent('ready');
+    await new Promise((r) => setTimeout(r, 150));
+    expect(live.ws.readyState).toBe(WebSocket.OPEN);
+  });
+
+  it('lets a reconnect for the same session replace the stale call instead of returning 429', async () => {
+    const gemini = fakeGemini();
+    ({ server } = await startBridgeServer({ clients: [gemini.ai] }));
+    const port = (server.address() as AddressInfo).port;
+
+    const first = call(port, `${VALID_URL}&devUserId=roaming-user`, { autoPong: false });
+    const { sessionId } = await first.waitForEvent('session_ready');
+
+    const second = call(port, `${VALID_URL}&devUserId=roaming-user&sessionId=${sessionId}`);
+    expect(await second.waitForEvent('session_ready')).toMatchObject({ sessionId });
+    await first.closed;
+    expect(gemini.sessions[0].closed).toBe(true);
+  });
+
+  it('still refuses a second concurrent call for a different session', async () => {
+    const gemini = fakeGemini();
+    ({ server } = await startBridgeServer({ clients: [gemini.ai] }));
+    const port = (server.address() as AddressInfo).port;
+
+    const first = call(port, `${VALID_URL}&devUserId=two-device-user`);
+    await first.waitForEvent('ready');
+
+    const status = await new Promise<number>((resolve) => {
+      const other = new WebSocket(`ws://localhost:${port}${VALID_URL}&devUserId=two-device-user`);
+      other.on('unexpected-response', (_req, res) => resolve(res.statusCode ?? 0));
+      other.on('error', () => undefined);
+    });
+    expect(status).toBe(429);
   });
 });

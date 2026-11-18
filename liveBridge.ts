@@ -29,6 +29,7 @@ export const LIVE_PATH = '/api/live';
 const MAX_SESSIONS_PER_IP = 2;
 const MAX_TEXT_LENGTH = 500;
 const MAX_FRAME_BYTES = 256 * 1024;
+const DEFAULT_HEARTBEAT_INTERVAL_MS = 10_000;
 const SETUP_TIMEOUT_MS = 10_000;
 const GREETING_PROMPT =
   '(Lo studente ha appena risposto alla telefonata. Salutalo brevemente e fagli una domanda semplice.)';
@@ -71,6 +72,8 @@ export interface LiveBridgeOptions {
   metrics?: MetricsCollector;
   /** Return true to skip a client for this call (e.g. Vertex AI while it is cooling down). */
   skipClient?: (ai: GoogleGenAI) => boolean;
+  /** How often to ping each call socket; one missed pong terminates it. Defaults to 10 s. */
+  heartbeatIntervalMs?: number;
   /** Called when a client fails to open a session, before the next one is tried. */
   onClientFailed?: (ai: GoogleGenAI) => void;
 }
@@ -457,6 +460,39 @@ export function attachLiveBridge(server: Server, options: LiveBridgeOptions): vo
   const sessionsPerIp = new Map<string, number>();
   const userLimiter = options.userLimiter ?? defaultUserLimiter;
   const sessionStore = options.sessionStore ?? defaultSessionStore;
+  // Open calls by learner session, so a reconnect can replace its own stale call
+  const callsBySession = new Map<string, { userId: string; socket: Duplex; release: () => void }>();
+
+  // Server-side liveness: after a silent mobile drop no FIN ever arrives, so without
+  // this the dead socket would hold the user's call slot and keep Gemini billing.
+  const unanswered = new WeakSet<WebSocket>();
+  const heartbeat = setInterval(() => {
+    for (const ws of wss.clients) {
+      if (unanswered.has(ws)) {
+        ws.terminate();
+        continue;
+      }
+      unanswered.add(ws);
+      ws.ping();
+    }
+  }, options.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS);
+  heartbeat.unref();
+  server.on('close', () => clearInterval(heartbeat));
+
+  /**
+   * End the user's existing call for the same learner session, if any.
+   *
+   * A client that detects a dead link reconnects with its sessionId while the server
+   * may still see the old socket as open; that old call is replaced, not counted
+   * against the one-call limit. Calls for other sessions are left alone.
+   */
+  const evictStaleCall = (userId: string, sessionId: string | undefined): void => {
+    const stale = sessionId ? callsBySession.get(sessionId) : undefined;
+    if (!stale || stale.userId !== userId) return;
+    console.warn('[Gemini Live] Replacing stale call on reconnect');
+    stale.release();
+    stale.socket.destroy();
+  };
 
   /**
    * Take the user's call slot and an IP slot together, synchronously, so concurrent
@@ -512,6 +548,7 @@ export function attachLiveBridge(server: Server, options: LiveBridgeOptions): vo
       return;
     }
 
+    evictStaleCall(user.userId, parsed.params.sessionId);
     const release = reserveSlots(user.userId, clientIp(req, options.trustProxyHops));
     if (typeof release === 'string') {
       rejectUpgrade(socket, 429, release);
@@ -546,8 +583,17 @@ export function attachLiveBridge(server: Server, options: LiveBridgeOptions): vo
       socket.off('end', destroyOnEnd);
 
       const record = sessionRecord;
+      const call = { userId: user.userId, socket, release };
+      callsBySession.set(record.sessionId, call);
+      socket.once('close', () => {
+        if (callsBySession.get(record.sessionId) === call) callsBySession.delete(record.sessionId);
+      });
+
       wss.handleUpgrade(req, socket, head, (ws) => {
         ws.on('close', release);
+        // Any frame from the client, including its own JSON pings, proves the link is up
+        ws.on('pong', () => unanswered.delete(ws));
+        ws.on('message', () => unanswered.delete(ws));
         runLiveCall(ws, parsed.params, user, record, options).catch((err) => {
           console.error('[Gemini Live] Bridge error:', err);
           ws.close(1011, 'Internal error');
