@@ -245,6 +245,9 @@ describe('/api/session endpoints', () => {
       .set('x-dev-user-id', 'user-session-test');
     expect(getRes.status).toBe(200);
     expect(getRes.body.sessionId).toBe(sessionId);
+    expect(getRes.body).not.toHaveProperty('userId');
+    expect(getRes.body).not.toHaveProperty('upstreamResumptionHandle');
+    expect(res.body).not.toHaveProperty('upstreamResumptionHandle');
 
     // Delete the specific session
     const delRes = await request(app)

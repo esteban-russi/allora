@@ -16,6 +16,7 @@ import { defaultSessionStore } from './src/server/defaultSessionStore';
 import {
   initializeLearnerSession,
   parseSavedPhrases,
+  toClientSession,
   type ConversationTurn
 } from './src/server/sessionStore';
 import { createUserRateLimitMiddleware, defaultUserLimiter } from './src/server/rateLimiter';
@@ -248,7 +249,7 @@ app.get('/api/session', async (req, res) => {
     if (!session) {
       return res.status(404).json({ error: 'No active session found for user' });
     }
-    res.json(session);
+    res.json(toClientSession(session));
   } catch (err) {
     console.error('[Session] Error fetching session:', summarizeError(err));
     res.status(500).json({ error: 'Error fetching session' });
@@ -300,14 +301,14 @@ app.post('/api/session', async (req, res) => {
       if (!updated) {
         return res.status(404).json({ error: 'Session not found or not owned by user' });
       }
-      return res.json(updated);
+      return res.json(toClientSession(updated));
     }
 
     const session = initializeLearnerSession({ userId, ...fields });
     if (phrases) {
       session.progress = { ...session.progress, savedPhrases: phrases };
     }
-    res.json(await defaultSessionStore.createOrUpdateSession(session));
+    res.json(toClientSession(await defaultSessionStore.createOrUpdateSession(session)));
   } catch (err) {
     console.error('[Session] Error saving session:', summarizeError(err));
     res.status(500).json({ error: 'Error saving session' });

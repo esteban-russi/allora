@@ -5,7 +5,8 @@ import {
   InMemorySessionStore,
   initializeLearnerSession,
   parseConversationTurn,
-  parseSavedPhrases
+  parseSavedPhrases,
+  toClientSession
 } from '../src/server/sessionStore';
 import { describeSessionStoreContract } from './helpers/sessionStoreContract';
 
@@ -31,6 +32,19 @@ describe('initializeLearnerSession', () => {
     const b = initializeLearnerSession({ userId: 'u' });
     expect(a.sessionId).toMatch(/^sess_/);
     expect(a.sessionId).not.toBe(b.sessionId);
+  });
+});
+
+describe('toClientSession', () => {
+  it('drops the owner and Live resumption fields and keeps the rest', () => {
+    const session = { ...initializeLearnerSession({ userId: 'u' }), upstreamResumptionHandle: 'secret', upstreamModel: 'm' };
+    const view = toClientSession(session);
+
+    expect(view).not.toHaveProperty('userId');
+    expect(view).not.toHaveProperty('upstreamResumptionHandle');
+    expect(view).not.toHaveProperty('upstreamModel');
+    expect(view.sessionId).toBe(session.sessionId);
+    expect(session.userId).toBe('u');
   });
 });
 

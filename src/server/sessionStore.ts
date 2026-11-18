@@ -138,6 +138,26 @@ export function parseSavedPhrases(value: unknown): LearnerProgress['savedPhrases
   return phrases;
 }
 
+/** What the browser may see of a session: no owner ID and no Live resumption handle. */
+export type ClientLearnerSession = Omit<LearnerSession, 'userId' | 'upstreamResumptionHandle' | 'upstreamModel'>;
+
+/**
+ * Strip server-only fields before sending a session to the browser.
+ *
+ * Args:
+ *   session: Stored session.
+ *
+ * Returns:
+ *   A copy without `userId`, `upstreamResumptionHandle` and `upstreamModel`.
+ */
+export function toClientSession(session: LearnerSession): ClientLearnerSession {
+  const view: Partial<LearnerSession> = { ...session };
+  delete view.userId;
+  delete view.upstreamResumptionHandle;
+  delete view.upstreamModel;
+  return view as ClientLearnerSession;
+}
+
 /** Raised when a write targets a session ID that belongs to another user. */
 export class SessionOwnershipError extends Error {
   constructor(sessionId: string) {
