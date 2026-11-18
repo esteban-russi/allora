@@ -21,24 +21,26 @@ describe('session documents', () => {
   });
 });
 
-// Runs against the emulator (FIRESTORE_EMULATOR_HOST) or a real database, in throwaway collections
+// Runs against the emulator (FIRESTORE_EMULATOR_HOST) or a real database. Each store gets its own
+// testRuns/<id>/learnerSessions collection: same collection ID, so the real index and TTL apply.
 const runAgainstFirestore = process.env.FIRESTORE_TEST === '1';
 
 describe.skipIf(!runAgainstFirestore)('FirestoreSessionStore against Firestore', () => {
   const db = runAgainstFirestore
     ? new Firestore({ projectId: process.env.GCP_PROJECT, ignoreUndefinedProperties: true })
     : null;
-  const collections: string[] = [];
+  const runs: string[] = [];
 
   afterAll(async () => {
     if (!db) return;
-    await Promise.all(collections.map((name) => db.recursiveDelete(db.collection(name))));
+    await Promise.all(runs.map((id) => db.recursiveDelete(db.doc(`testRuns/${id}`))));
     await db.terminate();
   });
 
   describeSessionStoreContract('FirestoreSessionStore', ({ retentionMs, now }) => {
-    const collectionName = `test_learnerSessions_${randomUUID()}`;
-    collections.push(collectionName);
+    const runId = randomUUID();
+    runs.push(runId);
+    const collectionName = `testRuns/${runId}/learnerSessions`;
     return new FirestoreSessionStore(db!, { collectionName, retentionMs, now });
   });
 });
