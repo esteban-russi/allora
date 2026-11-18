@@ -10,9 +10,11 @@ export interface LessonCostEstimate {
 export interface ReconnectStats {
   attempts: number;
   resumedSuccessfully: number;
+  restartedFresh: number;
   fallbackToTurnBased: number;
-  failed: number;
 }
+
+export type ReconnectOutcome = 'resumed' | 'restarted' | 'turn_based_fallback';
 
 export interface MetricsSummary {
   ttfa: {
@@ -27,12 +29,9 @@ export interface MetricsSummary {
     p90Ms: number;
     p95Ms: number;
   };
-  reconnect: {
-    attempts: number;
-    resumedSuccessfully: number;
-    fallbackToTurnBased: number;
-    failed: number;
-    resumptionRatePct: number;
+  reconnect: ReconnectStats & {
+    /** Share of reconnects that resumed the upstream session; null before any reconnect. */
+    resumptionRatePct: number | null;
   };
   lessonsCompleted: number;
   avgCostPerCompletedLessonUsd: number;
@@ -49,8 +48,8 @@ export class MetricsCollector {
   private reconnectStats: ReconnectStats = {
     attempts: 0,
     resumedSuccessfully: 0,
-    fallbackToTurnBased: 0,
-    failed: 0
+    restartedFresh: 0,
+    fallbackToTurnBased: 0
   };
   private completedLessons: LessonCostEstimate[] = [];
   private enableTranscriptLogging: boolean;
@@ -86,16 +85,16 @@ export class MetricsCollector {
   }
 
   /**
-   * Record outcome of a client reconnect and upstream resumption attempt.
+   * Record how a reconnect that carried a resumption handle ended.
    *
    * Args:
-   *   outcome: 'resumed' | 'turn_based_fallback' | 'failed'.
+   *   outcome: Resumed the upstream session, restarted it fresh, or fell back to turn-based.
    */
-  recordReconnectOutcome(outcome: 'resumed' | 'turn_based_fallback' | 'failed'): void {
+  recordReconnectOutcome(outcome: ReconnectOutcome): void {
     this.reconnectStats.attempts++;
     if (outcome === 'resumed') this.reconnectStats.resumedSuccessfully++;
-    else if (outcome === 'turn_based_fallback') this.reconnectStats.fallbackToTurnBased++;
-    else this.reconnectStats.failed++;
+    else if (outcome === 'restarted') this.reconnectStats.restartedFresh++;
+    else this.reconnectStats.fallbackToTurnBased++;
   }
 
   /**
@@ -160,7 +159,7 @@ export class MetricsCollector {
     const resumptionRatePct =
       this.reconnectStats.attempts > 0
         ? Math.round((this.reconnectStats.resumedSuccessfully / this.reconnectStats.attempts) * 100)
-        : 100;
+        : null;
 
     return {
       ttfa: {

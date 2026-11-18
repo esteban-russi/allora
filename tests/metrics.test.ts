@@ -35,14 +35,18 @@ describe('MetricsCollector', () => {
     metrics.recordReconnectOutcome('resumed');
     metrics.recordReconnectOutcome('resumed');
     metrics.recordReconnectOutcome('turn_based_fallback');
-    metrics.recordReconnectOutcome('failed');
+    metrics.recordReconnectOutcome('restarted');
 
     const summary = metrics.getSummary();
     expect(summary.reconnect.attempts).toBe(4);
     expect(summary.reconnect.resumedSuccessfully).toBe(2);
     expect(summary.reconnect.fallbackToTurnBased).toBe(1);
-    expect(summary.reconnect.failed).toBe(1);
+    expect(summary.reconnect.restartedFresh).toBe(1);
     expect(summary.reconnect.resumptionRatePct).toBe(50);
+  });
+
+  it('reports no resumption rate before any reconnect', () => {
+    expect(new MetricsCollector().getSummary().reconnect.resumptionRatePct).toBeNull();
   });
 
   it('estimates cost per completed lesson without storing raw audio or transcripts', () => {

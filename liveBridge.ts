@@ -17,6 +17,7 @@ import {
   defaultSessionStore,
   initializeLearnerSession,
   parseConversationTurn,
+  type ConversationTurn,
   type LearnerSession,
   type SessionStore
 } from './src/server/sessionStore';
@@ -52,7 +53,6 @@ export type LiveClientEvent =
   | { type: 'output_transcript'; text: string }
   | { type: 'interrupted' }
   | { type: 'turn_complete' }
-  | { type: 'resumption_update'; handle: string }
   | { type: 'resumption_failed'; fallback: 'turn_based'; message: string }
   | { type: 'go_away'; timeToDisconnectSec?: number }
   | { type: 'pong'; timestamp: number }
@@ -133,13 +133,6 @@ export function parseLiveCallParams(url: string): { params: LiveCallParams } | {
  */
 export function toClientFrames(message: LiveServerMessage): Array<Buffer | LiveClientEvent> {
   const frames: Array<Buffer | LiveClientEvent> = [];
-
-  // Capture session resumption updates if present
-  const resumption = (message as unknown as { sessionResumptionUpdate?: { newHandle?: string } })
-    .sessionResumptionUpdate;
-  if (resumption?.newHandle) {
-    frames.push({ type: 'resumption_update', handle: resumption.newHandle });
-  }
 
   const goAway = (message as unknown as { goAway?: { timeToDisconnectSec?: number } }).goAway;
   if (goAway) {
@@ -258,6 +251,27 @@ function rejectUpgrade(socket: Duplex, status: number, message: string): void {
   );
 }
 
+const RECAP_TURNS = 10;
+
+/**
+ * Summarise recent checkpoint turns for a fresh upstream session after resumption fails.
+ *
+ * Args:
+ *   turns: Saved conversation turns, oldest first.
+ *
+ * Returns:
+ *   Text to append to the system instruction, or '' when there is nothing to recap.
+ */
+export function buildRecapInstruction(turns: ConversationTurn[]): string {
+  const recent = turns.slice(-RECAP_TURNS).filter((turn) => turn.text.trim());
+  if (recent.length === 0) return '';
+  const lines = recent.map((turn) => `${turn.sender === 'user' ? 'Learner' : 'You'}: ${turn.text.trim()}`);
+  return (
+    '\n\nThe call just reconnected after a network drop. Continue naturally from this recent ' +
+    `conversation without greeting the learner again:\n${lines.join('\n')}`
+  );
+}
+
 /**
  * Bridge one mobile/browser socket to one Gemini Live session until either side disconnects.
  *
@@ -286,26 +300,25 @@ async function runLiveCall(
     ws.close(1011, 'Gemini Live session ended');
   };
 
-  // Upstream Live Configuration with Session Resumption support
-  const config: LiveConnectConfig & { sessionResumption?: { handle?: string; transparent?: boolean } } = {
+  const handle = sessionRecord.upstreamResumptionHandle;
+  const baseInstruction = buildVoiceCallInstruction({
+    personaId: params.personaId,
+    level: params.learnerLevel,
+    grammarStrictness: params.grammarStrictness,
+    learnerName: params.learnerName
+  });
+  const buildConfig = (resumeHandle: string | null, systemInstruction: string): LiveConnectConfig => ({
     responseModalities: [Modality.AUDIO],
-    systemInstruction: buildVoiceCallInstruction({
-      personaId: params.personaId,
-      level: params.learnerLevel,
-      grammarStrictness: params.grammarStrictness,
-      learnerName: params.learnerName
-    }),
+    systemInstruction,
     inputAudioTranscription: {},
     outputAudioTranscription: {},
     speechConfig: {
       languageCode: 'it-IT',
       voiceConfig: { prebuiltVoiceConfig: { voiceName: PERSONA_VOICES[params.personaId] } }
     },
-    // Enable session resumption token generation for mobile reconnects
-    sessionResumption: sessionRecord.upstreamResumptionHandle
-      ? { handle: sessionRecord.upstreamResumptionHandle, transparent: true }
-      : { transparent: true }
-  };
+    // Ask Gemini for resumption handles so a reconnect can continue this session
+    sessionResumption: resumeHandle ? { handle: resumeHandle, transparent: true } : { transparent: true }
+  });
 
   let liveSession: Session | null = null;
   // Disconnecting the mobile socket closes upstream liveSession, but leaves LearnerSession intact in store
@@ -313,52 +326,58 @@ async function runLiveCall(
     liveSession?.close();
   });
 
-  let attemptedResumption = Boolean(sessionRecord.upstreamResumptionHandle);
-  let lastError = 'No Gemini client configured';
-
-  for (const ai of options.clients) {
-    if (options.skipClient?.(ai)) continue;
-    try {
-      liveSession = await openLiveSession(
-        ai,
-        options.model,
-        config as LiveConnectConfig,
-        (message) => {
-          // Store upstream resumption tokens as soon as Gemini issues them
-          const update = (message as unknown as { sessionResumptionUpdate?: { newHandle?: string } })
-            .sessionResumptionUpdate;
-          if (update?.newHandle) {
-            sessionStore
-              .updateUpstreamHandle(sessionRecord.sessionId, user.userId, update.newHandle, options.model)
-              .catch((err) => console.error('[Gemini Live] Could not store resumption handle:', err));
-          }
-
-          const frames = toClientFrames(message);
-          for (const frame of frames) {
-            send(frame);
-          }
-        },
-        (reason) => closeWithError(reason || 'Gemini Live session closed')
-      );
-      break;
-    } catch (err) {
-      lastError = (err as Error).message;
-      console.warn('[Gemini Live] Could not open session, trying next client:', lastError);
-      options.onClientFailed?.(ai);
+  const onUpstreamMessage = (message: LiveServerMessage) => {
+    // Resumption handles stay server-side; the client only needs its sessionId
+    const update = (message as unknown as { sessionResumptionUpdate?: { newHandle?: string } })
+      .sessionResumptionUpdate;
+    if (update?.newHandle) {
+      sessionStore
+        .updateUpstreamHandle(sessionRecord.sessionId, user.userId, update.newHandle, options.model)
+        .catch((err) => console.error('[Gemini Live] Could not store resumption handle:', err));
     }
-  }
+    toClientFrames(message).forEach(send);
+  };
 
-  // If opening with resumption handle failed, gracefully fallback
-  if (!liveSession && attemptedResumption) {
-    console.warn('[Gemini Live] Resumption handle invalid or expired; clearing handle and attempting clean start');
+  let lastError = 'No Gemini client configured';
+  /** Try each permitted client in order; resolve the first session that opens, or null. */
+  const connectUpstream = async (config: LiveConnectConfig): Promise<Session | null> => {
+    for (const ai of options.clients) {
+      if (options.skipClient?.(ai)) continue;
+      try {
+        return await openLiveSession(ai, options.model, config, onUpstreamMessage, (reason) =>
+          closeWithError(reason || 'Gemini Live session closed')
+        );
+      } catch (err) {
+        lastError = (err as Error).message;
+        console.warn('[Gemini Live] Could not open session, trying next client:', lastError);
+        options.onClientFailed?.(ai);
+      }
+    }
+    return null;
+  };
+
+  liveSession = await connectUpstream(buildConfig(handle, baseInstruction));
+  let resumed = Boolean(handle && liveSession);
+
+  if (!liveSession && handle) {
+    // The handle may simply be expired: start a fresh upstream session that is told
+    // the recent conversation, before giving up on Live for this call
+    console.warn('[Gemini Live] Resumption failed; retrying with a fresh session');
     await sessionStore.updateUpstreamHandle(sessionRecord.sessionId, user.userId, null);
-    metrics.recordReconnectOutcome('turn_based_fallback');
-    send({
-      type: 'resumption_failed',
-      fallback: 'turn_based',
-      message: 'Gemini Live session resumption failed. You can continue speaking with turn-based audio.'
-    });
-    return;
+    const recap = buildRecapInstruction(sessionRecord.checkpointTurns);
+    liveSession = await connectUpstream(buildConfig(null, `${baseInstruction}${recap}`));
+
+    if (!liveSession) {
+      metrics.recordReconnectOutcome('turn_based_fallback');
+      send({
+        type: 'resumption_failed',
+        fallback: 'turn_based',
+        message: 'Gemini Live session resumption failed. You can continue speaking with turn-based audio.'
+      });
+      ws.close(1000, 'Falling back to turn-based');
+      return;
+    }
+    metrics.recordReconnectOutcome('restarted');
   }
 
   if (!liveSession) {
@@ -370,18 +389,14 @@ async function runLiveCall(
     return;
   }
 
-  if (attemptedResumption) {
+  if (resumed) {
     metrics.recordReconnectOutcome('resumed');
   }
 
   const audioMimeType = `audio/pcm;rate=${params.sampleRate}`;
-  let userTurnText = '';
-  let personaTurnText = '';
-  let userSpeechEndTime = 0;
 
   ws.on('message', (data: RawData, isBinary: boolean) => {
     if (isBinary) {
-      userSpeechEndTime = Date.now();
       const chunk = Buffer.isBuffer(data) ? data : Buffer.concat(Array.isArray(data) ? data : [Buffer.from(data)]);
       liveSession?.sendRealtimeInput({ audio: { data: chunk.toString('base64'), mimeType: audioMimeType } });
       return;
@@ -410,8 +425,6 @@ async function runLiveCall(
 
       // Text input turn
       if (message?.type === 'text' && typeof message.text === 'string' && message.text.trim()) {
-        userSpeechEndTime = Date.now();
-        userTurnText = message.text.trim();
         liveSession?.sendRealtimeInput({ text: message.text.slice(0, MAX_TEXT_LENGTH) });
       }
 
@@ -436,12 +449,12 @@ async function runLiveCall(
   send({
     type: 'session_ready',
     sessionId: sessionRecord.sessionId,
-    resumed: attemptedResumption
+    resumed
   });
   send({ type: 'ready' });
 
   // Only send greeting if this is a brand new session without existing checkpoints
-  if (!attemptedResumption && sessionRecord.checkpointTurns.length === 0) {
+  if (!handle && sessionRecord.checkpointTurns.length === 0) {
     liveSession.sendRealtimeInput({ text: GREETING_PROMPT });
   }
 }

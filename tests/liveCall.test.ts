@@ -69,4 +69,16 @@ describe('LiveCall reconnects', () => {
     expect(FakeSocket.instances[1].url).toContain('sessionId=sess_abc');
     call.stop();
   });
+
+  it('stops without reconnecting when the server falls back to turn-based', async () => {
+    const onResumptionFailed = vi.fn();
+    const { socket } = await startCall({ onResumptionFailed });
+
+    socket.receive({ type: 'resumption_failed', fallback: 'turn_based', message: 'expired' });
+    socket.onclose?.();
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(onResumptionFailed).toHaveBeenCalledWith('turn_based', 'expired');
+    expect(FakeSocket.instances).toHaveLength(1);
+  });
 });

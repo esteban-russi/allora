@@ -280,7 +280,9 @@ export class LiveCall {
         this.userTurnEndTime = 0;
         break;
       case 'resumption_failed':
+        // The server closes the socket next; stop first so that is not treated as a drop to reconnect from
         console.warn('[LiveCall] Upstream resumption failed:', event.message);
+        this.stop();
         this.handlers.onResumptionFailed?.('turn_based', event.message ?? 'Resumption failed');
         break;
       case 'error':

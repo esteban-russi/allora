@@ -3,8 +3,9 @@ import type { AddressInfo } from 'net';
 import type { GoogleGenAI, LiveServerMessage } from '@google/genai';
 import { afterEach, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
-import { attachLiveBridge, parseLiveCallParams, toClientFrames } from '../liveBridge';
-import { InMemorySessionStore } from '../src/server/sessionStore';
+import { attachLiveBridge, buildRecapInstruction, parseLiveCallParams, toClientFrames } from '../liveBridge';
+import { InMemorySessionStore, initializeLearnerSession, type ConversationTurn } from '../src/server/sessionStore';
+import { MetricsCollector } from '../src/server/metrics';
 import { UserRateLimiter } from '../src/server/rateLimiter';
 import { fakeGemini, openCall, startBridgeServer, waitUntil, type TestCall } from './helpers/fakeGemini';
 
@@ -258,5 +259,109 @@ describe('attachLiveBridge liveness and reconnects', () => {
       other.on('error', () => undefined);
     });
     expect(status).toBe(429);
+  });
+});
+
+describe('attachLiveBridge upstream resumption', () => {
+  let server: Server;
+  const calls: TestCall[] = [];
+
+  afterEach(async () => {
+    calls.splice(0).forEach((call) => call.ws.terminate());
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  const turn = (sender: 'user' | 'persona', text: string): ConversationTurn => ({
+    id: `t-${text}`,
+    sender,
+    text,
+    timestamp: '2026-11-18T10:00:00.000Z'
+  });
+
+  /** Store a session for `userId` that already holds a resumption handle and two turns. */
+  async function sessionWithHandle(store: InMemorySessionStore, userId: string): Promise<string> {
+    const session = await store.createOrUpdateSession({
+      ...initializeLearnerSession({ userId }),
+      upstreamResumptionHandle: 'old-handle',
+      checkpointTurns: [turn('user', 'Vorrei un caffè'), turn('persona', 'Subito!')]
+    });
+    return session.sessionId;
+  }
+
+  it('resumes with the stored handle and keeps it off the client', async () => {
+    const store = new InMemorySessionStore();
+    const metrics = new MetricsCollector();
+    const gemini = fakeGemini();
+    ({ server } = await startBridgeServer({ clients: [gemini.ai], sessionStore: store, metrics }));
+    const port = (server.address() as AddressInfo).port;
+    const sessionId = await sessionWithHandle(store, 'resume-user');
+
+    const live = openCall(port, `${VALID_URL}&devUserId=resume-user&sessionId=${sessionId}`);
+    calls.push(live);
+    expect(await live.waitForEvent('session_ready')).toMatchObject({ sessionId, resumed: true });
+    expect(gemini.sessions[0].config.sessionResumption?.handle).toBe('old-handle');
+
+    gemini.sessions[0].emit({ sessionResumptionUpdate: { newHandle: 'new-handle' } } as LiveServerMessage);
+    await new Promise((r) => setTimeout(r, 20));
+    expect((await store.getSession(sessionId, 'resume-user'))?.upstreamResumptionHandle).toBe('new-handle');
+    expect(live.events.some((e) => JSON.stringify(e).includes('new-handle'))).toBe(false);
+    expect(metrics.getSummary().reconnect.resumedSuccessfully).toBe(1);
+  });
+
+  it('restarts a fresh upstream session with a recap when the handle is rejected', async () => {
+    const store = new InMemorySessionStore();
+    const metrics = new MetricsCollector();
+    const gemini = fakeGemini((config) => Boolean(config.sessionResumption?.handle));
+    ({ server } = await startBridgeServer({ clients: [gemini.ai], sessionStore: store, metrics }));
+    const port = (server.address() as AddressInfo).port;
+    const sessionId = await sessionWithHandle(store, 'restart-user');
+
+    const live = openCall(port, `${VALID_URL}&devUserId=restart-user&sessionId=${sessionId}`);
+    calls.push(live);
+    expect(await live.waitForEvent('session_ready')).toMatchObject({ sessionId, resumed: false });
+
+    expect(gemini.sessions).toHaveLength(1);
+    expect(String(gemini.sessions[0].config.systemInstruction)).toContain('Learner: Vorrei un caffè');
+    // No greeting: the learner is mid-conversation
+    expect(gemini.sessions[0].inputs).toEqual([]);
+    expect(metrics.getSummary().reconnect.restartedFresh).toBe(1);
+  });
+
+  it('falls back to turn-based and closes the socket when no upstream session can open', async () => {
+    const store = new InMemorySessionStore();
+    const metrics = new MetricsCollector();
+    const gemini = fakeGemini(() => true);
+    const limiter = new UserRateLimiter();
+    ({ server } = await startBridgeServer({ clients: [gemini.ai], sessionStore: store, metrics, userLimiter: limiter }));
+    const port = (server.address() as AddressInfo).port;
+    const sessionId = await sessionWithHandle(store, 'fallback-user');
+
+    const live = openCall(port, `${VALID_URL}&devUserId=fallback-user&sessionId=${sessionId}`);
+    calls.push(live);
+    expect(await live.waitForEvent('resumption_failed')).toMatchObject({ fallback: 'turn_based' });
+    expect(await live.closed).toBe(1000);
+    expect(await waitUntil(() => limiter.getActiveCallCount('fallback-user') === 0)).toBe(true);
+    expect(metrics.getSummary().reconnect.fallbackToTurnBased).toBe(1);
+  });
+});
+
+describe('buildRecapInstruction', () => {
+  it('returns nothing when there are no turns', () => {
+    expect(buildRecapInstruction([])).toBe('');
+  });
+
+  it('keeps only the most recent ten turns', () => {
+    const turns = Array.from({ length: 12 }, (_, i) => ({
+      id: `t${i}`,
+      sender: 'user' as const,
+      text: `frase ${i}`,
+      timestamp: '2026-11-18T10:00:00.000Z'
+    }));
+    const recap = buildRecapInstruction(turns);
+    expect(recap).not.toContain('frase 0');
+    expect(recap).not.toContain('frase 1\n');
+    expect(recap).toContain('frase 2');
+    expect(recap).toContain('frase 11');
   });
 });
