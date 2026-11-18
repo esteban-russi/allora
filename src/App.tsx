@@ -12,6 +12,7 @@ import { UtilityPanel } from './components/UtilityPanel';
 import { OnboardingPage } from './components/OnboardingPage';
 import { useDialog } from './hooks/useDialog';
 import { speechService } from './utils/speech';
+import { postJson } from './utils/apiClient';
 
 const countWords = (text: string) => text.trim().split(/\s+/).filter(Boolean).length;
 
@@ -106,18 +107,14 @@ export default function App() {
     setIsAiGenerating(true);
 
     try {
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          personaId: persona.id,
-          history: updated.slice(-6),
-          userMessage: text,
-          temperature: devSettings.temperature,
-          grammarStrictness: devSettings.grammarStrictness,
-          learnerLevel: learnerProfile?.level ?? 'A2',
-          learnerName: learnerProfile?.name
-        })
+      const res = await postJson('/api/chat', {
+        personaId: persona.id,
+        history: updated.slice(-6),
+        userMessage: text,
+        temperature: devSettings.temperature,
+        grammarStrictness: devSettings.grammarStrictness,
+        learnerLevel: learnerProfile?.level ?? 'A2',
+        learnerName: learnerProfile?.name
       });
 
       if (res.ok) {

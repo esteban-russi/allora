@@ -7,6 +7,7 @@ import { LiveCall } from '../utils/liveCall';
 import { ITALIAN_PRACTICE_PHRASES } from '../data/personas';
 import { generateCallFallback } from '../data/fallbacks';
 import { useDialog } from '../hooks/useDialog';
+import { postJson } from '../utils/apiClient';
 
 interface VoiceCallModalProps {
   persona: Persona;
@@ -29,11 +30,7 @@ const LIVE_NORMAL_SPEED_REQUEST = 'Puoi tornare a parlare a velocità normale.';
 /** Fetch an English caption for a spoken Italian line; empty when translation is unavailable. */
 async function translateLine(text: string): Promise<string> {
   try {
-    const res = await fetch('/api/translate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text })
-    });
+    const res = await postJson('/api/translate', { text });
     if (!res.ok) return '';
     const data = await res.json();
     return typeof data.translation === 'string' ? data.translation : '';
@@ -211,18 +208,14 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
     activeTranscriptRef.current = '';
 
     try {
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          personaId: personaRef.current.id,
-          history: dialogueHistoryRef.current.slice(-4),
-          userMessage: trimmed,
-          temperature: devSettingsRef.current.temperature,
-          grammarStrictness: devSettingsRef.current.grammarStrictness,
-          learnerLevel: learnerProfileRef.current?.level ?? 'A2',
-          learnerName: learnerProfileRef.current?.name
-        })
+      const res = await postJson('/api/chat', {
+        personaId: personaRef.current.id,
+        history: dialogueHistoryRef.current.slice(-4),
+        userMessage: trimmed,
+        temperature: devSettingsRef.current.temperature,
+        grammarStrictness: devSettingsRef.current.grammarStrictness,
+        learnerLevel: learnerProfileRef.current?.level ?? 'A2',
+        learnerName: learnerProfileRef.current?.name
       });
 
       if (res.ok) {

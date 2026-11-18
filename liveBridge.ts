@@ -12,7 +12,7 @@ import {
   buildVoiceCallInstruction
 } from './src/data/personaPrompts';
 import type { CefrLevel } from './src/types';
-import { authenticateWebSocketRequest, type AuthenticatedUser } from './src/server/auth';
+import { authenticateWebSocketRequest, type AuthenticatedUser, type AuthOptions } from './src/server/auth';
 import {
   defaultSessionStore,
   initializeLearnerSession,
@@ -42,7 +42,6 @@ export interface LiveCallParams {
   learnerName: string;
   sampleRate: number;
   sessionId?: string;
-  token?: string;
 }
 
 /** JSON events sent to the browser or mobile app; model audio travels as binary PCM frames. */
@@ -64,6 +63,8 @@ export interface LiveBridgeOptions {
   model: string;
   /** Proxy hops to skip in X-Forwarded-For, matching Express `trust proxy`. */
   trustProxyHops: number;
+  /** Token verification options (audience, certificate source); defaults read the environment. */
+  auth?: AuthOptions;
   /** Optional custom session store. */
   sessionStore?: SessionStore;
   /** Optional custom user rate limiter. */
@@ -94,7 +95,6 @@ export function parseLiveCallParams(url: string): { params: LiveCallParams } | {
   const grammarStrictness = query.get('grammarStrictness') ?? 'tutor';
   const sampleRate = Number(query.get('sampleRate'));
   const sessionId = query.get('sessionId') || undefined;
-  const token = query.get('token') || query.get('auth_token') || undefined;
 
   if (!Object.hasOwn(PERSONA_PROMPTS, personaId)) {
     return { error: `Unknown personaId: ${personaId}` };
@@ -116,8 +116,7 @@ export function parseLiveCallParams(url: string): { params: LiveCallParams } | {
       grammarStrictness,
       learnerName: query.get('learnerName') ?? '',
       sampleRate,
-      sessionId,
-      token
+      sessionId
     }
   };
 }
@@ -554,7 +553,7 @@ export function attachLiveBridge(server: Server, options: LiveBridgeOptions): vo
       return;
     }
 
-    const user = await authenticateWebSocketRequest(req);
+    const user = await authenticateWebSocketRequest(req, options.auth);
     if (socket.destroyed) return;
     if (!user) {
       rejectUpgrade(socket, 401, 'Unauthorized: Valid Firebase or Google Identity token required');

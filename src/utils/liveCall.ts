@@ -1,4 +1,5 @@
 /** Browser and mobile client for a Gemini Live voice call with reconnect, heartbeat, and resumption. */
+import { getAuthToken } from './apiClient';
 
 const MODEL_SAMPLE_RATE = 24000;
 const HEARTBEAT_INTERVAL_MS = 5000;
@@ -33,7 +34,6 @@ export interface LiveCallOptions {
   grammarStrictness: string;
   learnerName?: string;
   sessionId?: string;
-  authToken?: string;
 }
 
 export interface LiveCallHandlers {
@@ -93,7 +93,7 @@ export class LiveCall {
       await this.audioContext.audioWorklet.addModule(workletUrl);
       URL.revokeObjectURL(workletUrl);
       if (this.isStopped) return;
-      this.openSocket(this.audioContext.sampleRate);
+      await this.openSocket(this.audioContext.sampleRate);
     } catch (err) {
       this.fail((err as Error).message || 'Could not start the microphone');
     }
@@ -138,7 +138,10 @@ export class LiveCall {
     }
   }
 
-  private openSocket(sampleRate: number): void {
+  private async openSocket(sampleRate: number): Promise<void> {
+    if (this.isStopped) return;
+    // Fetched per attempt so a reconnect after a long drop gets a refreshed token
+    const token = await getAuthToken();
     if (this.isStopped) return;
 
     const query = new URLSearchParams({
@@ -152,12 +155,11 @@ export class LiveCall {
     if (this.currentSessionId) {
       query.set('sessionId', this.currentSessionId);
     }
-    if (this.options.authToken) {
-      query.set('token', this.options.authToken);
-    }
 
+    // The token travels as a subprotocol, not in the URL, so it stays out of request logs
     const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const socket = new WebSocket(`${protocol}://${window.location.host}/api/live?${query}`);
+    const url = `${protocol}://${window.location.host}/api/live?${query}`;
+    const socket = token ? new WebSocket(url, ['auth', token]) : new WebSocket(url);
     socket.binaryType = 'arraybuffer';
     this.socket = socket;
 
@@ -229,7 +231,7 @@ export class LiveCall {
     console.log(`[LiveCall] Connection lost. Reconnecting in ${Math.round(delay)}ms (attempt ${this.reconnectAttempts})...`);
 
     this.reconnectTimer = window.setTimeout(() => {
-      this.openSocket(sampleRate);
+      this.openSocket(sampleRate).catch((err) => this.fail((err as Error).message || 'Could not reconnect'));
     }, delay);
   }
 

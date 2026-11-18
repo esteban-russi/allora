@@ -268,7 +268,10 @@ export async function verifyIdToken(
 }
 
 /**
- * Extract bearer token from HTTP headers or URL query parameters.
+ * Extract a bearer token from request headers.
+ *
+ * Tokens in the URL are deliberately not accepted: query strings end up in proxy
+ * and Cloud Run request logs. WebSocket clients send `Sec-WebSocket-Protocol: auth, <token>`.
  *
  * Args:
  *   req: Incoming HTTP request.
@@ -285,15 +288,6 @@ export function extractTokenFromRequest(req: IncomingMessage): string | null {
   const customHeader = req.headers['x-firebase-token'];
   if (typeof customHeader === 'string' && customHeader.trim()) {
     return customHeader.trim();
-  }
-
-  const url = req.url ?? '';
-  try {
-    const parsed = new URL(url, 'http://localhost');
-    const tokenQuery = parsed.searchParams.get('token') || parsed.searchParams.get('auth_token');
-    if (tokenQuery) return tokenQuery.trim();
-  } catch {
-    // Malformed URL
   }
 
   // Support Sec-WebSocket-Protocol (e.g. "auth, <token>" or "bearer, <token>")

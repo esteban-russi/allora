@@ -211,13 +211,13 @@ describe('extractTokenFromRequest', () => {
     expect(extractTokenFromRequest(req)).toBe('firebase-token-123');
   });
 
-  it('extracts token from URL search parameter', () => {
+  it('ignores tokens in the URL so they stay out of request logs', () => {
     const req = {
       headers: {},
       url: '/api/live?sampleRate=16000&token=ws-url-token'
     } as unknown as IncomingMessage;
 
-    expect(extractTokenFromRequest(req)).toBe('ws-url-token');
+    expect(extractTokenFromRequest(req)).toBeNull();
   });
 
   it('extracts token from Sec-WebSocket-Protocol header', () => {

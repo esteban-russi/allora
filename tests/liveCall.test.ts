@@ -1,5 +1,6 @@
 /** Tests for the LiveCall client: reconnects, heartbeat, and capture setup. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { setAuthTokenProvider } from '../src/utils/apiClient';
 import { LiveCall, type LiveCallHandlers } from '../src/utils/liveCall';
 import { FakeSocket, FakeWorkletNode, installFakeBrowser } from './helpers/fakeBrowser';
 
@@ -31,6 +32,18 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  setAuthTokenProvider(async () => null);
+});
+
+describe('LiveCall authentication', () => {
+  it('sends the ID token as a WebSocket subprotocol, never in the URL', async () => {
+    setAuthTokenProvider(async () => 'id-token-xyz');
+    const { call, socket } = await startCall();
+
+    expect(socket.protocols).toEqual(['auth', 'id-token-xyz']);
+    expect(socket.url).not.toContain('id-token-xyz');
+    call.stop();
+  });
 });
 
 describe('LiveCall reconnects', () => {

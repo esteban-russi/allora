@@ -1,3 +1,4 @@
+import { generateKeyPairSync, sign } from 'crypto';
 import { createServer, type Server } from 'http';
 import type { AddressInfo } from 'net';
 import type { GoogleGenAI, LiveServerMessage } from '@google/genai';
@@ -363,5 +364,64 @@ describe('buildRecapInstruction', () => {
     expect(recap).not.toContain('frase 1\n');
     expect(recap).toContain('frase 2');
     expect(recap).toContain('frase 11');
+  });
+});
+
+describe('attachLiveBridge authentication', () => {
+  let server: Server;
+
+  afterEach(async () => {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  it('authenticates an ID token sent as a WebSocket subprotocol', async () => {
+    const { privateKey, publicKey } = generateKeyPairSync('rsa', {
+      modulusLength: 2048,
+      publicKeyEncoding: { type: 'spki', format: 'pem' },
+      privateKeyEncoding: { type: 'pkcs8', format: 'pem' }
+    });
+    const nowSec = Math.floor(Date.now() / 1000);
+    const encode = (part: object) => Buffer.from(JSON.stringify(part)).toString('base64url');
+    const signedData = `${encode({ alg: 'RS256', kid: 'k1' })}.${encode({
+      sub: 'protocol-user',
+      iss: 'https://securetoken.google.com/test-project',
+      aud: 'test-project',
+      exp: nowSec + 3600,
+      iat: nowSec
+    })}`;
+    const token = `${signedData}.${sign('RSA-SHA256', Buffer.from(signedData), privateKey).toString('base64url')}`;
+
+    const store = new InMemorySessionStore();
+    ({ server } = await startBridgeServer({
+      clients: [fakeGemini().ai],
+      sessionStore: store,
+      auth: { enforceAuth: true, projectId: 'test-project', certResolver: async () => publicKey }
+    }));
+    const port = (server.address() as AddressInfo).port;
+
+    const live = new WebSocket(`ws://localhost:${port}${VALID_URL}`, ['auth', token]);
+    await new Promise<void>((resolve) =>
+      live.on('message', (data) => {
+        if (JSON.parse(data.toString()).type === 'session_ready') resolve();
+      })
+    );
+
+    // The server must select a protocol the browser offered, or the browser drops the socket
+    expect(live.protocol).toBe('auth');
+    expect(await store.getActiveUserSession('protocol-user')).not.toBeNull();
+    live.terminate();
+  });
+
+  it('rejects a call without a token when auth is enforced', async () => {
+    ({ server } = await startBridgeServer({ clients: [fakeGemini().ai], auth: { enforceAuth: true, projectId: 'p' } }));
+    const port = (server.address() as AddressInfo).port;
+
+    const status = await new Promise<number>((resolve) => {
+      const live = new WebSocket(`ws://localhost:${port}${VALID_URL}`);
+      live.on('unexpected-response', (_req, res) => resolve(res.statusCode ?? 0));
+      live.on('error', () => undefined);
+    });
+    expect(status).toBe(401);
   });
 });

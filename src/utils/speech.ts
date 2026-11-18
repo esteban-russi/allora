@@ -2,6 +2,7 @@
  * Speech Service: server-side Gemini / Cloud TTS audio, plus browser Web Speech API
  * only when the learner explicitly selects the browser provider (never as a fallback)
  */
+import { postJson } from './apiClient';
 
 /** Speed multiplier used when a learner asks the tutor to speak more slowly. */
 const SLOW_FACTOR = 0.8;
@@ -48,11 +49,7 @@ class SpeechService {
     this.stopSpeaking();
 
     try {
-      const res = await fetch('/api/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
+      const res = await postJson('/api/tts', body);
 
       if (!res.ok) {
         throw new Error(`TTS server returned status ${res.status}`);
@@ -441,14 +438,10 @@ export async function transcribeAudioBlob(
     reader.readAsDataURL(audioBlob);
   });
 
-  const response = await fetch('/api/stt', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      audioBase64: base64,
-      mimeType: audioBlob.type || 'audio/webm',
-      languageCode,
-    })
+  const response = await postJson('/api/stt', {
+    audioBase64: base64,
+    mimeType: audioBlob.type || 'audio/webm',
+    languageCode,
   });
 
   if (!response.ok) {
