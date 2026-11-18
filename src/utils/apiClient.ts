@@ -34,6 +34,20 @@ export async function getAuthToken(): Promise<string | null> {
 }
 
 /**
+ * GET an API route with the user's ID token attached.
+ *
+ * Args:
+ *   path: API path, e.g. `/api/session`.
+ *
+ * Returns:
+ *   The fetch Response; callers check `res.ok`.
+ */
+export async function getWithAuth(path: string): Promise<Response> {
+  const token = await getAuthToken();
+  return fetch(path, token ? { headers: { Authorization: `Bearer ${token}` } } : {});
+}
+
+/**
  * POST a JSON body to an API route with the user's ID token attached.
  *
  * Args:
