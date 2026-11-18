@@ -1,6 +1,9 @@
-/** Browser client for a Gemini Live voice call streamed through the server's `/api/live` socket. */
+/** Browser and mobile client for a Gemini Live voice call with reconnect, heartbeat, and resumption. */
 
 const MODEL_SAMPLE_RATE = 24000;
+const HEARTBEAT_INTERVAL_MS = 5000;
+const HEARTBEAT_TIMEOUT_MS = 10000;
+const MAX_RECONNECT_ATTEMPTS = 5;
 
 // Converts mic audio to 16-bit PCM in ~2048-sample chunks off the main thread
 const CAPTURE_WORKLET = `
@@ -29,11 +32,17 @@ export interface LiveCallOptions {
   learnerLevel: string;
   grammarStrictness: string;
   learnerName?: string;
+  sessionId?: string;
+  authToken?: string;
 }
 
 export interface LiveCallHandlers {
   /** The Gemini session is open and the microphone is streaming. */
   onReady: () => void;
+  /** Learner session confirmed or resumed by backend. */
+  onSessionReady?: (sessionId: string, resumed: boolean) => void;
+  /** Triggered when upstream resumption fails so caller can fall back to turn-based call. */
+  onResumptionFailed?: (fallback: 'turn_based', message: string) => void;
   /** Running transcript of the learner's current turn. */
   onUserTranscript: (text: string) => void;
   /** Running transcript of the tutor's current turn. */
@@ -42,12 +51,7 @@ export interface LiveCallHandlers {
   onTurnComplete: (userText: string, personaText: string) => void;
   /** Whether tutor audio is currently playing. */
   onSpeakingChange: (isSpeaking: boolean) => void;
-  /**
-   * The call failed or ended unexpectedly.
-   *
-   * `beforeReady` is true when the session never opened, so the caller can
-   * switch to another voice engine.
-   */
+  /** The call failed or ended unexpectedly. */
   onError: (message: string, beforeReady: boolean) => void;
 }
 
@@ -65,12 +69,19 @@ export class LiveCall {
   private userText = '';
   private personaText = '';
 
-  constructor(private options: LiveCallOptions, private handlers: LiveCallHandlers) {}
+  private currentSessionId: string | null = null;
+  private heartbeatTimer: number | null = null;
+  private lastPongTime = Date.now();
+  private reconnectAttempts = 0;
+  private reconnectTimer: number | null = null;
+  private userTurnEndTime = 0;
+
+  constructor(private options: LiveCallOptions, private handlers: LiveCallHandlers) {
+    this.currentSessionId = options.sessionId ?? null;
+  }
 
   /**
    * Ask for the microphone and open the Live socket.
-   *
-   * Failures are reported through `onError` rather than thrown.
    */
   async start(): Promise<void> {
     try {
@@ -88,9 +99,10 @@ export class LiveCall {
     }
   }
 
-  /** Send a typed line (e.g. a suggested phrase or a "please repeat") as a learner turn. */
+  /** Send a typed line as a learner turn. */
   sendText(text: string): void {
     if (this.isReady && this.socket?.readyState === WebSocket.OPEN) {
+      this.userTurnEndTime = performance.now();
       this.socket.send(JSON.stringify({ type: 'text', text }));
     }
   }
@@ -100,9 +112,10 @@ export class LiveCall {
     this.isMuted = muted;
   }
 
-  /** Hang up and release the microphone and audio output. */
+  /** Hang up and release the microphone, heartbeat timers, and audio output. */
   stop(): void {
     this.isStopped = true;
+    this.clearTimers();
     this.stopPlayback();
     this.socket?.close();
     this.captureNode?.disconnect();
@@ -114,7 +127,20 @@ export class LiveCall {
     this.audioContext = null;
   }
 
+  private clearTimers(): void {
+    if (this.heartbeatTimer) {
+      window.clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+    if (this.reconnectTimer) {
+      window.clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+  }
+
   private openSocket(sampleRate: number): void {
+    if (this.isStopped) return;
+
     const query = new URLSearchParams({
       personaId: this.options.personaId,
       learnerLevel: this.options.learnerLevel,
@@ -122,10 +148,24 @@ export class LiveCall {
       learnerName: this.options.learnerName ?? '',
       sampleRate: String(sampleRate)
     });
+
+    if (this.currentSessionId) {
+      query.set('sessionId', this.currentSessionId);
+    }
+    if (this.options.authToken) {
+      query.set('token', this.options.authToken);
+    }
+
     const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
     const socket = new WebSocket(`${protocol}://${window.location.host}/api/live?${query}`);
     socket.binaryType = 'arraybuffer';
     this.socket = socket;
+
+    socket.onopen = () => {
+      this.lastPongTime = Date.now();
+      this.startHeartbeat();
+      this.reconnectAttempts = 0;
+    };
 
     socket.onmessage = (event) => {
       if (event.data instanceof ArrayBuffer) {
@@ -134,13 +174,64 @@ export class LiveCall {
         this.handleEvent(JSON.parse(event.data));
       }
     };
+
     socket.onclose = () => {
-      if (!this.isStopped) this.fail('The voice call was disconnected');
+      this.clearTimers();
+      if (!this.isStopped) {
+        this.attemptReconnect(sampleRate);
+      }
     };
   }
 
-  private handleEvent(event: { type: string; text?: string; message?: string }): void {
+  private startHeartbeat(): void {
+    this.clearTimers();
+    this.heartbeatTimer = window.setInterval(() => {
+      if (this.socket?.readyState === WebSocket.OPEN) {
+        this.socket.send(JSON.stringify({ type: 'ping' }));
+        if (Date.now() - this.lastPongTime > HEARTBEAT_TIMEOUT_MS) {
+          console.warn('[LiveCall] Heartbeat timeout: mobile silent network drop detected. Reconnecting...');
+          this.socket.close();
+        }
+      }
+    }, HEARTBEAT_INTERVAL_MS);
+  }
+
+  private attemptReconnect(sampleRate: number): void {
+    if (this.isStopped) return;
+
+    if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      this.fail('The voice call connection could not be restored after multiple attempts.');
+      return;
+    }
+
+    this.reconnectAttempts++;
+    // Exponential backoff with jitter
+    const delay = Math.min(1000 * 1.5 ** this.reconnectAttempts + Math.random() * 500, 8000);
+    console.log(`[LiveCall] Connection lost. Reconnecting in ${Math.round(delay)}ms (attempt ${this.reconnectAttempts})...`);
+
+    this.reconnectTimer = window.setTimeout(() => {
+      this.openSocket(sampleRate);
+    }, delay);
+  }
+
+  private handleEvent(event: {
+    type: string;
+    text?: string;
+    message?: string;
+    sessionId?: string;
+    resumed?: boolean;
+    fallback?: 'turn_based';
+  }): void {
     switch (event.type) {
+      case 'session_ready':
+        if (event.sessionId) {
+          this.currentSessionId = event.sessionId;
+          this.handlers.onSessionReady?.(event.sessionId, Boolean(event.resumed));
+        }
+        break;
+      case 'pong':
+        this.lastPongTime = Date.now();
+        break;
       case 'ready':
         this.isReady = true;
         this.startCapture();
@@ -154,13 +245,24 @@ export class LiveCall {
         this.personaText += event.text ?? '';
         this.handlers.onPersonaTranscript(this.personaText.trim());
         break;
-      case 'interrupted':
+      case 'interrupted': {
+        const startStop = performance.now();
         this.stopPlayback();
+        const latencyMs = Math.round(performance.now() - startStop);
+        if (this.socket?.readyState === WebSocket.OPEN) {
+          this.socket.send(JSON.stringify({ type: 'barge_in_stop', latencyMs }));
+        }
         break;
+      }
       case 'turn_complete':
         this.handlers.onTurnComplete(this.userText.trim(), this.personaText.trim());
         this.userText = '';
         this.personaText = '';
+        this.userTurnEndTime = 0;
+        break;
+      case 'resumption_failed':
+        console.warn('[LiveCall] Upstream resumption failed:', event.message);
+        this.handlers.onResumptionFailed?.('turn_based', event.message ?? 'Resumption failed');
         break;
       case 'error':
         this.fail(event.message ?? 'Gemini Live error');
@@ -174,6 +276,7 @@ export class LiveCall {
     this.captureNode = new AudioWorkletNode(this.audioContext, 'pcm-capture', { numberOfOutputs: 0 });
     this.captureNode.port.onmessage = (event: MessageEvent<ArrayBuffer>) => {
       if (!this.isMuted && this.socket?.readyState === WebSocket.OPEN) {
+        this.userTurnEndTime = performance.now();
         this.socket.send(event.data);
       }
     };
@@ -184,6 +287,16 @@ export class LiveCall {
   private playChunk(data: ArrayBuffer): void {
     const ctx = this.audioContext;
     if (!ctx) return;
+
+    // Report TTFA on the first audio buffer chunk received after a user turn
+    if (this.userTurnEndTime > 0) {
+      const ttfaMs = Math.round(performance.now() - this.userTurnEndTime);
+      this.userTurnEndTime = 0;
+      if (this.socket?.readyState === WebSocket.OPEN) {
+        this.socket.send(JSON.stringify({ type: 'ttfa_report', latencyMs: ttfaMs }));
+      }
+    }
+
     const pcm = new Int16Array(data);
     const buffer = ctx.createBuffer(1, pcm.length, MODEL_SAMPLE_RATE);
     const samples = buffer.getChannelData(0);

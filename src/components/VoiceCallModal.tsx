@@ -400,6 +400,18 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
       },
       {
         onReady: () => setSpeakingState('listening'),
+        onSessionReady: (sessionId, resumed) => {
+          console.log(`[VoiceCall] Session ${sessionId} confirmed (resumed: ${resumed})`);
+        },
+        onResumptionFailed: (_fallback, message) => {
+          console.warn('[VoiceCall] Upstream Live resumption failed, falling back to turn-based:', message);
+          liveCallRef.current?.stop();
+          liveCallRef.current = null;
+          isAiSpeakingRef.current = false;
+          setLivePersonaTranscript('');
+          setEngine('turn_based');
+          setSpeakingState('listening');
+        },
         onUserTranscript: setLiveUserTranscript,
         onPersonaTranscript: setLivePersonaTranscript,
         onTurnComplete: (userText, personaText) => {
