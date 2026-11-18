@@ -4,7 +4,8 @@
 
 Keep learner sessions (settings, progress, last 50 checkpointed turns, Live resumption
 handle) across restarts, deploys and scale-to-zero, and share them between Cloud Run
-instances so `--max-instances` can go back above 1.
+instances so `--max-instances` can go back above 1. Then show the learner their saved
+conversation, profile and notebook when they come back, instead of onboarding again.
 
 Today `InMemorySessionStore` loses every session whenever the instance stops, so the
 30-day retention and GDPR delete only hold while one instance stays up.
@@ -16,6 +17,7 @@ In scope:
   (`src/server/sessionStore.ts`). Routes, `liveBridge.ts` and `maintenance.ts` keep
   calling the interface and do not change behaviour.
 - Choosing the store from the environment.
+- Restoring on page load: profile, chat and saved phrases come back from the session.
 - GCP setup: database, TTL policy, index, IAM.
 - Raising `--max-instances` again once deployed and checked.
 
@@ -36,12 +38,19 @@ Out of scope (stay in memory, per instance):
 | Expiry | Firestore TTL policy on a `expiresAtTs` Timestamp field; reads still ignore expired sessions | TTL deletes within ~24 h of expiry at no cost; the read check keeps behaviour exact. `purgeExpiredSessions` returns 0 for this store. |
 | Latest session for a user | Query `userId ==` ordered by `updatedAt desc`, limit 5, skip expired | Needs one composite index (`userId` asc, `updatedAt` desc). |
 | GDPR delete-all | Query by `userId`, delete in batches of ≤500 | Firestore has no delete-by-query. |
-| Store selection | `SESSION_STORE=firestore` (set in `deploy.yml`); default `memory` | Local dev and tests need no GCP credentials. Fail at startup if `firestore` is set but the client cannot be created. |
+| Store selection | `SESSION_STORE=firestore` (set in `deploy.yml`); default `memory`; any other value fails at startup | Local dev and tests need no GCP credentials. |
+| Settings updates | New `updateSessionSettings` store method that changes only profile fields and saved phrases | `POST /api/session` used to write the whole session back, which would drop a turn checkpointed at the same moment. |
+| What the client sees | `GET /api/session` returns the session without `userId` or the Live resumption handle | Handles stay server-side, as everywhere else. |
+| Restore | On load, the app asks for the latest session; if there is one it skips onboarding and shows the tutor greeting followed by the saved turns (chat and voice) and the saved phrases | One request, no new client storage. |
+| New conversation | Completing onboarding starts a new session | Onboarding already resets the chat on screen; the old session expires on its own. |
+| Saved phrases | Sent to the server whenever the learner adds or removes one | Rare action, so no batching. |
 | Dependency | `@google-cloud/firestore` (server only) | Official client, uses the Cloud Run service account via ADC. `firebase-admin` would pull in more than needed. |
 
-Also fix while here: `InMemorySessionStore.updateUpstreamHandle` mutates the stored
-object in place instead of writing it back. Harmless in memory, but the Firestore
-version must do an explicit update, and both should behave the same.
+Also fix while here:
+- `InMemorySessionStore.updateUpstreamHandle` mutates the stored object in place instead
+  of writing it back. Harmless in memory, but both stores should behave the same.
+- Two checkpoints saved at once can lose one even in memory, because the read and the
+  write are separated by an `await`.
 
 ## Steps (one commit each)
 
@@ -51,12 +60,18 @@ version must do an explicit update, and both should behave the same.
 2. **`FirestoreSessionStore`** in `src/server/firestoreSessionStore.ts`: convert
    `LearnerSession` to and from documents (ISO strings kept; `expiresAtTs` added), and
    implement each interface method as decided above.
-3. **Run the contract suite against Firestore** when `FIRESTORE_EMULATOR_HOST` is set,
-   skipped otherwise. Running the emulator needs `firebase-tools` and Java, so ask before
-   adding it to CI; until then run it locally before merging.
+3. **Run the contract suite against Firestore** when `FIRESTORE_TEST=1` is set (with
+   `FIRESTORE_EMULATOR_HOST` for the emulator, or credentials for a real database), in a
+   throwaway collection; skipped otherwise. The emulator needs Java, so ask before adding
+   it to CI.
 4. **Store selection.** `createSessionStore(env)` returns the store; `defaultSessionStore`
    uses it. `SESSION_STORE` is documented in `.env.example` and the README.
 5. **Deploy config.** Add `SESSION_STORE=firestore` to `deploy.yml`.
+6. **Settings without clobbering.** `updateSessionSettings` in both stores; `POST /api/session`
+   uses it for existing sessions.
+7. **Client view of a session.** `GET /api/session` strips `userId` and the resumption handle.
+8. **Restore in the app.** Load the session on start, rebuild profile, chat and notebook from
+   it, start a new session on onboarding, and save phrases when they change.
 
 ## GCP setup (before the first deploy of this branch)
 
