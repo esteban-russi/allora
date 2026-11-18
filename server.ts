@@ -8,7 +8,7 @@ import { TextToSpeechClient } from '@google-cloud/text-to-speech';
 import { SpeechClient } from '@google-cloud/speech';
 import { PERSONA_PROMPTS, LEVEL_PROMPTS, GRAMMAR_STRICTNESS_LEVELS, buildSystemInstruction, sanitizeLearnerName } from './src/data/personaPrompts';
 import type { CefrLevel } from './src/types';
-import { attachLiveBridge } from './liveBridge';
+import { attachLiveBridge, type LiveBridgeOptions } from './liveBridge';
 import { VertexCooldown, isPersistentVertexError, summarizeError } from './vertexCooldown';
 import { assertAuthConfig, authenticateHttpUser } from './src/server/auth';
 import {
@@ -122,7 +122,6 @@ if (GCP_PROJECT) {
 // Vertex AI models that just failed with a configuration error (IAM, region,
 // model name) are skipped for a while instead of costing a round trip per request.
 const vertexCooldown = new VertexCooldown();
-const hasVertexFallback = (ai: GoogleGenAI) => ai === primaryAi && fallbackAi !== null;
 
 // Execution wrapper enforcing data privacy rules (Vertex default vs AI Studio audit)
 async function generateContentWithFallback(requestConfig: any, isLearnerData = true) {
@@ -706,6 +705,41 @@ app.all('/api/*', (req, res) => {
   res.status(404).json({ error: `API route not found: ${req.method} ${req.path}` });
 });
 
+/**
+ * Choose the Gemini clients a Live call may use and when Vertex AI is skipped.
+ *
+ * AI Studio joins the rotation only when privacy policy allows learner data there.
+ * The Vertex cooldown is used only when there is another client to skip to;
+ * otherwise one Vertex failure would leave no client at all for the whole cooldown.
+ *
+ * Args:
+ *   primaryAi: Vertex AI (or API-key) client.
+ *   fallbackAi: AI Studio client, or null when not configured.
+ *   fallbackPermitted: Whether policy allows learner audio on AI Studio.
+ *   cooldown: Shared Vertex cooldown tracker.
+ *   model: Live model name the cooldown is keyed by.
+ *
+ * Returns:
+ *   The `clients`, `skipClient` and `onClientFailed` bridge options.
+ */
+export function buildLiveClientOptions(
+  primaryAi: GoogleGenAI,
+  fallbackAi: GoogleGenAI | null,
+  fallbackPermitted: boolean,
+  cooldown: VertexCooldown,
+  model: string
+): Pick<LiveBridgeOptions, 'clients' | 'skipClient' | 'onClientFailed'> {
+  const liveFallbackAi = fallbackPermitted ? fallbackAi : null;
+  const canSkipVertex = (ai: GoogleGenAI) => ai === primaryAi && liveFallbackAi !== null;
+  return {
+    clients: liveFallbackAi ? [primaryAi, liveFallbackAi] : [primaryAi],
+    skipClient: (ai) => canSkipVertex(ai) && cooldown.isCoolingDown(model),
+    onClientFailed: (ai) => {
+      if (canSkipVertex(ai)) cooldown.trip(model);
+    }
+  };
+}
+
 // Setup Vite middleware in dev or static serving in production
 async function startServer() {
   assertAuthConfig();
@@ -733,16 +767,11 @@ async function startServer() {
   });
 
   attachLiveBridge(server, {
-    clients: HAS_GENAI_CREDENTIALS ? [primaryAi, fallbackAi].filter((ai): ai is GoogleGenAI => ai !== null) : [],
+    ...(HAS_GENAI_CREDENTIALS
+      ? buildLiveClientOptions(primaryAi, fallbackAi, isAiStudioFallbackPermitted(true), vertexCooldown, LIVE_MODEL)
+      : { clients: [] }),
     model: LIVE_MODEL,
     trustProxyHops: TRUST_PROXY_HOPS,
-    skipClient: (ai) => {
-      if (ai === fallbackAi && !isAiStudioFallbackPermitted(true)) return true;
-      return hasVertexFallback(ai) && vertexCooldown.isCoolingDown(LIVE_MODEL);
-    },
-    onClientFailed: (ai) => {
-      if (hasVertexFallback(ai)) vertexCooldown.trip(LIVE_MODEL);
-    },
   });
 }
 
