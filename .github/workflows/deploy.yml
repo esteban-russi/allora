@@ -55,13 +55,14 @@ jobs:
           service: ${{ env.SERVICE }}
           region: ${{ env.REGION }}
           image: ${{ env.IMAGE }}
-          # Live voice calls hold a WebSocket open, so allow long requests
+          # Live voice calls hold a WebSocket open, so allow long requests.
+          # One instance until sessions move to Firestore: they live in server memory.
+          # No comments inside the folded block below: they reach gcloud as arguments.
           flags: >-
             --service-account=${{ vars.GCP_RUNTIME_SA }}
             --allow-unauthenticated
             --timeout=3600
             --session-affinity
-            # One instance until sessions move to Firestore: they live in server memory
             --max-instances=1
           env_vars: |-
             NODE_ENV=production
