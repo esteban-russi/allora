@@ -1,7 +1,7 @@
 /** Tests for the LiveCall client: reconnects, heartbeat, and capture setup. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setAuthTokenProvider } from '../src/utils/apiClient';
-import { LiveCall, type LiveCallHandlers } from '../src/utils/liveCall';
+import { isVoiced, LiveCall, type LiveCallHandlers } from '../src/utils/liveCall';
 import { FakeSocket, FakeWorkletNode, installFakeBrowser } from './helpers/fakeBrowser';
 
 function handlers(overrides: Partial<LiveCallHandlers> = {}): LiveCallHandlers {
@@ -32,6 +32,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   setAuthTokenProvider(async () => null);
 });
 
@@ -107,6 +108,78 @@ describe('LiveCall reconnects', () => {
       { sender: 'user', text: 'Vorrei un caffè' },
       { sender: 'persona', text: 'Subito!' }
     ]);
+    call.stop();
+  });
+});
+
+describe('isVoiced', () => {
+  it('treats silence and low noise as not speech', () => {
+    expect(isVoiced(new Int16Array(2048))).toBe(false);
+    expect(isVoiced(new Int16Array(2048).fill(200))).toBe(false);
+  });
+
+  it('treats a loud frame as speech', () => {
+    expect(isVoiced(new Int16Array(2048).fill(8000))).toBe(true);
+  });
+});
+
+describe('LiveCall latency metrics', () => {
+  let nowMs = 0;
+  const loud = () => new Int16Array(2048).fill(8000).buffer;
+  const quiet = () => new Int16Array(2048).buffer;
+
+  beforeEach(() => {
+    nowMs = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => nowMs);
+  });
+
+  /** Start a call, mark it ready, and return a function that feeds mic frames at a given time. */
+  async function readyCall() {
+    const { call, socket } = await startCall();
+    socket.receive({ type: 'ready' });
+    const mic = FakeWorkletNode.instances[0].port;
+    const speak = (atMs: number, frame: ArrayBuffer) => {
+      nowMs = atMs;
+      mic.onmessage?.({ data: frame });
+    };
+    const tutorAudio = (atMs: number) => {
+      nowMs = atMs;
+      socket.onmessage?.({ data: new Int16Array(480).buffer });
+    };
+    const reports = (type: string) => socket.sentEvents().filter((e) => e.type === type).map((e) => e.latencyMs);
+    return { call, socket, speak, tutorAudio, reports };
+  }
+
+  it('measures TTFA from the last voiced frame, not the last mic frame', async () => {
+    const { call, speak, tutorAudio, reports } = await readyCall();
+    speak(1000, loud());
+    speak(1100, quiet());
+    speak(1400, quiet());
+    tutorAudio(1900);
+    tutorAudio(1950); // continuation of the same reply
+
+    expect(reports('ttfa_report')).toEqual([900]);
+    call.stop();
+  });
+
+  it('measures barge-in from speech onset over tutor audio to playback cutoff', async () => {
+    const { call, socket, speak, tutorAudio, reports } = await readyCall();
+    tutorAudio(1000);
+    speak(3000, loud());
+    speak(3050, loud());
+    nowMs = 3150;
+    socket.receive({ type: 'interrupted' });
+
+    expect(reports('barge_in_stop')).toEqual([150]);
+    call.stop();
+  });
+
+  it('does not report barge-in when no speech was heard over the tutor', async () => {
+    const { call, socket, tutorAudio, reports } = await readyCall();
+    tutorAudio(1000);
+    socket.receive({ type: 'interrupted' });
+
+    expect(reports('barge_in_stop')).toEqual([]);
     call.stop();
   });
 });

@@ -5,6 +5,28 @@ const MODEL_SAMPLE_RATE = 24000;
 const HEARTBEAT_INTERVAL_MS = 5000;
 const HEARTBEAT_TIMEOUT_MS = 10000;
 const MAX_RECONNECT_ATTEMPTS = 5;
+// Mic frames above this RMS (of full scale) count as speech; echo cancellation keeps
+// the tutor's own audio well below it
+const VOICE_RMS_THRESHOLD = 0.02;
+
+/**
+ * Decide whether a 16-bit PCM mic frame contains speech, by its RMS level.
+ *
+ * Args:
+ *   pcm: One captured frame.
+ *
+ * Returns:
+ *   True when the frame is louder than VOICE_RMS_THRESHOLD.
+ */
+export function isVoiced(pcm: Int16Array): boolean {
+  if (pcm.length === 0) return false;
+  let sumSquares = 0;
+  for (let i = 0; i < pcm.length; i++) {
+    const sample = pcm[i] / 0x8000;
+    sumSquares += sample * sample;
+  }
+  return Math.sqrt(sumSquares / pcm.length) > VOICE_RMS_THRESHOLD;
+}
 
 // Converts mic audio to 16-bit PCM in ~2048-sample chunks off the main thread
 const CAPTURE_WORKLET = `
@@ -74,7 +96,12 @@ export class LiveCall {
   private lastPongTime = Date.now();
   private reconnectAttempts = 0;
   private reconnectTimer: number | null = null;
-  private userTurnEndTime = 0;
+  /** When the learner last spoke (or sent text); TTFA is measured from here. */
+  private lastVoiceAt = 0;
+  /** The learner has spoken since the tutor's last reply started. */
+  private awaitingReply = false;
+  /** When speech was first heard over tutor audio; barge-in latency is measured from here. */
+  private bargeInStartedAt = 0;
 
   constructor(private options: LiveCallOptions, private handlers: LiveCallHandlers) {
     this.currentSessionId = options.sessionId ?? null;
@@ -102,7 +129,8 @@ export class LiveCall {
   /** Send a typed line as a learner turn. */
   sendText(text: string): void {
     if (this.isReady && this.socket?.readyState === WebSocket.OPEN) {
-      this.userTurnEndTime = performance.now();
+      this.lastVoiceAt = performance.now();
+      this.awaitingReply = true;
       this.socket.send(JSON.stringify({ type: 'text', text }));
     }
   }
@@ -267,11 +295,11 @@ export class LiveCall {
         this.handlers.onPersonaTranscript(this.personaText.trim());
         break;
       case 'interrupted': {
-        const startStop = performance.now();
+        const startedAt = this.bargeInStartedAt;
         this.stopPlayback();
-        const latencyMs = Math.round(performance.now() - startStop);
-        if (this.socket?.readyState === WebSocket.OPEN) {
-          this.socket.send(JSON.stringify({ type: 'barge_in_stop', latencyMs }));
+        // Only report when this device heard the learner start talking over the tutor
+        if (startedAt > 0) {
+          this.report('barge_in_stop', performance.now() - startedAt);
         }
         break;
       }
@@ -281,7 +309,6 @@ export class LiveCall {
         this.handlers.onTurnComplete(this.userText.trim(), this.personaText.trim());
         this.userText = '';
         this.personaText = '';
-        this.userTurnEndTime = 0;
         break;
       case 'resumption_failed':
         // The server closes the socket next; stop first so that is not treated as a drop to reconnect from
@@ -315,11 +342,27 @@ export class LiveCall {
     this.captureNode = new AudioWorkletNode(this.audioContext, 'pcm-capture', { numberOfOutputs: 0 });
     this.captureNode.port.onmessage = (event: MessageEvent<ArrayBuffer>) => {
       if (!this.isMuted && this.socket?.readyState === WebSocket.OPEN) {
-        this.userTurnEndTime = performance.now();
+        this.noteSpeech(new Int16Array(event.data));
         this.socket.send(event.data);
       }
     };
     source.connect(this.captureNode);
+  }
+
+  /** Track speech timing for the TTFA and barge-in metrics. */
+  private noteSpeech(pcm: Int16Array): void {
+    if (!isVoiced(pcm)) return;
+    const now = performance.now();
+    this.lastVoiceAt = now;
+    this.awaitingReply = true;
+    if (this.playing.size > 0 && this.bargeInStartedAt === 0) this.bargeInStartedAt = now;
+  }
+
+  /** Send a latency measurement to the server's metrics. */
+  private report(type: 'ttfa_report' | 'barge_in_stop', latencyMs: number): void {
+    if (this.socket?.readyState === WebSocket.OPEN) {
+      this.socket.send(JSON.stringify({ type, latencyMs: Math.round(latencyMs) }));
+    }
   }
 
   /** Queue a 24 kHz 16-bit PCM chunk right after the previous one for gapless playback. */
@@ -327,13 +370,10 @@ export class LiveCall {
     const ctx = this.audioContext;
     if (!ctx) return;
 
-    // Report TTFA on the first audio buffer chunk received after a user turn
-    if (this.userTurnEndTime > 0) {
-      const ttfaMs = Math.round(performance.now() - this.userTurnEndTime);
-      this.userTurnEndTime = 0;
-      if (this.socket?.readyState === WebSocket.OPEN) {
-        this.socket.send(JSON.stringify({ type: 'ttfa_report', latencyMs: ttfaMs }));
-      }
+    // TTFA: first tutor audio after the learner stopped speaking, while the tutor was silent
+    if (this.awaitingReply && this.playing.size === 0) {
+      this.awaitingReply = false;
+      this.report('ttfa_report', performance.now() - this.lastVoiceAt);
     }
 
     const pcm = new Int16Array(data);
@@ -352,7 +392,10 @@ export class LiveCall {
     this.playing.add(source);
     source.onended = () => {
       this.playing.delete(source);
-      if (this.playing.size === 0) this.handlers.onSpeakingChange(false);
+      if (this.playing.size === 0) {
+        this.bargeInStartedAt = 0;
+        this.handlers.onSpeakingChange(false);
+      }
     };
   }
 
@@ -365,6 +408,7 @@ export class LiveCall {
     });
     this.playing.clear();
     this.nextPlayTime = 0;
+    this.bargeInStartedAt = 0;
     if (wasPlaying) this.handlers.onSpeakingChange(false);
   }
 
