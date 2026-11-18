@@ -25,6 +25,7 @@ import {
   logPrivacyAuditNotice
 } from './src/server/privacyAndPolicy';
 import { defaultMetrics } from './src/server/metrics';
+import { scheduleMaintenance } from './src/server/maintenance';
 
 dotenv.config();
 
@@ -779,6 +780,7 @@ export function buildLiveClientOptions(
 async function startServer() {
   assertAuthConfig();
   logPrivacyAuditNotice();
+  scheduleMaintenance(defaultSessionStore, defaultUserLimiter);
   const isProd = process.env.NODE_ENV === 'production';
 
   if (!isProd) {
