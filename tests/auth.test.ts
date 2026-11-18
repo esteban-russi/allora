@@ -6,8 +6,7 @@ import {
   assertAuthConfig,
   decodeJwt,
   extractTokenFromRequest,
-  verifyIdToken,
-  verifyRsaSha256
+  verifyIdToken
 } from '../src/server/auth';
 
 describe('decodeJwt', () => {

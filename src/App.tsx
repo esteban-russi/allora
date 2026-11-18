@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { EMMANUELE, INITIAL_MESSAGES, INITIAL_SAVED_PHRASES, TUTORS, createInitialMessages } from './data/personas';
 import { generatePersonaFallbackMessage } from './data/fallbacks';
 import { ChatMessage, DevSettings, GrammarNote, LearnerProfile, Persona, SavedPhrase } from './types';
