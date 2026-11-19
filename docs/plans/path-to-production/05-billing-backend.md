@@ -109,7 +109,7 @@ the `/api/me` response.
      `{ tier, subscription }` (tier recomputed with `tierFor`).
    - RevenueCat failure: `502 { code: 'BILLING_UPSTREAM_ERROR' }`.
 
-5. **`POST /api/webhooks/revenuecat`** (not behind user auth; register it before the
+5. ✅ **`POST /api/webhooks/revenuecat`** (not behind user auth; register it before the
    authenticated block; it uses the global `express.json` parser and the IP rate limiter).
    - Missing config → 503. Wrong or missing `Authorization` header → 401 (constant-time compare
      of equal-length buffers; unequal length is a mismatch).
