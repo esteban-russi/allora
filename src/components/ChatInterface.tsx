@@ -3,6 +3,7 @@ import { Bookmark, BookmarkCheck, Flag, Headphones, HelpCircle, Languages, Mic, 
 import { Persona, ChatMessage, DevSettings } from '../types';
 import { PersonaBadge } from './PersonaBadge';
 import { LimitReachedCard } from './LimitReachedCard';
+import { PremiumEndedNotice } from './PremiumEndedNotice';
 import { ReportDialog } from './ReportDialog';
 import { ITALIAN_PRACTICE_PHRASES } from '../data/personas';
 import { speechService, createSpeechRecognizer, AudioRecorder, transcribeAudioBlob } from '../utils/speech';
@@ -24,10 +25,12 @@ interface ChatInterfaceProps {
   failedReply?: { messageId: string; text: string; reason: ChatReplyErrorReason } | null;
   onRetryReply?: () => void;
   limitReached?: QuotaError | null;
+  premiumEnded?: boolean;
   tier?: string;
   canUpgrade?: boolean;
   onSignIn?: () => void;
   onSeePlans?: () => void;
+  onContinueWithEmmanuele?: () => void;
 }
 
 const ACCENTS = ['à', 'è', 'é', 'ì', 'ò', 'ù'];
@@ -45,10 +48,12 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   failedReply,
   onRetryReply,
   limitReached,
+  premiumEnded = false,
   tier,
   canUpgrade,
   onSignIn,
-  onSeePlans
+  onSeePlans,
+  onContinueWithEmmanuele
 }) => {
   const [inputText, setInputText] = useState<string>(draft ?? '');
   const [visibleTranslations, setVisibleTranslations] = useState<Set<string>>(new Set());
@@ -400,6 +405,15 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             canUpgrade={canUpgrade ?? false}
             onSignIn={onSignIn}
             onSeePlans={onSeePlans}
+          />
+        )}
+
+        {premiumEnded && onContinueWithEmmanuele && (
+          <PremiumEndedNotice
+            tutorName={persona.name}
+            canUpgrade={canUpgrade ?? false}
+            onSeePlans={onSeePlans}
+            onContinueWithEmmanuele={onContinueWithEmmanuele}
           />
         )}
 

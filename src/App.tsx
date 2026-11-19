@@ -15,6 +15,7 @@ import { MagicLinkEmailForm } from './components/MagicLinkEmailForm';
 import { AccountMenu } from './components/AccountMenu';
 import { ConsentDialog } from './components/ConsentDialog';
 import { LimitReachedCard } from './components/LimitReachedCard';
+import { isTutorLockedForTier } from './components/PremiumEndedNotice';
 import { PlansScreen } from './components/PlansScreen';
 import { TERMS_VERSION } from './data/legal';
 import type { Consent } from './server/accountStore';
@@ -46,6 +47,7 @@ export default function App() {
   const hasCurrentConsent = me?.consent?.termsVersion === TERMS_VERSION;
   const needsConsent = Boolean(me && !hasCurrentConsent);
   const [limitReached, setLimitReached] = useState<QuotaError | null>(null);
+  const [premiumEnded, setPremiumEnded] = useState<boolean>(false);
   const [failedReply, setFailedReply] = useState<{ messageId: string; text: string; reason: ChatReplyErrorReason } | null>(null);
   const [chatDraft, setChatDraft] = useState<string>('');
   // Premium tutor tapped in onboarding before signing in / subscribing
@@ -211,6 +213,7 @@ export default function App() {
     setMessages(INITIAL_MESSAGES);
     setSavedPhrases(INITIAL_SAVED_PHRASES);
     setLimitReached(null);
+    setPremiumEnded(false);
     setFailedReply(null);
     setChatDraft('');
     setPendingTutorId(null);
@@ -327,6 +330,17 @@ export default function App() {
     }
   }, [limitReached, me?.tier]);
 
+  // Show the Premium-ended notice on load if the active tutor is premium while the user is not,
+  // and clear it once the learner re-subscribes or switches to a free tutor.
+  useEffect(() => {
+    if (!learnerProfile || screen !== 'app') return;
+    if (isTutorLockedForTier(persona, me?.tier)) {
+      setPremiumEnded(true);
+    } else if (!persona.isPremium || me?.tier === 'premium') {
+      setPremiumEnded(false);
+    }
+  }, [learnerProfile, screen, persona, me?.tier]);
+
   const updateSavedPhrases = (next: SavedPhrase[]) => {
     setSavedPhrases(next);
     if (learnerProfile) {
@@ -381,6 +395,16 @@ export default function App() {
       setChatDraft(text);
       setLimitReached(result.quota);
       setIsAiGenerating(false);
+      return;
+    }
+
+    if (result.status === 'premium_required') {
+      setMessages((prev) => prev.filter((m) => m.id !== messageId));
+      setFailedReply(null);
+      setChatDraft(text);
+      setPremiumEnded(true);
+      setIsAiGenerating(false);
+      void refreshAccount();
       return;
     }
 
@@ -451,9 +475,32 @@ export default function App() {
     }
   };
 
+  const handleContinueWithEmmanuele = () => {
+    const nextProfile: LearnerProfile = {
+      name: learnerProfile?.name ?? '',
+      level: learnerProfile?.level ?? 'A2',
+      personaId: EMMANUELE.id
+    };
+    setPremiumEnded(false);
+    setLimitReached(null);
+    setFailedReply(null);
+    setLearnerProfile(nextProfile);
+    setMessages(createInitialMessages(EMMANUELE, nextProfile.name, nextProfile.level));
+    setDevSettings((prev) => ({ ...prev, voiceId: EMMANUELE.voiceId }));
+    void startLearnerSession({
+      profile: nextProfile,
+      grammarStrictness: devSettings.grammarStrictness,
+      savedPhrases
+    });
+  };
+
   const startCall = async () => {
     setIsNotebookDrawerOpen(false);
     const m = await refreshAccount();
+    if (isTutorLockedForTier(persona, m?.tier ?? me?.tier)) {
+      setPremiumEnded(true);
+      return;
+    }
     if (m && m.usage.voiceSeconds >= m.limits.voiceSeconds) {
       setLimitReached({
         counter: 'voiceSeconds',
@@ -596,10 +643,12 @@ export default function App() {
               failedReply={failedReply}
               onRetryReply={handleRetryReply}
               limitReached={limitReached}
+              premiumEnded={premiumEnded}
               tier={me?.tier ?? 'guest'}
-              canUpgrade={getBilling().isAvailable() && me?.tier === 'free'}
+              canUpgrade={getBilling().isAvailable() && me?.tier !== 'premium'}
               onSignIn={() => setScreen('signin-login')}
-              onSeePlans={() => setScreen('plans')}
+              onSeePlans={() => setScreen(me?.isAnonymous ? 'signin-login' : 'plans')}
+              onContinueWithEmmanuele={handleContinueWithEmmanuele}
             />
           </div>
 
@@ -634,6 +683,10 @@ export default function App() {
           devSettings={devSettings}
           learnerProfile={learnerProfile}
           onEndCall={() => setIsCallOpen(false)}
+          onPremiumRequired={() => {
+            setPremiumEnded(true);
+            void refreshAccount();
+          }}
           onLimitReached={async () => {
             const m = await refreshAccount();
             if (m) {

@@ -227,7 +227,29 @@ export type ChatTurnResult =
       quotaUsed?: number;
     }
   | { status: 'quota'; quota: QuotaError }
+  | { status: 'premium_required' }
   | { status: 'error'; reason: ChatReplyErrorReason };
+
+/**
+ * True when an HTTP response is a 403 PREMIUM_REQUIRED refusal.
+ *
+ * Clones the response before reading so non-matching responses keep their unread body.
+ *
+ * Args:
+ *   res: Fetch Response object to check.
+ *
+ * Returns:
+ *   True when the status is 403 and the JSON body has `code: 'PREMIUM_REQUIRED'`.
+ */
+export async function isPremiumRequiredResponse(res: Response): Promise<boolean> {
+  if (res.status !== 403) return false;
+  try {
+    const data = await res.clone().json();
+    return Boolean(data && typeof data === 'object' && data.code === 'PREMIUM_REQUIRED');
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Build the learner-facing error message for a failed tutor reply.
@@ -266,6 +288,10 @@ export async function requestChatReply(request: ChatRequest): Promise<ChatTurnRe
   try {
     const quota = await readQuotaError(res);
     if (quota) return { status: 'quota', quota };
+
+    if (await isPremiumRequiredResponse(res)) {
+      return { status: 'premium_required' };
+    }
 
     if (res.ok) {
       const data = await res.json();

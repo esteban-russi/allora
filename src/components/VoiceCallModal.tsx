@@ -17,6 +17,7 @@ interface VoiceCallModalProps {
   learnerProfile?: LearnerProfile | null;
   onEndCall: () => void;
   onLimitReached?: () => void;
+  onPremiumRequired?: () => void;
 }
 
 interface CallExchange {
@@ -55,7 +56,8 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
   devSettings,
   learnerProfile,
   onEndCall,
-  onLimitReached
+  onLimitReached,
+  onPremiumRequired
 }) => {
   const [callStatus, setCallStatus] = useState<'connecting' | 'connected'>('connecting');
   const [callDurationSec, setCallDurationSec] = useState<number>(0);
@@ -237,6 +239,13 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
       speechService.stopSpeaking();
       onEndCall();
       onLimitReached?.();
+      return;
+    }
+
+    if (result.status === 'premium_required') {
+      speechService.stopSpeaking();
+      onEndCall();
+      onPremiumRequired?.();
       return;
     }
 
