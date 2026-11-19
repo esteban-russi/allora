@@ -137,7 +137,7 @@ export function tierFor(account: Account, nowMs: number): Tier
    - ✅ `tests/firestoreAccountStore.test.ts`: run the contract only when `FIRESTORE_TEST=1`,
      in a throwaway collection, exactly like `tests/firestoreSessionStore.test.ts`.
 
-5. **Store selection** (`src/server/defaultAccountStore.ts`).
+5. ✅ **Store selection** (`src/server/defaultAccountStore.ts`).
    `createAccountStore(env)` mirrors `createSessionStore`; export `defaultAccountStore`.
    Test it like `tests/defaultSessionStore.test.ts`.
 
