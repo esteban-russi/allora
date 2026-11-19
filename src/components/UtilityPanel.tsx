@@ -135,7 +135,7 @@ export const UtilityPanel: React.FC<UtilityPanelProps> = ({
             ))}
           </ul>
         ) : (
-          <p className="mt-2 text-sm text-ink-muted">Tap Save on any message to keep a phrase here.</p>
+          <p className="mt-2 text-sm text-ink-muted">Tap Save on any reply to keep it here.</p>
         )}
       </section>
     </div>

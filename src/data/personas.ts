@@ -149,10 +149,7 @@ export const INITIAL_MESSAGES: ChatMessage[] = [
   }
 ];
 
-export const INITIAL_SAVED_PHRASES: SavedPhrase[] = [
-  { id: 'sp-1', it: 'Che bello!', en: 'How lovely!' },
-  { id: 'sp-2', it: 'fine settimana', en: 'weekend' }
-];
+export const INITIAL_SAVED_PHRASES: SavedPhrase[] = [];
 
 export const ITALIAN_PRACTICE_PHRASES = [
   { it: 'Io lavoro in un ufficio.', en: 'I work in an office.' },
