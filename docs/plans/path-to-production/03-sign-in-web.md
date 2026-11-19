@@ -117,13 +117,13 @@ for the guest and `dev-token:u1` for the account): moved, discarded, usage added
 guest record gone, guest token of a non-anonymous user rejected, same user rejected,
 anonymous caller rejected.
 
-### Step 4: `DELETE /api/account`
+### Step 4: ✅ `DELETE /api/account`
 
-1. `const hadActiveSubscription = req.account!.tier === 'premium'`.
-2. `sessions.deleteAllUserData(userId)`, `usage.deleteAllUserUsage(userId)`,
+1. ✅ `const hadActiveSubscription = req.account!.tier === 'premium'`.
+2. ✅ `sessions.deleteAllUserData(userId)`, `usage.deleteAllUserUsage(userId)`,
    `accounts.deleteAccount(userId)`, `invalidateAccountCache(userId)`.
-3. `identity.deleteUser(userId)`; if this throws respond 500 (the user must be able to retry).
-4. Respond `{ status: 'deleted', hadActiveSubscription }`.
+3. ✅ `identity.deleteUser(userId)`; if this throws respond 500 (the user must be able to retry).
+4. ✅ Respond `{ status: 'deleted', hadActiveSubscription }`.
 
 Works for guests too. Tests: everything is removed; identity failure gives 500.
 

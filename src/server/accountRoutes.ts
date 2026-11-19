@@ -91,5 +91,36 @@ export function createAccountRouter(deps: AccountRouterDeps = {}): Router {
     }
   });
 
+  router.delete('/', async (req: Request, res: Response) => {
+    const user = req.user;
+    if (!user) {
+      res.status(401).json({ error: 'UNAUTHORIZED' });
+      return;
+    }
+
+    const userId = user.userId;
+    const hadActiveSubscription = req.account?.tier === 'premium';
+
+    try {
+      await sessions.deleteAllUserData(userId);
+      await usage.deleteAllUserUsage(userId);
+      await accounts.deleteAccount(userId);
+      invalidateAccountCache(userId);
+
+      try {
+        await identity.deleteUser(userId);
+      } catch (err) {
+        console.error('[Account] Failed to delete identity for user:', summarizeError(err));
+        res.status(500).json({ error: 'Could not delete user identity' });
+        return;
+      }
+
+      res.json({ status: 'deleted', hadActiveSubscription });
+    } catch (err) {
+      console.error('[Account] Error deleting account:', summarizeError(err));
+      res.status(500).json({ error: 'Could not delete account' });
+    }
+  });
+
   return router;
 }

@@ -7,6 +7,7 @@ import { InMemorySessionStore, initializeLearnerSession } from '../src/server/se
 import { InMemoryAccountStore } from '../src/server/accountStore';
 import { InMemoryUsageStore, usageDay } from '../src/server/usageStore';
 import { authenticateHttpUser, verifyIdToken } from '../src/server/auth';
+import { attachAccount } from '../src/server/accountMiddleware';
 import type { IdentityAdmin } from '../src/server/identityAdmin';
 
 describe('POST /api/account/merge', () => {
@@ -29,6 +30,7 @@ describe('POST /api/account/merge', () => {
     app = express();
     app.use(express.json());
     app.use(authenticateHttpUser());
+    app.use(attachAccount(accountStore));
     app.use(
       '/api/account',
       createAccountRouter({
@@ -152,5 +154,112 @@ describe('POST /api/account/merge', () => {
 
     expect(res.status).toBe(403);
     expect(res.body).toEqual({ code: 'SIGN_IN_REQUIRED' });
+  });
+});
+
+describe('DELETE /api/account', () => {
+  let sessionStore: InMemorySessionStore;
+  let accountStore: InMemoryAccountStore;
+  let usageStore: InMemoryUsageStore;
+  let mockIdentity: IdentityAdmin;
+  let clock: number;
+  let app: express.Express;
+
+  beforeEach(() => {
+    clock = Date.parse('2026-11-18T10:00:00.000Z');
+    sessionStore = new InMemorySessionStore(undefined, () => clock);
+    accountStore = new InMemoryAccountStore(() => clock);
+    usageStore = new InMemoryUsageStore();
+    mockIdentity = {
+      deleteUser: vi.fn().mockResolvedValue(undefined)
+    };
+
+    app = express();
+    app.use(express.json());
+    app.use(authenticateHttpUser());
+    app.use(attachAccount(accountStore));
+    app.use(
+      '/api/account',
+      createAccountRouter({
+        sessions: sessionStore,
+        accounts: accountStore,
+        usage: usageStore,
+        identity: mockIdentity,
+        verifyToken: verifyIdToken,
+        now: () => clock
+      })
+    );
+  });
+
+  it('deletes sessions, usage, account and identity, returning hadActiveSubscription: false for free', async () => {
+    const day = usageDay(clock);
+    const session = initializeLearnerSession({ userId: 'u1' });
+    await sessionStore.createOrUpdateSession(session);
+    await usageStore.add('u1', day, 'chatMessages', 5);
+    await accountStore.upsertFromAuth({ userId: 'u1', isAnonymous: false });
+
+    const res = await request(app)
+      .delete('/api/account')
+      .set('Authorization', 'Bearer dev-token:u1');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ status: 'deleted', hadActiveSubscription: false });
+
+    expect(await sessionStore.getSession(session.sessionId, 'u1')).toBeNull();
+    const usage = await usageStore.getUsage('u1', day);
+    expect(usage.chatMessages).toBe(0);
+    expect(await accountStore.getAccount('u1')).toBeNull();
+    expect(mockIdentity.deleteUser).toHaveBeenCalledWith('u1');
+  });
+
+  it('returns hadActiveSubscription: true when deleting a premium account', async () => {
+    await accountStore.upsertFromAuth({ userId: 'u-premium', isAnonymous: false });
+    await accountStore.setSubscription('u-premium', {
+      status: 'active',
+      productId: 'parliamo_pro_annual',
+      store: 'web',
+      periodType: 'normal',
+      expiresAt: '2027-01-01T00:00:00.000Z',
+      willRenew: true,
+      updatedAt: '2026-11-18T00:00:00.000Z'
+    });
+
+    const res = await request(app)
+      .delete('/api/account')
+      .set('Authorization', 'Bearer dev-token:u-premium');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ status: 'deleted', hadActiveSubscription: true });
+    expect(await accountStore.getAccount('u-premium')).toBeNull();
+  });
+
+  it('works for guest users as well', async () => {
+    const day = usageDay(clock);
+    const guestSession = initializeLearnerSession({ userId: 'anon-g' });
+    await sessionStore.createOrUpdateSession(guestSession);
+    await usageStore.add('anon-g', day, 'chatMessages', 2);
+    await accountStore.upsertFromAuth({ userId: 'anon-g', isAnonymous: true });
+
+    const res = await request(app)
+      .delete('/api/account')
+      .set('Authorization', 'Bearer dev-token:anon-g');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ status: 'deleted', hadActiveSubscription: false });
+    expect(await sessionStore.getSession(guestSession.sessionId, 'anon-g')).toBeNull();
+    expect(await accountStore.getAccount('anon-g')).toBeNull();
+    expect(mockIdentity.deleteUser).toHaveBeenCalledWith('anon-g');
+  });
+
+  it('returns 500 when identity.deleteUser fails so the user can retry', async () => {
+    await accountStore.upsertFromAuth({ userId: 'u-fail', isAnonymous: false });
+    (mockIdentity.deleteUser as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('Firebase service unavailable'));
+
+    const res = await request(app)
+      .delete('/api/account')
+      .set('Authorization', 'Bearer dev-token:u-fail');
+
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({ error: 'Could not delete user identity' });
   });
 });
