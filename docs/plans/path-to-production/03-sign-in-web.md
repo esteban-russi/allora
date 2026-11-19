@@ -129,12 +129,12 @@ Works for guests too. Tests: everything is removed; identity failure gives 500.
 
 ## Client
 
-### Step 5: auth service (`src/utils/firebaseAuth.ts`)
+### Step 5: ✅ auth service (`src/utils/firebaseAuth.ts`)
 
 Today `signInWithFirebase` hides the `auth` object. Change it so the module keeps it:
 
-- `startAnonymousAuth` keeps its signature and behaviour.
-- New exports (each loads `firebase/auth` lazily and awaits the same `ready` promise):
+- ✅ `startAnonymousAuth` keeps its signature and behaviour.
+- ✅ New exports (each loads `firebase/auth` lazily and awaits the same `ready` promise):
   ```ts
   export async function signInWithGoogle(): Promise<SignInResult>
   export async function sendMagicLink(email: string): Promise<void>
@@ -144,7 +144,7 @@ Today `signInWithFirebase` hides the `auth` object. Change it so the module keep
   export async function signOutToGuest(): Promise<void>
   export type SignInResult = { ok: true } | { ok: false; reason: 'cancelled' | 'failed'; message: string };
   ```
-- Shared helper `signInAndMerge(doSignIn)`:
+- ✅ Shared helper `signInAndMerge(doSignIn)`:
   1. `const guest = auth.currentUser?.isAnonymous ? auth.currentUser : null;`
      `const guestIdToken = guest ? await guest.getIdToken() : null;`
   2. `await doSignIn()` (popup or email link). `auth/popup-closed-by-user` and
@@ -152,7 +152,7 @@ Today `signInWithFirebase` hides the `auth` object. Change it so the module keep
   3. If `guestIdToken`, `await postJson('/api/account/merge', { guestIdToken })`
      (a failure here is logged; sign-in still succeeded).
   4. Return `{ ok: true }`.
-- Keep the functions injectable for tests the way `startAnonymousAuth` takes `loadConfig`
+- ✅ Keep the functions injectable for tests the way `startAnonymousAuth` takes `loadConfig`
   and `signIn` arguments; extend `tests/firebaseAuth.test.ts` with fakes: merge is called
   with the guest token; not called when there was no guest; cancelled popup maps to `cancelled`.
 

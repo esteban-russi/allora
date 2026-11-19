@@ -63,3 +63,20 @@ export async function postJson(path: string, body: unknown): Promise<Response> {
   if (token) headers.Authorization = `Bearer ${token}`;
   return fetch(path, { method: 'POST', headers, body: JSON.stringify(body) });
 }
+
+/**
+ * DELETE an API route with the user's ID token attached.
+ *
+ * Args:
+ *   path: API path, e.g. `/api/account`.
+ *
+ * Returns:
+ *   The fetch Response; callers check `res.ok`.
+ */
+export async function deleteWithAuth(path: string): Promise<Response> {
+  const token = await getAuthToken();
+  return fetch(path, {
+    method: 'DELETE',
+    headers: token ? { Authorization: `Bearer ${token}` } : {}
+  });
+}
