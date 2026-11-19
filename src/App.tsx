@@ -11,6 +11,7 @@ import { TopHeader } from './components/TopHeader';
 import { UtilityPanel } from './components/UtilityPanel';
 import { OnboardingPage } from './components/OnboardingPage';
 import { SignInScreen } from './components/SignInScreen';
+import { MagicLinkEmailForm } from './components/MagicLinkEmailForm';
 import { AccountMenu } from './components/AccountMenu';
 import { LimitReachedCard } from './components/LimitReachedCard';
 import { PlansScreen } from './components/PlansScreen';
@@ -21,6 +22,7 @@ import { useDialog } from './hooks/useDialog';
 import { useAccount } from './hooks/useAccount';
 import { speechService } from './utils/speech';
 import { completeMagicLink, EMAIL_FOR_SIGN_IN_KEY, isMagicLink } from './utils/firebaseAuth';
+import { MERGE_FAILED_NOTICE, showNotice } from './utils/notice';
 import { loadLearnerSession, postChat, saveLearnerSettings, startLearnerSession, toChatMessages } from './utils/learnerSession';
 import { readQuotaError, type QuotaError } from './utils/quotaError';
 import type { ClientLearnerSession } from './server/sessionStore';
@@ -33,6 +35,8 @@ export default function App() {
   const [screen, setScreen] = useState<'onboarding' | 'signin-after-onboarding' | 'signin-login' | 'plans' | 'app'>('onboarding');
   // True until the saved session (if any) has been loaded, so onboarding does not flash
   const [isRestoring, setIsRestoring] = useState<boolean>(true);
+  // A sign-in link waiting for the learner to confirm which email it was sent to
+  const [pendingMagicLinkUrl, setPendingMagicLinkUrl] = useState<string | null>(null);
 
   const { me, refresh: refreshAccount, setUsage } = useAccount();
   const [limitReached, setLimitReached] = useState<QuotaError | null>(null);
@@ -148,6 +152,37 @@ export default function App() {
     }
   };
 
+  // Leave the sign-in link's URL, so a reload does not try to use the one-time code again
+  const clearMagicLinkUrl = () => window.history.replaceState(null, '', '/');
+
+  // Complete an email-link sign-in, then show the account's conversation or say why it failed
+  const finishMagicLink = async (url: string, email: string) => {
+    const result = await completeMagicLink(url, email).catch(() => null);
+    clearMagicLinkUrl();
+    setPendingMagicLinkUrl(null);
+
+    if (!result?.ok) {
+      showNotice('That sign-in link has expired, was already used, or does not match this email. Request a new one.');
+      setScreen('signin-login');
+      return;
+    }
+    try {
+      localStorage.removeItem(EMAIL_FOR_SIGN_IN_KEY);
+    } catch {
+      // Local storage unavailable
+    }
+    if (result.mergeFailed) showNotice(MERGE_FAILED_NOTICE);
+
+    await refreshAccount();
+    const session = await loadLearnerSession();
+    if (session) {
+      applySession(session);
+      setScreen('app');
+    } else {
+      setScreen('onboarding');
+    }
+  };
+
   // Bring back the learner's profile, conversation and notebook from their saved session
   useEffect(() => {
     let cancelled = false;
@@ -155,6 +190,7 @@ export default function App() {
     const restore = async () => {
       try {
         if (typeof window !== 'undefined' && (await isMagicLink(window.location.href))) {
+          const url = window.location.href;
           let email: string | null = null;
           try {
             email = localStorage.getItem(EMAIL_FOR_SIGN_IN_KEY);
@@ -162,21 +198,11 @@ export default function App() {
             // Local storage unavailable
           }
           if (!email) {
-            email = window.prompt('Please enter your email to complete sign in') || '';
+            // Opened in a browser that did not request the link: ask for the email first
+            if (!cancelled) setPendingMagicLinkUrl(url);
+            return;
           }
-          if (email) {
-            await completeMagicLink(window.location.href, email);
-          }
-          window.history.replaceState(null, '', '/');
-          if (cancelled) return;
-          await refreshAccount();
-          const session = await loadLearnerSession();
-          if (session) {
-            applySession(session);
-            setScreen('app');
-          } else {
-            setScreen('onboarding');
-          }
+          await finishMagicLink(url, email);
           return;
         }
 
@@ -360,6 +386,24 @@ export default function App() {
       <div className="h-dvh w-full flex items-center justify-center bg-canvas text-ink" role="status" aria-live="polite">
         Caricamento…
       </div>
+    );
+  }
+
+  if (pendingMagicLinkUrl) {
+    return (
+      <MagicLinkEmailForm
+        onSubmit={(email) => void finishMagicLink(pendingMagicLinkUrl, email)}
+        onCancel={() => {
+          clearMagicLinkUrl();
+          setPendingMagicLinkUrl(null);
+          // Carry on as before the link was opened, with this browser's own session if any
+          void loadLearnerSession().then((session) => {
+            if (!session) return;
+            applySession(session);
+            setScreen('app');
+          });
+        }}
+      />
     );
   }
 
