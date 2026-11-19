@@ -1,5 +1,20 @@
 # Plan 13: premium tutors
 
+## Status
+
+- Branch: `feature/premium-tutors`
+- Date: 2026-11-19
+- Summary: Premium tutor mechanism completed and verified (steps 1–5 and 7), tested with injected fixture personas. `PREMIUM_PERSONA_IDS` remains empty; no tutor content is shipped yet.
+- Items needing attention:
+  - 🟠 Step 6 waiting on owner content. Per tutor, supply:
+    - `id`, name, full name, age, city, region, role (as in `EMMANUELE`)
+    - Bio, topics (4), `dailyContext`, `dialectSpecialty`, `cefrLevel`/`levelLabel`, native saying + English translation
+    - Italian persona prompt (personality, regional flavour, correction style, like `PERSONA_PROMPTS.emmanuele`)
+    - Gemini prebuilt voice name (tested in Italian in a Live call), `voiceGender` (`male`/`female`), and voice sample text + translation
+    - Starter messages and quick replies per CEFR level (`createInitialMessages`)
+    - Two original `.webp` portraits (resting and speaking), same size and style as `src/assets/emmanuele/`
+  - 🟠 Store listing screenshots and Play description should mention extra tutors only once at least one premium tutor is live.
+
 Branch: `feature/premium-tutors`. Depends on: 01, 04 (and 05 for anyone to actually be premium).
 
 Read first: `src/data/personas.ts` (`EMMANUELE`, `TUTORS`), `src/data/personaPrompts.ts`

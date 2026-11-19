@@ -17,6 +17,16 @@ Allora is a web app where you practise Italian with an AI tutor. For now there i
 
 Emmanuele has a hand-written persona prompt, a native saying, a sample greeting, his own Gemini voice (Charon) and two portrait expressions (resting and speaking).
 
+### Premium tutors and adding a tutor
+
+Premium can unlock extra tutors while Emmanuele stays free for everyone (`PREMIUM_PERSONA_IDS` in `src/data/personaPrompts.ts` starts empty until owner-supplied tutors are added):
+
+- **How the lock works:** `src/data/personaPrompts.ts` exports `PREMIUM_PERSONA_IDS` and `isPremiumPersona(id)` (used to derive `Persona.isPremium`). On the server, `src/server/personaAccess.ts` enforces access on `POST /api/session` (create and update) and ahead of `requireQuota` on `POST /api/chat` with HTTP 403 `{ code: 'PREMIUM_REQUIRED' }`, and `liveBridge.ts` rejects `/api/live` upgrades with HTTP 403 `PREMIUM_REQUIRED`. `/api/tts` stays unrestricted so anyone can preview tutor voice samples.
+- **Client behaviour:** Locked tutors appear in `OnboardingPage` with a **Premium** lock tag (or **Coming soon** with `aria-disabled` when billing is unavailable) and an **About `<name>`** preview button opening `PersonaProfileModal`. Tapping a locked tutor sends guests through sign-in first, opens `PlansScreen`, and selects the chosen tutor after purchase. `PlansScreen` adds **All tutors** (names and small portraits) once at least one premium tutor exists. If Premium expires while using a premium tutor, the conversation is kept and `PremiumEndedNotice` offers **See plans** or **Continue with Emmanuele**.
+- **Adding a premium tutor (files & owner content):**
+  - **Owner content needed per tutor:** `id`, name, full name, age, city, region, role; bio, 4 topics, `dailyContext`, `dialectSpecialty`, `cefrLevel`/`levelLabel`, native saying + translation; Italian persona prompt; Gemini prebuilt voice name + `voiceGender` (`male`/`female`) and sample audio text + translation; starter messages and quick replies per CEFR level; two original `.webp` portraits (resting and speaking, matching `src/assets/emmanuele/`).
+  - **Files to update:** place portraits in `src/assets/<id>/`; add the prompt to `PERSONA_PROMPTS`, voice to `PERSONA_VOICES`, and ID to `PREMIUM_PERSONA_IDS` in `src/data/personaPrompts.ts`; define the `Persona` (with `isPremium: isPremiumPersona('<id>')`), append it to `TUTORS`, and update `createInitialMessages` in `src/data/personas.ts`. Then test text chat and a Live voice call at A1 and C1.
+
 ## Design
 
 The dashboard has three columns: a 72px icon rail, the chat workspace, and a utility panel with the tutor's profile, the notebook (latest grammar tip and saved phrases) and how much of the talking you did. Colours are Tailwind theme tokens in `src/index.css`:
@@ -234,6 +244,7 @@ Static, self-contained HTML pages live in `public/privacy.html`, `public/terms.h
 │   │   ├── LegalLinks.tsx     # Footer Privacy & Terms links
 │   │   ├── ReportDialog.tsx   # Report-a-reply modal dialog
 │   │   ├── PlansScreen.tsx    # Full-screen paywall and subscription plan selection
+│   │   ├── PremiumEndedNotice.tsx # Notice when Premium expires while using a premium tutor
 │   │   ├── UsageMeter.tsx     # Daily usage meter & upgrade call-to-action
 │   │   ├── SignInScreen.tsx   # Sign-in screen: Google popup and magic link email form
 │   │   ├── OnboardingPage.tsx # Learner name, CEFR level, tutor picker and consent
@@ -248,7 +259,7 @@ Static, self-contained HTML pages live in `public/privacy.html`, `public/terms.h
 │   │   ├── PersonaBadge.tsx
 │   │   └── UserBadge.tsx
 │   ├── data/                  # brand.ts, legal.ts, personas.ts, personaPrompts.ts
-│   ├── server/                # appCheck, auth, accountStore, accountRoutes, billingRoutes, billingSync, firebaseAdmin, identityAdmin, modelSafety, plans, reportStore, reportRoutes, revenueCat, usageStore, quota, sessionStore, rateLimiter, metrics
+│   ├── server/                # appCheck, auth, accountStore, accountRoutes, billingRoutes, billingSync, firebaseAdmin, identityAdmin, modelSafety, personaAccess, plans, reportStore, reportRoutes, revenueCat, usageStore, quota, sessionStore, rateLimiter, metrics
 │   ├── utils/apiClient.ts     # Authenticated API calls (get, post, delete), ID token source, and App Check header/error handling
 │   ├── utils/appCheck.ts      # Client App Check token provider (web reCAPTCHA Enterprise + native seam)
 │   ├── utils/billing.ts       # Client billing interface and active adapter registry
