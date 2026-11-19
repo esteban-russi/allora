@@ -13,6 +13,8 @@ export const PLAN_LIMITS: Record<Tier, PlanLimits> = {
   premium: { chatMessages: 300, voiceSeconds: 60 * 60, helperRequests: 1000 }
 };
 
+export const SUBSCRIPTION_SKEW_MS = 60 * 60 * 1000;
+
 /**
  * Determine the tier of a user account at a specific timestamp.
  *
@@ -28,7 +30,7 @@ export function tierFor(account: Account, nowMs: number): Tier {
   if (
     account.subscription &&
     (account.subscription.status === 'active' || account.subscription.status === 'grace') &&
-    Date.parse(account.subscription.expiresAt) > nowMs
+    Date.parse(account.subscription.expiresAt) + SUBSCRIPTION_SKEW_MS > nowMs
   ) {
     return 'premium';
   }

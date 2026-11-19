@@ -9,6 +9,7 @@ export interface Subscription {
   periodType: 'trial' | 'normal';
   expiresAt: string; // ISO time
   willRenew: boolean;
+  managementUrl?: string | null;
   updatedAt: string; // ISO time
 }
 

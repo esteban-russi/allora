@@ -1,5 +1,16 @@
 # Plan 05: billing backend (RevenueCat → subscription on the account)
 
+## Status
+
+- Branch: `feature/billing-backend`
+- PR link: (pending opening)
+- Date: 2026-11-19
+- Summary: In progress.
+- Items needing attention:
+  - 🟠 Owner setup: Create RevenueCat project, entitlement \`premium\`, and offering \`default\` with packages \`$rc_monthly\` and \`$rc_annual\`.
+  - 🟠 Owner setup: Create \`revenuecat-secret-key\` and \`revenuecat-webhook-auth\` secrets in Secret Manager and grant \`roles/secretmanager.secretAccessor\` to runtime SA (\`parliamo-italiano-runtime@corso-di-italiano-496920.iam.gserviceaccount.com\`).
+  - 🟠 Owner setup: Configure RevenueCat webhook to \`https://parliamo-italiano-562781327825.europe-west1.run.app/api/webhooks/revenuecat\` with matching \`Authorization: Bearer <token>\`.
+
 Branch: `feature/billing-backend`. Depends on: 01 (and 03 for the delete hook).
 
 Read first: plan 01, `src/server/accountStore.ts`, `src/server/plans.ts`,
@@ -59,7 +70,7 @@ the `/api/me` response.
 
 ## Steps (one commit each)
 
-1. **Clock tolerance in `tierFor`.** Add `export const SUBSCRIPTION_SKEW_MS = 60 * 60 * 1000`
+1. ✅ **Clock tolerance in `tierFor`.** Add `export const SUBSCRIPTION_SKEW_MS = 60 * 60 * 1000`
    to `plans.ts`, use `Date.parse(expiresAt) + SUBSCRIPTION_SKEW_MS > nowMs`, update tests.
 
 2. **RevenueCat client** (`src/server/revenueCat.ts`).

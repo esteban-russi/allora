@@ -271,7 +271,8 @@ app.get('/api/me', async (req, res) => {
         store: account.subscription.store,
         periodType: account.subscription.periodType,
         expiresAt: account.subscription.expiresAt,
-        willRenew: account.subscription.willRenew
+        willRenew: account.subscription.willRenew,
+        managementUrl: account.subscription.managementUrl ?? null
       }
     });
   } catch (err: unknown) {
