@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Sparkles, Mail, ArrowLeft } from 'lucide-react';
 import { sendMagicLink, signInWithGoogle } from '../utils/firebaseAuth';
+import { MERGE_FAILED_NOTICE, showNotice } from '../utils/notice';
 
 export interface SignInScreenProps {
   mode: 'after-onboarding' | 'login';
@@ -30,6 +31,7 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({
     try {
       const res = await signInWithGoogle();
       if (res.ok) {
+        if (res.mergeFailed) showNotice(MERGE_FAILED_NOTICE);
         onSignedIn();
       } else if (res.reason !== 'cancelled') {
         setError(res.message);
