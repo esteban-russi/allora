@@ -1,5 +1,14 @@
 # Plan 02: daily usage limits
 
+## Status
+
+- Branch: `feature/daily-usage-limits`
+- PR link: (pending opening)
+- Date: 2026-11-19
+- Summary: In progress; implementing UsageStore, quota middleware, HTTP routes, voice metering.
+- Items needing attention:
+  - (none)
+
 Branch: `feature/daily-usage-limits`. Depends on: 01.
 
 Read first: plan 01, `src/server/rateLimiter.ts`, the `/api/chat`, `/api/tts`,
@@ -76,7 +85,7 @@ export function requireQuota(counter: 'chatMessages' | 'helperRequests', deps?: 
 
 ## Steps (one commit each)
 
-1. **`UsageStore`, in-memory store, contract tests.**
+1. ✅ **`UsageStore`, in-memory store, contract tests.**
    `tests/helpers/usageStoreContract.ts` cases: empty usage is all zeros; `tryConsume`
    up to the limit succeeds and the next one fails without changing `used`; 20 parallel
    `tryConsume` calls with limit 10 allow exactly 10; `add` with a negative amount never
