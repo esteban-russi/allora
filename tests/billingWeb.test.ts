@@ -4,9 +4,10 @@ import { createWebBilling } from '../src/utils/billingWeb';
 import * as apiModule from '../src/utils/apiClient';
 
 describe('createWebBilling', () => {
+  // Shaped like the SDK's Offerings type: `availablePackages`, `product.price`, `product.freeTrialPhase`
   const sampleOfferings = {
     current: {
-      packages: [
+      availablePackages: [
         {
           identifier: '$rc_monthly',
           product: {
@@ -19,11 +20,9 @@ describe('createWebBilling', () => {
           identifier: '$rc_annual',
           product: {
             identifier: 'annual_prod',
-            currentPrice: { formattedPrice: '£59.99' },
-            defaultSubscriptionOption: {
-              trial: {
-                period: { number: 7, unit: 'day' }
-              }
+            price: { formattedPrice: '£59.99' },
+            freeTrialPhase: {
+              period: { number: 7, unit: 'day' }
             }
           }
         },
@@ -104,10 +103,44 @@ describe('createWebBilling', () => {
 
     expect(result).toEqual({ status: 'purchased' });
     expect(mockSdk.purchase).toHaveBeenCalledWith({
-      rcPackage: sampleOfferings.current.packages[1],
+      rcPackage: sampleOfferings.current.availablePackages[1],
       customerEmail: 'customer@example.com'
     });
     expect(postJsonSpy).toHaveBeenCalledWith('/api/billing/sync', {});
+  });
+
+  it('still reports purchased when the sync after a successful payment fails', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(apiModule, 'postJson').mockRejectedValue(new Error('offline'));
+    const billing = createBilling();
+
+    const result = await billing.purchase('u1', 'annual');
+
+    expect(mockSdk.purchase).toHaveBeenCalled();
+    expect(result).toEqual({ status: 'purchased' });
+  });
+
+  it('does not treat an error that merely mentions "cancel" as a cancellation', async () => {
+    mockSdk.purchase.mockRejectedValue(new Error('Subscription was cancelled by the bank'));
+    const billing = createBilling();
+
+    const result = await billing.purchase('u1', 'monthly');
+
+    expect(result.status).toBe('failed');
+  });
+
+  it('reports a failure without charging when the plans cannot be loaded', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mockSdk.getOfferings.mockRejectedValueOnce(new Error('network'));
+    const billing = createBilling();
+
+    const result = await billing.purchase('u1', 'monthly');
+
+    expect(mockSdk.purchase).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      status: 'failed',
+      message: 'Could not load the plans. You have not been charged.'
+    });
   });
 
   it('returns cancelled when user cancels purchase', async () => {
@@ -130,7 +163,7 @@ describe('createWebBilling', () => {
   });
 
   it('returns failed when selected plan package is not in offerings', async () => {
-    mockSdk.getOfferings.mockResolvedValueOnce({ current: { packages: [] } });
+    mockSdk.getOfferings.mockResolvedValueOnce({ current: { availablePackages: [] } });
     const billing = createBilling();
 
     const result = await billing.purchase('u1', 'monthly');

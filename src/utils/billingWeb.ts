@@ -1,26 +1,39 @@
 /** RevenueCat Web Billing client implementation.
  * Provides web checkout using RevenueCat Web Billing SDK with connected Stripe processing.
  */
+import type { Offering, Package, PricingPhase, Purchases } from '@revenuecat/purchases-js';
 import type { Billing, PlanId, PlanOffer, PurchaseResult } from './billing';
 import { postJson } from './apiClient';
 
+/** The SDK's `Purchases` class (its static side), as exported by `@revenuecat/purchases-js`. */
+type PurchasesStatic = typeof import('@revenuecat/purchases-js').Purchases;
+
 export interface WebBillingDeps {
-  loadSdk?: () => Promise<any>;
+  loadSdk?: () => Promise<{ Purchases: PurchasesStatic }>;
   email?: () => string | null;
 }
+
+/** `ErrorCode.UserCancelledError` in the SDK; kept as a number so the SDK stays lazily loaded. */
+const USER_CANCELLED_ERROR_CODE = 1;
+
+const PLAN_PACKAGES: { id: PlanId; packageId: string; periodText: string }[] = [
+  { id: 'monthly', packageId: '$rc_monthly', periodText: 'per month' },
+  { id: 'annual', packageId: '$rc_annual', periodText: 'per year' }
+];
 
 /**
  * Format free trial period into human readable string, e.g. "7 days free".
  */
-function formatTrialText(phase: any): string | null {
-  if (!phase) return null;
-  const period = phase.period;
-  if (!period || typeof period !== 'object') return null;
-  const number = period.number;
-  const unit = period.unit;
-  if (!number || !unit) return null;
-  const unitStr = number === 1 ? unit : `${unit}s`;
-  return `${number} ${unitStr} free`;
+function formatTrialText(phase: PricingPhase | null | undefined): string | null {
+  const period = phase?.period;
+  if (!period || !period.number || !period.unit) return null;
+  const unit = period.number === 1 ? period.unit : `${period.unit}s`;
+  return `${period.number} ${unit} free`;
+}
+
+/** The package for a plan in an offering, or undefined when the offering does not sell it. */
+function findPackage(offering: Offering | null | undefined, packageId: string): Package | undefined {
+  return offering?.availablePackages?.find((pkg) => pkg.identifier === packageId);
 }
 
 /**
@@ -34,15 +47,15 @@ function formatTrialText(phase: any): string | null {
  *   Configured Billing provider.
  */
 export function createWebBilling(apiKey: string, deps?: WebBillingDeps): Billing {
-  let purchasesInstance: any = null;
+  let purchasesInstance: Purchases | null = null;
   let configuredUserId: string | null = null;
 
-  async function getSdk(userId: string): Promise<any> {
+  async function getSdk(userId: string): Promise<Purchases> {
     const sdkModule = deps?.loadSdk ? await deps.loadSdk() : await import('@revenuecat/purchases-js');
-    const PurchasesClass = sdkModule.Purchases || sdkModule.default?.Purchases || sdkModule;
+    const PurchasesClass = sdkModule.Purchases;
 
     if (!purchasesInstance) {
-      if (typeof PurchasesClass.isConfigured === 'function' && PurchasesClass.isConfigured()) {
+      if (PurchasesClass.isConfigured()) {
         purchasesInstance = PurchasesClass.getSharedInstance();
       } else {
         purchasesInstance = PurchasesClass.configure({ apiKey, appUserId: userId });
@@ -52,11 +65,7 @@ export function createWebBilling(apiKey: string, deps?: WebBillingDeps): Billing
     }
 
     if (configuredUserId !== userId) {
-      if (typeof purchasesInstance.changeUser === 'function') {
-        await purchasesInstance.changeUser(userId);
-      } else if (typeof PurchasesClass.configure === 'function') {
-        purchasesInstance = PurchasesClass.configure({ apiKey, appUserId: userId });
-      }
+      await purchasesInstance.changeUser(userId);
       configuredUserId = userId;
     }
 
@@ -71,43 +80,19 @@ export function createWebBilling(apiKey: string, deps?: WebBillingDeps): Billing
     async getOffers(userId: string): Promise<PlanOffer[]> {
       try {
         const purchases = await getSdk(userId);
-        const offerings = await purchases.getOfferings();
-        const currentOffering = offerings?.current;
-        if (!currentOffering || !Array.isArray(currentOffering.packages)) {
-          return [];
-        }
-
-        const packages = currentOffering.packages;
+        const offering = (await purchases.getOfferings()).current;
         const offers: PlanOffer[] = [];
 
-        const planConfigs: { id: PlanId; pkgId: string; periodText: string }[] = [
-          { id: 'monthly', pkgId: '$rc_monthly', periodText: 'per month' },
-          { id: 'annual', pkgId: '$rc_annual', periodText: 'per year' }
-        ];
-
-        for (const config of planConfigs) {
-          const pkg = packages.find((p: any) => p.identifier === config.pkgId);
-          if (!pkg) continue;
-
-          const product = pkg.product || pkg.webBillingProduct || pkg.rcBillingProduct;
-          if (!product) continue;
-
-          const price = product.currentPrice || product.price;
-          const priceText = price?.formattedPrice || price?.formatted || '';
-          if (!priceText) continue;
-
-          const trialPhase =
-            product.freeTrialPhase ||
-            product.defaultSubscriptionOption?.trial ||
-            product.trial ||
-            null;
-          const trialText = formatTrialText(trialPhase);
+        for (const plan of PLAN_PACKAGES) {
+          const product = findPackage(offering, plan.packageId)?.product;
+          const priceText = product?.price?.formattedPrice;
+          if (!product || !priceText) continue;
 
           offers.push({
-            id: config.id,
+            id: plan.id,
             priceText,
-            periodText: config.periodText,
-            trialText
+            periodText: plan.periodText,
+            trialText: formatTrialText(product.freeTrialPhase)
           });
         }
 
@@ -119,41 +104,46 @@ export function createWebBilling(apiKey: string, deps?: WebBillingDeps): Billing
     },
 
     async purchase(userId: string, plan: PlanId): Promise<PurchaseResult> {
+      let purchases: Purchases;
+      let rcPackage: Package | undefined;
       try {
-        const purchases = await getSdk(userId);
-        const offerings = await purchases.getOfferings();
-        const currentOffering = offerings?.current;
-        const targetPkgId = plan === 'monthly' ? '$rc_monthly' : '$rc_annual';
-        const rcPackage = currentOffering?.packages?.find((p: any) => p.identifier === targetPkgId);
+        purchases = await getSdk(userId);
+        const offering = (await purchases.getOfferings()).current;
+        rcPackage = findPackage(offering, plan === 'monthly' ? '$rc_monthly' : '$rc_annual');
+      } catch (err) {
+        console.warn('[BillingWeb] Error loading plans for purchase:', err);
+        return { status: 'failed', message: 'Could not load the plans. You have not been charged.' };
+      }
 
-        if (!rcPackage) {
-          return { status: 'failed', message: 'Selected plan is not available.' };
-        }
+      if (!rcPackage) {
+        return { status: 'failed', message: 'Selected plan is not available.' };
+      }
 
+      try {
         const customerEmail = deps?.email ? deps.email() : null;
         await purchases.purchase({
           rcPackage,
           ...(customerEmail ? { customerEmail } : {})
         });
-
-        await postJson('/api/billing/sync', {});
-        return { status: 'purchased' };
-      } catch (err: any) {
-        const isCancelled =
-          err?.errorCode === 1 ||
-          err?.errorCode === 'UserCancelledError' ||
-          err?.name === 'UserCancelledError' ||
-          (typeof err?.message === 'string' && err.message.toLowerCase().includes('cancel'));
-
-        if (isCancelled) {
+      } catch (err) {
+        if ((err as { errorCode?: unknown } | null)?.errorCode === USER_CANCELLED_ERROR_CODE) {
           return { status: 'cancelled' };
         }
-
         return {
           status: 'failed',
           message: 'Payment could not be completed. You have not been charged.'
         };
       }
+
+      // The payment went through. A failed sync must not be reported as a failed payment:
+      // the caller polls the account, and the RevenueCat webhook updates it as well.
+      try {
+        const res = await postJson('/api/billing/sync', {});
+        if (!res.ok) console.warn(`[BillingWeb] Subscription sync after purchase returned ${res.status}`);
+      } catch (err) {
+        console.warn('[BillingWeb] Subscription sync after purchase failed:', err);
+      }
+      return { status: 'purchased' };
     },
 
     async restore(_userId: string): Promise<boolean> {
