@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { VoiceProvider } from '../src/types';
 
 /** Minimal HTMLAudioElement stand-in that "plays" immediately. */
 class FakeAudio {
@@ -92,7 +93,7 @@ describe('speakSmart with Gemini TTS', () => {
 });
 
 describe('speakSmart failures', () => {
-  it.each(['gemini_live', 'gcp_cloud_tts'])(
+  it.each(['gemini_live', 'gcp_cloud_tts'] as const)(
     'reports a %s failure via onError once and never uses browser speech',
     async (provider) => {
       fetchMock.mockResolvedValue({ ok: false, status: 500 });
@@ -107,12 +108,12 @@ describe('speakSmart failures', () => {
     }
   );
 
-  it('reports unimplemented providers via onError without browser speech', async () => {
+  it('reports unknown providers via onError without browser speech', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const onError = vi.fn();
     const speech = await loadSpeechService();
 
-    await speech.speakSmart('Ciao', { provider: 'elevenlabs', onError });
+    await speech.speakSmart('Ciao', { provider: 'unknown_provider' as VoiceProvider, onError });
 
     expect(onError).toHaveBeenCalledTimes(1);
     expect(fetchMock).not.toHaveBeenCalled();

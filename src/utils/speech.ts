@@ -4,6 +4,7 @@
  */
 import { postJson } from './apiClient';
 import { readQuotaError, QuotaLimitError } from './quotaError';
+import type { VoiceProvider } from '../types';
 
 /** Speed multiplier used when a learner asks the tutor to speak more slowly. */
 const SLOW_FACTOR = 0.8;
@@ -211,7 +212,7 @@ class SpeechService {
   public async speakSmart(
     text: string,
     options: {
-      provider: string;
+      provider: VoiceProvider;
       voiceName?: string;
       rate?: number;
       /** Slow the voice down for learners (Gemini audio and browser speech). */
@@ -255,7 +256,7 @@ class SpeechService {
       return;
     }
 
-    // Mock providers (ElevenLabs, OpenAI) have no backend yet
+    // Guard against unexpected runtime provider values
     console.warn(`Voice provider "${options.provider}" is not implemented`);
     options.onError?.();
   }

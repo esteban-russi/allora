@@ -6,11 +6,9 @@ export interface LearnerProfile {
   personaId: string;
 }
 
-export type VoiceProvider = 
+export type VoiceProvider =
   | 'gemini_live'
   | 'gcp_cloud_tts'
-  | 'elevenlabs'
-  | 'openai_tts'
   | 'browser_tts';
 
 export type SttProvider =
