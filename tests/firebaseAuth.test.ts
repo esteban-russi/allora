@@ -96,6 +96,58 @@ describe('startAnonymousAuth', () => {
 });
 
 describe('signInAndMerge', () => {
+  const guestAuth = () => ({
+    currentUser: {
+      isAnonymous: true,
+      getIdToken: vi.fn().mockResolvedValue('guest-token-123')
+    }
+  });
+
+  it('reports mergeFailed when the server rejects the merge twice', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const postMerge = vi.fn().mockResolvedValue({ ok: false, status: 500 });
+    const auth = guestAuth();
+
+    const result = await signInAndMerge(vi.fn().mockResolvedValue(undefined), {
+      getAuth: async () => auth,
+      postMerge
+    });
+
+    expect(result).toEqual({ ok: true, mergeFailed: true });
+    expect(postMerge).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports mergeFailed when the merge request keeps throwing', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const postMerge = vi.fn().mockRejectedValue(new Error('offline'));
+    const auth = guestAuth();
+
+    const result = await signInAndMerge(vi.fn().mockResolvedValue(undefined), {
+      getAuth: async () => auth,
+      postMerge
+    });
+
+    expect(result).toEqual({ ok: true, mergeFailed: true });
+    expect(postMerge).toHaveBeenCalledTimes(2);
+  });
+
+  it('succeeds when the merge works on the second attempt', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const postMerge = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: 503 })
+      .mockResolvedValueOnce({ ok: true, status: 200 });
+    const auth = guestAuth();
+
+    const result = await signInAndMerge(vi.fn().mockResolvedValue(undefined), {
+      getAuth: async () => auth,
+      postMerge
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(postMerge).toHaveBeenCalledTimes(2);
+  });
+
   it('calls merge when guest user was anonymous', async () => {
     const postMerge = vi.fn().mockResolvedValue({ ok: true });
     const fakeAuth = {

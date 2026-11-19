@@ -14,7 +14,8 @@ export interface FirebaseClientConfig {
 
 /** Result of a sign-in operation. */
 export type SignInResult =
-  | { ok: true }
+  /** `mergeFailed` is set when sign-in worked but the guest's data could not be carried over. */
+  | { ok: true; mergeFailed?: true }
   | { ok: false; reason: 'cancelled' | 'failed'; message: string };
 
 /** Returns a fresh (or cached, still valid) ID token, or null when signed out. */
@@ -130,6 +131,35 @@ async function ensureAuth(): Promise<any> {
 }
 
 /**
+ * Ask the server to move the guest's data to the signed-in account, trying twice.
+ *
+ * `postJson` resolves for any HTTP status, so a non-2xx response is treated as a failure
+ * here rather than passing silently.
+ *
+ * Args:
+ *   mergeFn: Sends the merge request for a guest ID token.
+ *   guestIdToken: ID token of the guest being merged.
+ *
+ * Returns:
+ *   True once the server accepted the merge, false if both attempts failed.
+ */
+async function mergeGuest(
+  mergeFn: (guestIdToken: string) => Promise<unknown>,
+  guestIdToken: string
+): Promise<boolean> {
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const res = (await mergeFn(guestIdToken)) as { ok?: boolean; status?: number } | null | undefined;
+      if (res?.ok !== false) return true;
+      console.warn(`[Auth] Guest merge failed with status ${res.status} (attempt ${attempt})`);
+    } catch (err) {
+      console.warn(`[Auth] Guest merge failed after sign-in (attempt ${attempt}):`, err);
+    }
+  }
+  return false;
+}
+
+/**
  * Helper executing a sign-in operation and merging guest state if an anonymous user was active.
  *
  * Args:
@@ -163,10 +193,8 @@ export async function signInAndMerge(
 
   if (guestIdToken) {
     const mergeFn = deps.postMerge ?? ((token: string) => postJson('/api/account/merge', { guestIdToken: token }));
-    try {
-      await mergeFn(guestIdToken);
-    } catch (err) {
-      console.warn('[Auth] Guest merge failed after sign-in:', err);
+    if (!(await mergeGuest(mergeFn, guestIdToken))) {
+      return { ok: true, mergeFailed: true };
     }
   }
 
