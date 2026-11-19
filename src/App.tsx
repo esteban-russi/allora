@@ -19,8 +19,9 @@ import { getBilling } from './utils/billing';
 import { useDialog } from './hooks/useDialog';
 import { useAccount } from './hooks/useAccount';
 import { speechService } from './utils/speech';
-import { completeMagicLink, EMAIL_FOR_SIGN_IN_KEY, isMagicLink } from './utils/firebaseAuth';
-import { MERGE_FAILED_NOTICE, showNotice } from './utils/notice';
+import { setAccountDeletedHandler } from './utils/apiClient';
+import { completeMagicLink, EMAIL_FOR_SIGN_IN_KEY, isMagicLink, signOutToGuest } from './utils/firebaseAuth';
+import { ACCOUNT_DELETED_NOTICE, MERGE_FAILED_NOTICE, showNotice } from './utils/notice';
 import { loadLearnerSession, postChat, saveLearnerSettings, startLearnerSession, toChatMessages } from './utils/learnerSession';
 import { readQuotaError, type QuotaError } from './utils/quotaError';
 import type { ClientLearnerSession } from './server/sessionStore';
@@ -133,6 +134,35 @@ export default function App() {
       }
     }
   };
+
+  // Start over as a new guest: blank profile, conversation and notebook, back to onboarding,
+  // where the guest is offered sign-in again after finishing it
+  const resetToGuest = () => {
+    setIsAccountMenuOpen(false);
+    setIsCallOpen(false);
+    setIsNotebookDrawerOpen(false);
+    setIsProfileModalOpen(false);
+    setLearnerProfile(null);
+    setMessages(INITIAL_MESSAGES);
+    setSavedPhrases(INITIAL_SAVED_PHRASES);
+    setLimitReached(null);
+    setChatDraft('');
+    void refreshAccount();
+    setScreen('onboarding');
+  };
+
+  // The account was deleted in another tab or on another device: sign this tab out too
+  useEffect(() => {
+    setAccountDeletedHandler(() => {
+      signOutToGuest()
+        .catch((err: unknown) => console.warn('[Account] Sign out after deletion failed:', err))
+        .finally(() => {
+          resetToGuest();
+          showNotice(ACCOUNT_DELETED_NOTICE);
+        });
+    });
+    return () => setAccountDeletedHandler(null);
+  }, []);
 
   // Leave the sign-in link's URL, so a reload does not try to use the one-time code again
   const clearMagicLinkUrl = () => window.history.replaceState(null, '', '/');
@@ -593,20 +623,8 @@ export default function App() {
           setIsAccountMenuOpen(false);
           setScreen('plans');
         }}
-        onSignedOut={() => {
-          setIsAccountMenuOpen(false);
-          // The next guest starts from a blank profile and is offered sign-in again
-          setLearnerProfile(null);
-          refreshAccount();
-          setScreen('onboarding');
-        }}
-        onAccountDeleted={() => {
-          setIsAccountMenuOpen(false);
-          // The next guest starts from a blank profile and is offered sign-in again
-          setLearnerProfile(null);
-          refreshAccount();
-          setScreen('onboarding');
-        }}
+        onSignedOut={resetToGuest}
+        onAccountDeleted={resetToGuest}
       />
     </div>
   );
