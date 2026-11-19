@@ -2,7 +2,7 @@ import request from 'supertest';
 import type { GoogleGenAI } from '@google/genai';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { VertexCooldown } from '../vertexCooldown';
-import { app, buildChatContents, buildFirebaseClientConfig, canReadMetrics, buildLiveClientOptions, cloudSttEncodingFor, parseModelJsonResponse, stripBase64DataUrlPrefix } from '../server';
+import { app, primaryAi, buildChatContents, buildFirebaseClientConfig, canReadMetrics, buildLiveClientOptions, cloudSttEncodingFor, parseModelJsonResponse, stripBase64DataUrlPrefix } from '../server';
 import { buildSystemInstruction, buildVoiceCallInstruction, LEVEL_PROMPTS, sanitizeLearnerName } from '../src/data/personaPrompts';
 
 describe('parseModelJsonResponse', () => {
@@ -486,5 +486,58 @@ describe('GET /api/me', () => {
       helperRequests: 100
     });
     expect(res.body.subscription).toBeNull();
+  });
+});
+
+describe('POST /api/chat daily quotas enforcement', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it('rejects the 6th request with 429 QUOTA_EXCEEDED when QUOTAS_MODE=enforce for guest anon-q', async () => {
+    vi.stubEnv('QUOTAS_MODE', 'enforce');
+    vi.stubEnv('GEMINI_API_KEY', 'fake-key');
+
+    vi.spyOn(primaryAi.models, 'generateContent').mockResolvedValue({
+      text: JSON.stringify({
+        text: 'Ciao!',
+        translation: 'Hello!',
+        grammarNotes: []
+      }),
+      usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 5 }
+    } as any);
+
+    const payload = {
+      personaId: 'emmanuele',
+      userMessage: 'Ciao, come stai?'
+    };
+
+    // First 5 requests should succeed (guest limit is 5 chatMessages)
+    for (let i = 1; i <= 5; i++) {
+      const res = await request(app)
+        .post('/api/chat')
+        .set('x-dev-user-id', 'anon-q')
+        .send(payload);
+
+      expect(res.status).toBe(200);
+      expect(res.body.quota).toEqual({
+        counter: 'chatMessages',
+        used: i,
+        limit: 5
+      });
+    }
+
+    // 6th request must fail with 429 QUOTA_EXCEEDED
+    const res6 = await request(app)
+      .post('/api/chat')
+      .set('x-dev-user-id', 'anon-q')
+      .send(payload);
+
+    expect(res6.status).toBe(429);
+    expect(res6.body.code).toBe('QUOTA_EXCEEDED');
+    expect(res6.body.counter).toBe('chatMessages');
+    expect(res6.body.limit).toBe(5);
+    expect(res6.body.tier).toBe('guest');
   });
 });

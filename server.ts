@@ -15,6 +15,7 @@ import { assertAuthConfig, authenticateHttpUser, isAuthEnforced } from './src/se
 import { defaultSessionStore } from './src/server/defaultSessionStore';
 import { attachAccount } from './src/server/accountMiddleware';
 import { defaultAccountStore } from './src/server/defaultAccountStore';
+import { requireQuota } from './src/server/quota';
 import {
   initializeLearnerSession,
   parseSavedPhrases,
@@ -57,7 +58,9 @@ const TTS_MODEL = process.env.GEMINI_TTS_MODEL || 'gemini-3.8-flash-lite-tts';
 const LIVE_MODEL = process.env.GEMINI_LIVE_MODEL || 'gemini-3.8-live';
 
 // Gemini is reachable through Vertex AI (GCP_PROJECT + ADC) or an AI Studio key
-const HAS_GENAI_CREDENTIALS = Boolean(GCP_PROJECT || process.env.GEMINI_API_KEY);
+export function hasGenAiCredentials(): boolean {
+  return Boolean(process.env.GCP_PROJECT || process.env.GEMINI_API_KEY);
+}
 
 // Behind a load balancer (e.g. Cloud Run) set TRUST_PROXY_HOPS=1 so req.ip is
 // the client's address rather than the proxy's, or every user shares one limit.
@@ -365,7 +368,7 @@ app.delete('/api/session', async (req, res) => {
 });
 
 // Gemini Conversational Chat API with Italian pedagogical grammar analysis and session checkpointing
-app.post('/api/chat', async (req, res) => {
+app.post('/api/chat', requireQuota('chatMessages'), async (req, res) => {
 
   const startTime = Date.now();
   try {
@@ -398,7 +401,7 @@ app.post('/api/chat', async (req, res) => {
       return res.status(400).json({ error: `learnerLevel must be one of ${Object.keys(LEVEL_PROMPTS).join(', ')}` });
     }
 
-    if (!HAS_GENAI_CREDENTIALS) {
+    if (!hasGenAiCredentials()) {
       return res.status(503).json({
         error: 'Neither GCP_PROJECT nor GEMINI_API_KEY is configured',
         fallbackNeeded: true
@@ -481,7 +484,7 @@ app.post('/api/chat', async (req, res) => {
     }
 
     // sessionId is null when the client's ID is unknown or expired, so it can start a new one
-    res.json({ ...parsed, sessionId: session?.sessionId ?? null });
+    res.json({ ...parsed, sessionId: session?.sessionId ?? null, quota: res.locals.quota ?? null });
   } catch (error: any) {
     console.error('Chat generation error:', error);
     res.status(500).json({
@@ -492,7 +495,7 @@ app.post('/api/chat', async (req, res) => {
 });
 
 // English translation of one spoken line
-app.post('/api/translate', async (req, res) => {
+app.post('/api/translate', requireQuota('helperRequests'), async (req, res) => {
   try {
     const { text } = req.body;
     if (!text || typeof text !== 'string') {
@@ -501,7 +504,7 @@ app.post('/api/translate', async (req, res) => {
     if (text.length > 2000) {
       return res.status(400).json({ error: 'Text exceeds maximum length of 2000 characters for translation' });
     }
-    if (!HAS_GENAI_CREDENTIALS) {
+    if (!hasGenAiCredentials()) {
       return res.status(503).json({ error: 'Neither GCP_PROJECT nor GEMINI_API_KEY is configured' });
     }
 
@@ -522,7 +525,7 @@ app.post('/api/translate', async (req, res) => {
 });
 
 // Text-to-Speech (TTS) Endpoint supporting both Google Cloud TTS & Gemini Native Audio
-app.post('/api/tts', async (req, res) => {
+app.post('/api/tts', requireQuota('helperRequests'), async (req, res) => {
   try {
     const { 
       text, 
@@ -578,7 +581,7 @@ app.post('/api/tts', async (req, res) => {
     }
 
     // 2. Gemini Native Multimodal Audio Generation
-    if (!HAS_GENAI_CREDENTIALS) {
+    if (!hasGenAiCredentials()) {
       return res.status(503).json({
         error: 'No AI credentials configured for Gemini TTS',
         fallbackToBrowser: true
@@ -675,7 +678,7 @@ export function cloudSttEncodingFor(mimeType: string): 'WEBM_OPUS' | 'OGG_OPUS' 
 }
 
 // Production-Grade Speech-to-Text (STT) Endpoint
-app.post('/api/stt', async (req, res) => {
+app.post('/api/stt', requireQuota('helperRequests'), async (req, res) => {
   try {
     const { audioBase64, mimeType = 'audio/webm', languageCode = 'it-IT' } = req.body;
 
@@ -717,7 +720,7 @@ app.post('/api/stt', async (req, res) => {
     }
 
     // 2. Multimodal Audio Transcription via Gemini
-    if (HAS_GENAI_CREDENTIALS) {
+    if (hasGenAiCredentials()) {
       const cleanMimeType = mimeType.split(';')[0] || 'audio/webm';
       const geminiResponse = await generateContentWithFallback({
         model: CHAT_MODEL,
@@ -881,7 +884,7 @@ async function startServer() {
   });
 
   attachLiveBridge(server, {
-    ...(HAS_GENAI_CREDENTIALS
+    ...(hasGenAiCredentials()
       ? buildLiveClientOptions(primaryAi, fallbackAi, isAiStudioFallbackPermitted(true), vertexCooldown, LIVE_MODEL)
       : { clients: [] }),
     model: LIVE_MODEL,
@@ -894,4 +897,4 @@ if (!process.env.VITEST) {
   startServer();
 }
 
-export { app };
+export { app, primaryAi };

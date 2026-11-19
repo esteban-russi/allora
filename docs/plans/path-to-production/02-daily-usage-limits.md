@@ -7,7 +7,7 @@
 - Date: 2026-11-19
 - Summary: In progress; implementing UsageStore, quota middleware, HTTP routes, voice metering.
 - Items needing attention:
-  - (none)
+  - `tests/helpers/fakeGemini.ts` only implements the WebSocket `live.connect` interface for Gemini Live; the turn-based chat endpoint tests mock `primaryAi.models.generateContent` directly with Vitest.
 
 Branch: `feature/daily-usage-limits`. Depends on: 01.
 
@@ -106,12 +106,12 @@ export function requireQuota(counter: 'chatMessages' | 'helperRequests', deps?: 
 4. ✅ **`quota.ts` with `requireQuota`**, tested with supertest on a tiny Express app:
    each mode; the 429 body; the refund on a 500; fail-open when the store rejects.
 
-5. **Apply to HTTP routes** (`server.ts`).
-   - `app.post('/api/chat', requireQuota('chatMessages'), …)`.
-   - `requireQuota('helperRequests')` on `/api/tts`, `/api/stt`, `/api/translate`.
-   - In the chat success response add `quota: res.locals.quota ?? null`.
-   - Turn-based voice calls use these same routes, so they are covered.
-   - Tests: with `QUOTAS_MODE=enforce` and dev user `anon-q`, the 6th `/api/chat` call
+5. ✅ **Apply to HTTP routes** (`server.ts`).
+   - ✅ `app.post('/api/chat', requireQuota('chatMessages'), …)`.
+   - ✅ `requireQuota('helperRequests')` on `/api/tts`, `/api/stt`, `/api/translate`.
+   - ✅ In the chat success response add `quota: res.locals.quota ?? null`.
+   - ✅ Turn-based voice calls use these same routes, so they are covered.
+   - ✅ Tests: with `QUOTAS_MODE=enforce` and dev user `anon-q`, the 6th `/api/chat` call
      returns 429 `QUOTA_EXCEEDED` (mock Gemini with `tests/helpers/fakeGemini.ts`).
 
 6. **`/api/me` returns usage.** Add
