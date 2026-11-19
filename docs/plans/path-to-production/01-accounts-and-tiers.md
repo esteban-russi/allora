@@ -114,7 +114,7 @@ export function tierFor(account: Account, nowMs: number): Tier
    - ✅ Tests in `tests/auth.test.ts`: a signed token with `firebase.sign_in_provider`
      `anonymous` gives `true`; `google.com` gives `false`; dev ID `anon-1` gives `true`.
 
-2. **Plan constants and `tierFor`** (`src/server/plans.ts`, `tests/plans.test.ts`).
+2. ✅ **Plan constants and `tierFor`** (`src/server/plans.ts`, `tests/plans.test.ts`).
    Test every branch: no subscription, active, grace, expired status, active but past
    `expiresAt`, anonymous with an active subscription (premium wins).
 
