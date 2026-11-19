@@ -102,7 +102,7 @@ the `/api/me` response.
      so an event for a deleted account does nothing.
    - Tests with a fake client and the in-memory account store.
 
-4. **`POST /api/billing/sync`** (authenticated; add `/api/billing` to both middleware
+4. ✅ **`POST /api/billing/sync`** (authenticated; add `/api/billing` to both middleware
    path lists; handlers in `src/server/billingRoutes.ts`).
    - Guests: `403 { code: 'SIGN_IN_REQUIRED' }`.
    - Call `syncSubscription(req.user.userId)`; respond
