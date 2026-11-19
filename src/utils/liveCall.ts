@@ -1,5 +1,6 @@
 /** Browser and mobile client for a Gemini Live voice call with reconnect, heartbeat, and resumption. */
 import { getAuthToken } from './apiClient';
+import { getAppCheckToken } from './appCheck';
 
 const MODEL_SAMPLE_RATE = 24000;
 const HEARTBEAT_INTERVAL_MS = 5000;
@@ -170,8 +171,8 @@ export class LiveCall {
 
   private async openSocket(sampleRate: number): Promise<void> {
     if (this.isStopped) return;
-    // Fetched per attempt so a reconnect after a long drop gets a refreshed token
-    const token = await getAuthToken();
+    // Fetched per attempt so a reconnect after a long drop gets refreshed tokens
+    const [token, appCheck] = await Promise.all([getAuthToken(), getAppCheckToken()]);
     if (this.isStopped) return;
 
     const query = new URLSearchParams({
@@ -186,10 +187,15 @@ export class LiveCall {
       query.set('sessionId', this.currentSessionId);
     }
 
-    // The token travels as a subprotocol, not in the URL, so it stays out of request logs
+    // Tokens travel as subprotocols, not in the URL, so they stay out of request logs.
+    // Keep ['auth', token] first so the server keeps echoing 'auth'.
     const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
     const url = `${protocol}://${window.location.host}/api/live?${query}`;
-    const socket = token ? new WebSocket(url, ['auth', token]) : new WebSocket(url);
+    const protocols = [
+      ...(token ? ['auth', token] : []),
+      ...(appCheck ? ['appcheck', appCheck] : [])
+    ];
+    const socket = new WebSocket(url, protocols.length > 0 ? protocols : undefined);
     socket.binaryType = 'arraybuffer';
     this.socket = socket;
 

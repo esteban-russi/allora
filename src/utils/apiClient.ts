@@ -1,4 +1,5 @@
 /** Authenticated API access for the browser client: one token source for fetch and Live calls. */
+import { getAppCheckToken } from './appCheck';
 
 /** Returns the signed-in user's current ID token, or null when signed out. */
 export type AuthTokenProvider = () => Promise<string | null>;
@@ -63,7 +64,26 @@ export async function getAuthToken(): Promise<string | null> {
 }
 
 /**
- * GET an API route with the user's ID token attached.
+ * Build auth and App Check headers for an outbound API request.
+ *
+ * Args:
+ *   extra: Additional headers to include (e.g. `Content-Type`).
+ *
+ * Returns:
+ *   The bearer ID token (for account-deleted checks) and headers map.
+ */
+async function authHeaders(
+  extra: Record<string, string> = {}
+): Promise<{ token: string | null; headers: Record<string, string> }> {
+  const [token, appCheckToken] = await Promise.all([getAuthToken(), getAppCheckToken()]);
+  const headers: Record<string, string> = { ...extra };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (appCheckToken) headers['X-Firebase-AppCheck'] = appCheckToken;
+  return { token, headers };
+}
+
+/**
+ * GET an API route with the user's ID token and App Check token attached.
  *
  * Args:
  *   path: API path, e.g. `/api/session`.
@@ -72,14 +92,14 @@ export async function getAuthToken(): Promise<string | null> {
  *   The fetch Response; callers check `res.ok`.
  */
 export async function getWithAuth(path: string): Promise<Response> {
-  const token = await getAuthToken();
-  const res = await fetch(path, token ? { headers: { Authorization: `Bearer ${token}` } } : {});
+  const { token, headers } = await authHeaders();
+  const res = await fetch(path, Object.keys(headers).length > 0 ? { headers } : {});
   await notifyIfAccountDeleted(res, token);
   return res;
 }
 
 /**
- * POST a JSON body to an API route with the user's ID token attached.
+ * POST a JSON body to an API route with the user's ID token and App Check token attached.
  *
  * Args:
  *   path: API path, e.g. `/api/chat`.
@@ -89,16 +109,14 @@ export async function getWithAuth(path: string): Promise<Response> {
  *   The fetch Response; callers check `res.ok` as before.
  */
 export async function postJson(path: string, body: unknown): Promise<Response> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const token = await getAuthToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
+  const { token, headers } = await authHeaders({ 'Content-Type': 'application/json' });
   const res = await fetch(path, { method: 'POST', headers, body: JSON.stringify(body) });
   await notifyIfAccountDeleted(res, token);
   return res;
 }
 
 /**
- * DELETE an API route with the user's ID token attached.
+ * DELETE an API route with the user's ID token and App Check token attached.
  *
  * Args:
  *   path: API path, e.g. `/api/account`.
@@ -107,11 +125,8 @@ export async function postJson(path: string, body: unknown): Promise<Response> {
  *   The fetch Response; callers check `res.ok`.
  */
 export async function deleteWithAuth(path: string): Promise<Response> {
-  const token = await getAuthToken();
-  const res = await fetch(path, {
-    method: 'DELETE',
-    headers: token ? { Authorization: `Bearer ${token}` } : {}
-  });
+  const { token, headers } = await authHeaders();
+  const res = await fetch(path, { method: 'DELETE', headers });
   await notifyIfAccountDeleted(res, token);
   return res;
 }

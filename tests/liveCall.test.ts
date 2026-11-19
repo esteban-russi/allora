@@ -1,6 +1,12 @@
 /** Tests for the LiveCall client: reconnects, heartbeat, and capture setup. */
+import type { FirebaseApp } from 'firebase/app';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setAuthTokenProvider } from '../src/utils/apiClient';
+import {
+  initAppCheck,
+  resetAppCheckForTesting,
+  setNativeAppCheckProvider
+} from '../src/utils/appCheck';
 import { isVoiced, LiveCall, type LiveCallHandlers } from '../src/utils/liveCall';
 import { FakeSocket, FakeWorkletNode, installFakeBrowser } from './helpers/fakeBrowser';
 
@@ -34,6 +40,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   setAuthTokenProvider(async () => null);
+  resetAppCheckForTesting();
 });
 
 describe('LiveCall authentication', () => {
@@ -44,6 +51,32 @@ describe('LiveCall authentication', () => {
     expect(socket.protocols).toEqual(['auth', 'id-token-xyz']);
     expect(socket.url).not.toContain('id-token-xyz');
     call.stop();
+  });
+
+  it('sends auth first followed by appcheck subprotocols when both tokens are present', async () => {
+    setAuthTokenProvider(async () => 'id-token-xyz');
+    setNativeAppCheckProvider({ init: () => undefined, getToken: async () => 'ac-token-999' });
+    initAppCheck({} as FirebaseApp, null);
+
+    const { call, socket } = await startCall();
+
+    expect(socket.protocols).toEqual(['auth', 'id-token-xyz', 'appcheck', 'ac-token-999']);
+    expect(socket.url).not.toContain('ac-token-999');
+    call.stop();
+  });
+
+  it('sends only appcheck when no auth token is present and undefined when neither is present', async () => {
+    const first = await startCall();
+    expect(first.socket.protocols).toBeUndefined();
+    first.call.stop();
+
+    FakeSocket.instances = [];
+    setNativeAppCheckProvider({ init: () => undefined, getToken: async () => 'ac-only' });
+    initAppCheck({} as FirebaseApp, null);
+
+    const second = await startCall();
+    expect(second.socket.protocols).toEqual(['appcheck', 'ac-only']);
+    second.call.stop();
   });
 });
 

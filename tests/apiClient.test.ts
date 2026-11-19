@@ -1,4 +1,5 @@
 /** Tests for the client's authenticated API helper. */
+import type { FirebaseApp } from 'firebase/app';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   deleteWithAuth,
@@ -8,10 +9,16 @@ import {
   setAccountDeletedHandler,
   setAuthTokenProvider
 } from '../src/utils/apiClient';
+import {
+  initAppCheck,
+  resetAppCheckForTesting,
+  setNativeAppCheckProvider
+} from '../src/utils/appCheck';
 
 afterEach(() => {
   setAuthTokenProvider(async () => null);
   setAccountDeletedHandler(null);
+  resetAppCheckForTesting();
   vi.unstubAllGlobals();
 });
 
@@ -59,6 +66,42 @@ describe('getWithAuth', () => {
     const fetchMock = stubFetch();
     await getWithAuth('/api/session');
     expect(fetchMock).toHaveBeenCalledWith('/api/session', {});
+  });
+});
+
+describe('App Check header attachment', () => {
+  it('attaches X-Firebase-AppCheck on GET, POST, and DELETE when available', async () => {
+    const fetchMock = stubFetch();
+    setAuthTokenProvider(async () => 'id-token-123');
+    setNativeAppCheckProvider({ init: () => undefined, getToken: async () => 'ac-token-456' });
+    initAppCheck({} as FirebaseApp, null);
+
+    await getWithAuth('/api/me');
+    await postJson('/api/chat', { userMessage: 'Ciao' });
+    await deleteWithAuth('/api/account');
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/me', {
+      headers: { Authorization: 'Bearer id-token-123', 'X-Firebase-AppCheck': 'ac-token-456' }
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer id-token-123',
+        'X-Firebase-AppCheck': 'ac-token-456'
+      },
+      body: JSON.stringify({ userMessage: 'Ciao' })
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/account', {
+      method: 'DELETE',
+      headers: { Authorization: 'Bearer id-token-123', 'X-Firebase-AppCheck': 'ac-token-456' }
+    });
+  });
+
+  it('omits X-Firebase-AppCheck when App Check has no token', async () => {
+    const fetchMock = stubFetch();
+    await deleteWithAuth('/api/account');
+    expect(fetchMock).toHaveBeenCalledWith('/api/account', { method: 'DELETE', headers: {} });
   });
 });
 
