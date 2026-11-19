@@ -1,6 +1,0 @@
-{
-  "name": "Allora - Italian Conversational AI Studio",
-  "description": "Practise conversational Italian by chatting and calling Emmanuele, an AI tutor from Rome.",
-  "requestFramePermissions": ["microphone"],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}

@@ -3,7 +3,7 @@
 Learn conversational Italian by talking to people, not flashcards.
 
 The name, short name, premium plan name and support email live in `src/data/brand.ts`;
-`index.html` gets the name at build time and `metadata.json` carries it by hand. The
+`index.html` gets the name at build time and `public/manifest.webmanifest` carries it by hand. The
 repository, Cloud Run service, GCP project and the `parliamo.*` browser storage keys
 keep the old name on purpose: renaming them would risk the deployment and sign learners out.
 
@@ -37,7 +37,7 @@ Italian text is set in Fraunces; the interface uses Inter.
 - **Hands-free voice calls.** Calls stream through Gemini Live, so the tutor answers in under a second and you can interrupt him mid-sentence. Ask him to go slower, repeat himself, or suggest something to say. If Live is unavailable, the call carries on turn by turn (speech recognition, then chat, then text-to-speech).
 - **Captions.** Follow each line of the call in Italian with an English translation.
 - **Natural voices.** Replies are spoken with Gemini text-to-speech. If it is unavailable, the app falls back to the browser's built-in Italian voice.
-- **Adjustable tutoring.** A settings drawer lets you choose how strictly mistakes are corrected (conversational, tutor or strict), how much regional slang to use, speech rate, subtitles, auto-play and a custom system prompt.
+- **Adjustable tutoring.** Settings let you choose correction style (Casual, Friendly Tutor, or Strict Professor), subtitles, auto-play replies aloud, and speaking speed.
 
 ## How it works
 
@@ -199,11 +199,12 @@ The script enables the APIs, creates the Artifact Registry repo, the deployer an
 │   │   ├── ChatInterface.tsx  # Chat bubbles, quick replies and composer
 │   │   ├── UtilityPanel.tsx   # Tutor profile, notebook and talking share
 │   │   ├── VoiceCallModal.tsx # Hands-free voice call with captions
-│   │   ├── DevSettingsDrawer.tsx
+│   │   ├── SettingsDialog.tsx # Learner settings: correction style, subtitles, auto-play, speaking speed
+│   │   ├── DevSettingsDrawer.tsx # Developer lab (dev mode or parliamo.devlab=1)
 │   │   ├── PersonaProfileModal.tsx
 │   │   ├── PersonaBadge.tsx
 │   │   └── UserBadge.tsx
-│   ├── data/personas.ts       # Emmanuele's persona, starter message and saved phrases
+│   ├── data/personas.ts       # Emmanuele's persona and starter message
 │   ├── server/                # auth, accountStore, accountRoutes, billingRoutes, billingSync, identityAdmin, plans, revenueCat, usageStore, quota, sessionStore, rateLimiter, metrics
 │   ├── utils/apiClient.ts     # Authenticated API calls (get, post, delete) and ID token source
 │   ├── utils/billing.ts       # Client billing interface and active adapter registry
