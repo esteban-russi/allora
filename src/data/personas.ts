@@ -1,5 +1,5 @@
 import { CefrLevel, ChatMessage, Persona, SavedPhrase } from '../types';
-import { PERSONA_PROMPTS, PERSONA_VOICES } from './personaPrompts';
+import { isPremiumPersona, PERSONA_PROMPTS, PERSONA_VOICES } from './personaPrompts';
 import emmanueleIdle from '../assets/emmanuele/neutral.webp';
 import emmanueleSpeaking from '../assets/emmanuele/talking.webp';
 
@@ -28,7 +28,8 @@ export const EMMANUELE: Persona = {
   voiceGender: 'male',
   sampleAudioText: 'Salve, amico! Sono Emmanuele. Oggi Roma è piena di gente. Raccontami qualcosa di te!',
   sampleAudioTranslation: 'Hello, friend! I am Emmanuele. Rome is full of people today. Tell me something about yourself!',
-  personaPrompt: PERSONA_PROMPTS.emmanuele
+  personaPrompt: PERSONA_PROMPTS.emmanuele,
+  isPremium: isPremiumPersona('emmanuele')
 };
 
 export const TUTORS: Persona[] = [EMMANUELE];

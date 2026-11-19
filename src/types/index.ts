@@ -64,6 +64,8 @@ export interface Persona {
   sampleAudioText: string;
   sampleAudioTranslation: string;
   personaPrompt: string;
+  /** True when talking to this tutor requires a Premium subscription. */
+  isPremium: boolean;
 }
 
 export interface SavedPhrase {

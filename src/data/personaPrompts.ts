@@ -17,6 +17,17 @@ export const PERSONA_VOICES: Record<string, string> = {
   emmanuele: 'Charon'
 };
 
+/** Persona IDs that require a Premium subscription. */
+export const PREMIUM_PERSONA_IDS: readonly string[] = [];
+
+/** True when the given persona id requires a Premium subscription. */
+export function isPremiumPersona(
+  id: string,
+  premiumIds: readonly string[] = PREMIUM_PERSONA_IDS
+): boolean {
+  return premiumIds.includes(id);
+}
+
 /** Correction strictness values accepted by the chat and voice-call endpoints. */
 export const GRAMMAR_STRICTNESS_LEVELS = ['conversational', 'tutor', 'strict'];
 
