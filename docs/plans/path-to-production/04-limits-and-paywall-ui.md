@@ -83,7 +83,7 @@ export function getBilling(): Billing
    - Test (`tests/chatLimit.test.ts`, with `tests/helpers/fakeBrowser.ts`): a 429 quota
      response never calls `generatePersonaFallbackMessage`.
 
-3. **`LimitReachedCard`** (`src/components/LimitReachedCard.tsx`).
+3. ✅ **`LimitReachedCard`** (`src/components/LimitReachedCard.tsx`).
    Props: `quota: QuotaError`, `tier`, `canUpgrade: boolean`, `onSignIn`, `onSeePlans`, `onDismiss`.
    - Text: chat → "You've used today's {limit} messages."; voice → "You've used today's
      {limit/60} minutes of calls."; then "Your allowance resets at {time}."

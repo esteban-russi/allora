@@ -385,6 +385,10 @@ export default function App() {
               isAiGenerating={isAiGenerating}
               draft={chatDraft}
               onDraftChange={setChatDraft}
+              limitReached={limitReached}
+              tier={me?.tier ?? 'guest'}
+              canUpgrade={Boolean(me && me.tier === 'free')}
+              onSignIn={() => setScreen('signin-login')}
             />
           </div>
 

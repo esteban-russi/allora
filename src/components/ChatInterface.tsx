@@ -2,8 +2,10 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Bookmark, BookmarkCheck, Headphones, HelpCircle, Languages, Mic, Square, X } from 'lucide-react';
 import { Persona, ChatMessage, DevSettings } from '../types';
 import { PersonaBadge } from './PersonaBadge';
+import { LimitReachedCard } from './LimitReachedCard';
 import { ITALIAN_PRACTICE_PHRASES } from '../data/personas';
 import { speechService, createSpeechRecognizer, AudioRecorder, transcribeAudioBlob } from '../utils/speech';
+import type { QuotaError } from '../utils/quotaError';
 
 interface ChatInterfaceProps {
   persona: Persona;
@@ -16,6 +18,11 @@ interface ChatInterfaceProps {
   isAiGenerating?: boolean;
   draft?: string;
   onDraftChange?: (draft: string) => void;
+  limitReached?: QuotaError | null;
+  tier?: string;
+  canUpgrade?: boolean;
+  onSignIn?: () => void;
+  onSeePlans?: () => void;
 }
 
 const ACCENTS = ['à', 'è', 'é', 'ì', 'ò', 'ù'];
@@ -29,7 +36,12 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   onSavePhrase,
   isAiGenerating = false,
   draft,
-  onDraftChange
+  onDraftChange,
+  limitReached,
+  tier,
+  canUpgrade,
+  onSignIn,
+  onSeePlans
 }) => {
   const [inputText, setInputText] = useState<string>(draft ?? '');
   const [visibleTranslations, setVisibleTranslations] = useState<Set<string>>(new Set());
@@ -296,6 +308,16 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
           </div>
         )}
 
+        {limitReached && limitReached.counter === 'chatMessages' && (
+          <LimitReachedCard
+            quota={limitReached}
+            tier={tier ?? 'guest'}
+            canUpgrade={canUpgrade ?? false}
+            onSignIn={onSignIn}
+            onSeePlans={onSeePlans}
+          />
+        )}
+
         <div ref={messagesEndRef} />
       </div>
 
@@ -416,7 +438,16 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             <button
               type="button"
               onClick={handleSend}
-              disabled={!inputText.trim() || isAiGenerating}
+              disabled={
+                !inputText.trim() ||
+                isAiGenerating ||
+                Boolean(limitReached && limitReached.counter === 'chatMessages')
+              }
+              aria-describedby={
+                limitReached && limitReached.counter === 'chatMessages'
+                  ? 'limit-reached-card'
+                  : undefined
+              }
               className="shrink-0 h-12 px-5 sm:px-7 rounded-full bg-cobalt hover:bg-cobalt-strong text-canvas text-base font-medium transition-colors disabled:opacity-50 disabled:hover:bg-cobalt"
             >
               Send
