@@ -2,6 +2,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import { summarizeError } from '../../vertexCooldown';
 import type { Account, AccountStore, Tier } from './accountStore';
+import { defaultIdentityAdmin, type IdentityAdmin } from './identityAdmin';
 import { PLAN_LIMITS, tierFor, type PlanLimits } from './plans';
 
 export interface RequestAccount {
@@ -32,14 +33,19 @@ export function invalidateAccountCache(userId: string): void {
 export interface AttachAccountOptions {
   cacheMs?: number;
   now?: () => number;
+  identity?: IdentityAdmin;
 }
 
 /**
  * Express middleware to load and attach account details to authenticated requests.
  *
+ * A missing record is only created while the Firebase user still exists. After an
+ * account is deleted, another tab's still-valid ID token gets 401 ACCOUNT_DELETED
+ * instead of silently recreating users/<uid>.
+ *
  * Args:
  *   store: AccountStore implementation.
- *   options: Cache duration and clock overrides.
+ *   options: Cache duration, clock, and identity lookup overrides.
  *
  * Returns:
  *   Express middleware handler.
@@ -47,6 +53,7 @@ export interface AttachAccountOptions {
 export function attachAccount(store: AccountStore, options: AttachAccountOptions = {}) {
   const cacheMs = options.cacheMs ?? DEFAULT_CACHE_MS;
   const now = options.now ?? Date.now;
+  const identity = options.identity ?? defaultIdentityAdmin;
 
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     const user = req.user;
@@ -69,6 +76,15 @@ export function attachAccount(store: AccountStore, options: AttachAccountOptions
     }
 
     try {
+      const existing = await store.getAccount(user.userId);
+      if (!existing && !(await identity.userExists(user.userId))) {
+        res.status(401).json({
+          error: 'This account has been deleted',
+          code: 'ACCOUNT_DELETED'
+        });
+        return;
+      }
+
       const account = await store.upsertFromAuth({
         userId: user.userId,
         email: user.email,

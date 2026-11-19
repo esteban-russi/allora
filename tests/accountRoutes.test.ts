@@ -24,7 +24,8 @@ describe('POST /api/account/merge', () => {
     accountStore = new InMemoryAccountStore(() => clock);
     usageStore = new InMemoryUsageStore();
     mockIdentity = {
-      deleteUser: vi.fn().mockResolvedValue(undefined)
+      deleteUser: vi.fn().mockResolvedValue(undefined),
+      userExists: vi.fn().mockResolvedValue(true)
     };
 
     app = express();
@@ -171,7 +172,8 @@ describe('DELETE /api/account', () => {
     accountStore = new InMemoryAccountStore(() => clock);
     usageStore = new InMemoryUsageStore();
     mockIdentity = {
-      deleteUser: vi.fn().mockResolvedValue(undefined)
+      deleteUser: vi.fn().mockResolvedValue(undefined),
+      userExists: vi.fn().mockResolvedValue(true)
     };
 
     app = express();

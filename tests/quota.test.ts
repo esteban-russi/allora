@@ -144,6 +144,26 @@ describe('requireQuota middleware', () => {
     expect(usage.chatMessages).toBe(0); // 1 consumed, refunded to 0
   });
 
+  it('refunds consumed unit when handler rejects the request with 400', async () => {
+    const app = createTestApp({ mode: 'enforce', statusCodeToReturn: 400, limit: 5 });
+
+    await request(app).post('/chat');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const usage = await store.getUsage('u1', '2026-11-18');
+    expect(usage.chatMessages).toBe(0);
+  });
+
+  it('keeps consumed unit when handler succeeds', async () => {
+    const app = createTestApp({ mode: 'enforce', statusCodeToReturn: 200, limit: 5 });
+
+    await request(app).post('/chat');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const usage = await store.getUsage('u1', '2026-11-18');
+    expect(usage.chatMessages).toBe(1);
+  });
+
   it('fails open when store throws an error', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const failingStore = {
