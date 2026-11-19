@@ -3,11 +3,13 @@ import { Router, type Request, type Response } from 'express';
 import type { SessionStore } from './sessionStore';
 import type { AccountStore, Consent } from './accountStore';
 import type { UsageStore } from './usageStore';
+import type { ReportStore } from './reportStore';
 import type { IdentityAdmin } from './identityAdmin';
 import type { AuthenticatedUser } from './auth';
 import { defaultSessionStore } from './defaultSessionStore';
 import { defaultAccountStore } from './defaultAccountStore';
 import { defaultUsageStore } from './defaultUsageStore';
+import { defaultReportStore } from './defaultReportStore';
 import { defaultIdentityAdmin } from './identityAdmin';
 import { verifyIdToken } from './auth';
 import { usageDay } from './usageStore';
@@ -19,6 +21,7 @@ export interface AccountRouterDeps {
   sessions?: SessionStore;
   accounts?: AccountStore;
   usage?: UsageStore;
+  reports?: ReportStore;
   identity?: IdentityAdmin;
   revenueCat?: RevenueCatClient | null;
   verifyToken?: (token: string) => Promise<AuthenticatedUser | null>;
@@ -42,6 +45,7 @@ export function createAccountRouter(deps: AccountRouterDeps = {}): Router {
   const sessions = deps.sessions ?? defaultSessionStore;
   const accounts = deps.accounts ?? defaultAccountStore;
   const usage = deps.usage ?? defaultUsageStore;
+  const reports = deps.reports ?? defaultReportStore;
   const identity = deps.identity ?? defaultIdentityAdmin;
   const verifyToken = deps.verifyToken ?? verifyIdToken;
   const now = deps.now ?? Date.now;
@@ -108,6 +112,7 @@ export function createAccountRouter(deps: AccountRouterDeps = {}): Router {
         }
       }
       await usage.deleteAllUserUsage(guest.userId);
+      await reports.transferUserReports(guest.userId, user.userId);
 
       const [targetAccount, guestAccount] = await Promise.all([
         accounts.getAccount(user.userId),
@@ -147,6 +152,7 @@ export function createAccountRouter(deps: AccountRouterDeps = {}): Router {
     try {
       await sessions.deleteAllUserData(userId);
       await usage.deleteAllUserUsage(userId);
+      await reports.deleteAllUserReports(userId);
       await accounts.deleteAccount(userId);
       invalidateAccountCache(userId);
 

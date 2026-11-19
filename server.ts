@@ -35,6 +35,7 @@ import { scheduleMaintenance } from './src/server/maintenance';
 import type { FirebaseClientConfig } from './src/utils/firebaseAuth';
 import { createAccountRouter } from './src/server/accountRoutes';
 import { createBillingRouter, createRevenueCatWebhookRouter } from './src/server/billingRoutes';
+import { createReportRouter } from './src/server/reportRoutes';
 import { BRAND } from './src/data/brand';
 
 dotenv.config();
@@ -115,7 +116,7 @@ app.set('trust proxy', TRUST_PROXY_HOPS);
 // Outer perimeter rate limiting per IP. Webhooks are left out: RevenueCat can send
 // bursts of events from a few IPs, and its secret is checked before any work is done.
 const RATE_LIMIT_PER_MINUTE = Number(process.env.RATE_LIMIT_PER_MINUTE) || 60;
-app.use(['/api/chat', '/api/translate', '/api/tts', '/api/stt', '/api/session', '/api/me', '/api/account', '/api/billing'], rateLimit({
+app.use(['/api/chat', '/api/translate', '/api/tts', '/api/stt', '/api/session', '/api/me', '/api/account', '/api/billing', '/api/report'], rateLimit({
   windowMs: 60_000,
   limit: RATE_LIMIT_PER_MINUTE,
   standardHeaders: 'draft-7',
@@ -252,7 +253,7 @@ app.use('/api/webhooks', createRevenueCatWebhookRouter());
 
 // Authentication and per-user rate limit middleware stack for billed routes
 app.use(
-  ['/api/chat', '/api/translate', '/api/tts', '/api/stt', '/api/session', '/api/me', '/api/account', '/api/billing'],
+  ['/api/chat', '/api/translate', '/api/tts', '/api/stt', '/api/session', '/api/me', '/api/account', '/api/billing', '/api/report'],
   authenticateHttpUser(),
   createUserRateLimitMiddleware(defaultUserLimiter),
   attachAccount(defaultAccountStore)
@@ -341,6 +342,9 @@ app.use('/api/account', createAccountRouter());
 
 // Billing routes (subscription sync)
 app.use('/api/billing', createBillingRouter());
+
+// Content reporting route
+app.use('/api/report', createReportRouter());
 
 // Learner Session Endpoints (Session Continuity, Checkpointing, and GDPR Deletion)
 app.get('/api/session', async (req, res) => {
