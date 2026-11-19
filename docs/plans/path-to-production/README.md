@@ -81,22 +81,22 @@ Web ───── RevenueCat Web Billing (Stripe) ─────────�
 
 One plan file per PR. Do them in this order; each is deployable on its own.
 
-| # | Plan | What ships | Depends on |
-|---|---|---|---|
-| 00 | [Brand constants and custom domain](00-brand-and-domain.md) | App name in one place, custom domain, final Android app ID | none (do first) |
-| 01 | [Accounts and tiers](01-accounts-and-tiers.md) | `users` collection, tier logic, `GET /api/me` | firestore-sessions merged |
-| 02 | [Daily usage limits](02-daily-usage-limits.md) | `usage` collection, caps on chat, helpers and voice minutes | 01 |
-| 03 | [Sign-in on the web](03-sign-in-web.md) | Google + magic link, guest merge, sign out, delete account | 01, 02 |
-| 04 | [Limits and paywall UI](04-limits-and-paywall-ui.md) | Usage meter, limit-reached states, plans screen (no checkout yet) | 02, 03 |
-| 05 | [Billing backend](05-billing-backend.md) | RevenueCat webhook and sync, subscription on the user record | 01 |
-| 06 | [Web checkout](06-web-checkout.md) | Card payments on the web through RevenueCat Web Billing | 04, 05 |
-| 07 | [Android app shell](07-android-app-shell.md) | Capacitor project, API base URL, CORS, mic, lifecycle | 01–04 on main |
-| 08 | [Android sign-in](08-android-sign-in.md) | Native Google sign-in, magic link through App Links | 03, 07 |
-| 09 | [Android purchases](09-android-purchases.md) | Play Billing through RevenueCat, restore purchases | 05, 07, 08 |
-| 10 | [App Check](10-app-check.md) | Attestation on web and Android, enforced on billed routes | 07 |
-| 11 | [Store compliance](11-store-compliance.md) | Privacy/terms pages, deletion URL, report a reply, 18+ confirmation | 03 |
-| 12 | [Production cleanup](12-production-cleanup.md) | Remove mocks, manifest and icons, headers, accessibility fixes | none |
-| 13 | [Premium tutors](13-premium-tutors.md) | Extra tutors locked to premium, enforced on the server | 01, 04 |
+| # | Plan | What ships | Depends on | Status |
+|---|---|---|---|---|
+| 00 | [Brand constants and custom domain](00-brand-and-domain.md) | App name in one place, custom domain, final Android app ID | none (do first) | |
+| 01 | [Accounts and tiers](01-accounts-and-tiers.md) | `users` collection, tier logic, `GET /api/me` | firestore-sessions merged | ✅ |
+| 02 | [Daily usage limits](02-daily-usage-limits.md) | `usage` collection, caps on chat, helpers and voice minutes | 01 | |
+| 03 | [Sign-in on the web](03-sign-in-web.md) | Google + magic link, guest merge, sign out, delete account | 01, 02 | |
+| 04 | [Limits and paywall UI](04-limits-and-paywall-ui.md) | Usage meter, limit-reached states, plans screen (no checkout yet) | 02, 03 | |
+| 05 | [Billing backend](05-billing-backend.md) | RevenueCat webhook and sync, subscription on the user record | 01 | |
+| 06 | [Web checkout](06-web-checkout.md) | Card payments on the web through RevenueCat Web Billing | 04, 05 | |
+| 07 | [Android app shell](07-android-app-shell.md) | Capacitor project, API base URL, CORS, mic, lifecycle | 01–04 on main | |
+| 08 | [Android sign-in](08-android-sign-in.md) | Native Google sign-in, magic link through App Links | 03, 07 | |
+| 09 | [Android purchases](09-android-purchases.md) | Play Billing through RevenueCat, restore purchases | 05, 07, 08 | |
+| 10 | [App Check](10-app-check.md) | Attestation on web and Android, enforced on billed routes | 07 | |
+| 11 | [Store compliance](11-store-compliance.md) | Privacy/terms pages, deletion URL, report a reply, 18+ confirmation | 03 | |
+| 12 | [Production cleanup](12-production-cleanup.md) | Remove mocks, manifest and icons, headers, accessibility fixes | none | |
+| 13 | [Premium tutors](13-premium-tutors.md) | Extra tutors locked to premium, enforced on the server | 01, 04 | |
 
 Web-only launch = 00–06 + 11–13. Android launch adds 07–10.
 

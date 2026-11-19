@@ -89,13 +89,15 @@ React 19 · TypeScript · Vite 8 · Tailwind CSS 4 · Motion · Lucide · Expres
 
 Speech recognition relies on the browser's Web Speech API, so voice calls work best in Chrome or Edge.
 
-The billed API routes (`/api/chat`, `/api/translate`, `/api/tts`, `/api/stt`, `/api/session`) are rate-limited per IP (`RATE_LIMIT_PER_MINUTE`, default 60) and per user (60 a minute). Each user can hold one open Live call and each IP two. When deploying behind a proxy such as Cloud Run, set `TRUST_PROXY_HOPS=1` so the limit applies to each client rather than to the proxy.
+The billed API routes (`/api/chat`, `/api/translate`, `/api/tts`, `/api/stt`, `/api/session`, `/api/me`) are rate-limited per IP (`RATE_LIMIT_PER_MINUTE`, default 60) and per user (60 a minute). Each user can hold one open Live call and each IP two. When deploying behind a proxy such as Cloud Run, set `TRUST_PROXY_HOPS=1` so the limit applies to each client rather than to the proxy.
 
 ## Accounts, sessions and privacy
 
 **Authentication.** Billed routes and the Live socket need a Firebase Auth or Google Identity ID token. HTTP requests send it as `Authorization: Bearer <token>`; Live calls send it as the WebSocket subprotocol `auth, <token>`, never in the URL. Tokens are checked against Google's certificates, and their audience must be `GCP_PROJECT` (Firebase) or `GOOGLE_CLIENT_ID` (Google Identity). Auth is enforced when `NODE_ENV=production` or `ENFORCE_AUTH=true`, and the server refuses to start without one of those audiences. Locally, requests without a token run as a dev user (`x-dev-user-id` header or `devUserId` query) and `dev-token:<id>` tokens are accepted.
 
 On load the client signs the learner in anonymously with Firebase (`src/utils/firebaseAuth.ts`), using the public web config from `GET /api/auth-config`, and the same anonymous account is reused on that device. That needs `FIREBASE_API_KEY` and `FIREBASE_APP_ID` set on the server and Anonymous sign-in enabled in the Firebase project `GCP_PROJECT`; without them, the client sends no token, which only works when auth is not enforced. Anyone can create anonymous accounts, so the per-IP limits remain the backstop against abuse.
+
+**Accounts and tiers.** Authenticated users are assigned a tier (`guest`, `free`, `premium`). `GET /api/me` returns the learner's account details, current tier, plan limits, and subscription metadata. Guest records in Firestore carry a 30-day inactivity TTL on `expiresAtTs`. Accounts and sessions live in the store selected by `SESSION_STORE` (`memory` or `firestore`).
 
 **Learner sessions.** A session holds the learner's level, saved phrases and the last 50 conversation turns. The server assigns its ID, the client remembers it on the device, and both chat and Live turns are checkpointed to it. `GET /api/session` returns the latest session, `POST` creates or updates one, `DELETE /api/session/:id` deletes one and `DELETE /api/session` deletes all of a user's data. Sessions expire after 30 days without activity.
 
@@ -124,7 +126,7 @@ The script enables the APIs, creates the Artifact Registry repo, the deployer an
 ## Project structure
 
 ```
-├── server.ts                  # Express server: chat, translate, TTS, STT, sessions, health, metrics, Vite/static serving
+├── server.ts                  # Express server: chat, translate, TTS, STT, sessions, me, health, metrics, Vite/static serving
 ├── liveBridge.ts              # /api/live WebSocket bridge to Gemini Live: auth, call limits, heartbeat, resumption
 ├── src/
 │   ├── App.tsx                # App state and dashboard layout
@@ -140,7 +142,7 @@ The script enables the APIs, creates the Artifact Registry repo, the deployer an
 │   │   ├── PersonaBadge.tsx
 │   │   └── UserBadge.tsx
 │   ├── data/personas.ts       # Emmanuele's persona, starter message and saved phrases
-│   ├── server/                # auth, sessionStore, rateLimiter, privacyAndPolicy, metrics, maintenance
+│   ├── server/                # auth, accountStore, plans, accountMiddleware, sessionStore, rateLimiter, privacyAndPolicy, metrics, maintenance
 │   ├── utils/apiClient.ts     # Authenticated API calls and the ID token source
 │   ├── utils/learnerSession.ts # Remembers the learner session and links chat turns to it
 │   ├── utils/speech.ts        # Gemini TTS playback, browser TTS fallback, speech recognition

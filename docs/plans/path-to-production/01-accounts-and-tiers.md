@@ -3,9 +3,13 @@
 ## Status
 
 - Branch: `feature/accounts-and-tiers`
-- PR link: not opened (in progress)
+- PR link: (pending opening)
 - Date: 2026-11-19
-- Summary: In progress; adding account record, tier logic, AccountStore and GET /api/me.
+- Summary: All 8 steps implemented and verified. Firestore TTL configured and verified.
+- Cloud changes:
+  - Command: `gcloud firestore fields ttls update expiresAtTs --collection-group=users --enable-ttl --project=corso-di-italiano-496920 --account=estebangr2711@gmail.com`
+  - Before: No TTL policy on `users` collection group (`learnerSessions` only).
+  - After: TTL policy active on `projects/corso-di-italiano-496920/databases/(default)/collectionGroups/users/fields/expiresAtTs` (verified with `gcloud firestore fields ttls list`).
 - Items needing attention:
   - (none)
 
@@ -178,14 +182,14 @@ export function tierFor(account: Account, nowMs: number): Tier
    - ✅ `tests/server.test.ts`: `GET /api/me` with dev user `anon-1` returns tier `guest`
      and the guest limits; with dev user `u1` returns `free`.
 
-8. **Docs.** README: add `/api/me` to the endpoint list and `accountStore`, `plans`,
+8. ✅ **Docs.** README: add `/api/me` to the endpoint list and `accountStore`, `plans`,
    `accountMiddleware` to the project structure.
 
 ## GCP setup (before deploying)
 
-1. TTL for guest records:
+1. ✅ TTL for guest records:
    `gcloud firestore fields ttls update expiresAtTs --collection-group=users --enable-ttl --project=<project>`
-2. No new IAM: the runtime service account already has `roles/datastore.user`.
+2. ✅ No new IAM: the runtime service account already has `roles/datastore.user`.
 
 ## Acceptance
 
