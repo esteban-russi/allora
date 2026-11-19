@@ -3,9 +3,9 @@
 ## Status
 
 - Branch: `feature/accounts-and-tiers`
-- PR link: (pending opening)
+- PR link: https://github.com/esteban-russi/parliamo-italiano/pull/12
 - Date: 2026-11-19
-- Summary: All 8 steps implemented and verified. Firestore TTL configured and verified.
+- Summary: All 8 steps implemented and verified. PR #12 opened.
 - Cloud changes:
   - Command: `gcloud firestore fields ttls update expiresAtTs --collection-group=users --enable-ttl --project=corso-di-italiano-496920 --account=estebangr2711@gmail.com`
   - Before: No TTL policy on `users` collection group (`learnerSessions` only).
