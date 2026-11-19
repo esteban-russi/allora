@@ -169,19 +169,19 @@ export function useAccount(): { me: Me | null; refresh: () => Promise<Me | null>
 ✅ `useAccount` fetches once on mount. `App.tsx` calls `refresh()` after sign-in, sign-out
 and merge.
 
-### Step 7: `SignInScreen` (`src/components/SignInScreen.tsx`)
+### Step 7: ✅ `SignInScreen` (`src/components/SignInScreen.tsx`)
 
 Props: `mode: 'after-onboarding' | 'login'`, `onSignedIn: () => void`, `onSkip: () => void`.
 
-- Same page shell and Tailwind tokens as `OnboardingPage` (copy its outer layout classes).
-- Heading: after-onboarding "Save your progress"; login "Welcome back".
-- Button "Continue with Google" → `signInWithGoogle()`.
-- Form: `<input type="email" required autocomplete="email">` + button "Email me a sign-in link"
+- ✅ Same page shell and Tailwind tokens as `OnboardingPage` (copy its outer layout classes).
+- ✅ Heading: after-onboarding "Save your progress"; login "Welcome back".
+- ✅ Button "Continue with Google" → `signInWithGoogle()`.
+- ✅ Form: `<input type="email" required autocomplete="email">` + button "Email me a sign-in link"
   → `sendMagicLink(email)`; on success replace the form with "Check your inbox. Open the
   link on this device to finish signing in." and a "Use a different email" button.
-- Secondary button: "Not now" (after-onboarding) or "Back" (login) → `onSkip`.
-- Errors in a `role="alert"` paragraph. Disable buttons while a request is running.
-- Real `<button type="button">` elements; labels as above.
+- ✅ Secondary button: "Not now" (after-onboarding) or "Back" (login) → `onSkip`.
+- ✅ Errors in a `role="alert"` paragraph. Disable buttons while a request is running.
+- ✅ Real `<button type="button">` elements; labels as above.
 
 ### Step 8: wire into `App.tsx`
 
