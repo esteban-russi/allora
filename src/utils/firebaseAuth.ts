@@ -1,5 +1,6 @@
 /** Anonymous and federated Firebase sign-in for the browser client. */
 import { postJson, setAuthTokenProvider } from './apiClient';
+import { initAppCheck } from './appCheck';
 import { rememberLearnerSessionId } from './learnerSession';
 import {
   loadClientConfig,
@@ -45,7 +46,9 @@ async function signInWithFirebase(config: FirebaseClientConfig): Promise<TokenGe
     import('firebase/app'),
     import('firebase/auth')
   ]);
-  const auth = getAuth(initializeApp(config));
+  const app = initializeApp(config);
+  initAppCheck(app, config.appCheckSiteKey ?? null);
+  const auth = getAuth(app);
   authInstance = auth;
   authReady = Promise.resolve(auth);
   // Reuse the anonymous account persisted on this device, so the learner keeps their sessions
@@ -96,7 +99,9 @@ async function ensureAuth(): Promise<any> {
         import('firebase/app'),
         import('firebase/auth')
       ]);
-      const auth = getAuth(initializeApp(config));
+      const app = initializeApp(config);
+      initAppCheck(app, config.appCheckSiteKey ?? null);
+      const auth = getAuth(app);
       authInstance = auth;
       await auth.authStateReady();
       return auth;
