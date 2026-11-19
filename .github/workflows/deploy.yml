@@ -79,6 +79,9 @@ jobs:
             GEMINI_LIVE_MODEL=gemini-3.8-live
             TRUST_PROXY_HOPS=1
             RATE_LIMIT_PER_MINUTE=60
+          secrets: |-
+            REVENUECAT_SECRET_KEY=revenuecat-secret-key:latest
+            REVENUECAT_WEBHOOK_AUTH=revenuecat-webhook-auth:latest
 
       - name: Smoke test
         run: curl --fail --silent --show-error --retry 3 --retry-delay 5 "${{ steps.deploy.outputs.url }}/api/health"

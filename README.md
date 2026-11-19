@@ -115,6 +115,13 @@ When daily quotas are reached:
 - The drawer utility panel displays a real-time daily usage meter showing progress towards message and call limits and the local reset time.
 - The plans screen (`PlansScreen`) compares allowances between free and premium tiers, with monthly and annual options.
 
+**Billing backend and subscription synchronization.** RevenueCat acts as the source of truth for premium subscriptions across web and mobile stores:
+- `POST /api/billing/sync`: Authenticated endpoint that queries RevenueCat REST API v1 for the current learner's entitlements and synchronizes `users/<uid>.subscription`. Invoked by the client post-purchase or on app launch when subscriptions near expiration.
+- `POST /api/webhooks/revenuecat`: Webhook listener secured with constant-time token comparison (`REVENUECAT_WEBHOOK_AUTH`). Processes subscriber events (initial purchase, renewal, expiration, user transfer) by pulling latest status directly from RevenueCat.
+- Subscription state includes a 1-hour grace window (`SUBSCRIPTION_SKEW_MS`) past `expiresAt` to avoid disruptions during delayed renewal webhooks.
+- Account deletion (`DELETE /api/account`) cleans up subscriber data in RevenueCat via `deleteSubscriber`.
+- When `REVENUECAT_SECRET_KEY` is omitted, the app runs normally without billing (endpoints return 503 `BILLING_UNAVAILABLE`).
+
 **Learner sessions.** A session holds the learner's level, saved phrases and the last 50 conversation turns. The server assigns its ID, the client remembers it on the device, and both chat and Live turns are checkpointed to it. `GET /api/session` returns the latest session, `POST` creates or updates one, `DELETE /api/session/:id` deletes one and `DELETE /api/session` deletes all of a user's data. Sessions expire after 30 days without activity.
 
 `SESSION_STORE` picks where sessions live. `memory` (the default, for local development) loses them on restart. `firestore` keeps one document per session in the `learnerSessions` collection, shared by all instances; a TTL policy on `expiresAtTs` deletes expired ones. Production uses Firestore. Per-user rate limits stay in each instance's memory.
@@ -145,6 +152,18 @@ The script enables the APIs, creates the Artifact Registry repo, the deployer an
 2. **Authorised domains:** In Firebase Console → Authentication → Settings → Authorised domains, add the app's Cloud Run or custom domain.
 3. **Customize action URL:** In Firebase Console → Authentication → Templates → edit template → "Customize action URL": `<APP_URL>/auth/action`.
 4. **IAM permissions:** Ensure `roles/firebaseauth.admin` is granted to the runtime service account (`parliamo-italiano-runtime@<project>.iam.gserviceaccount.com`).
+
+### RevenueCat setup (owner, before deploying billing)
+
+1. **RevenueCat project:** Create the project, entitlement `premium`, and offering `default` with packages `$rc_monthly` and `$rc_annual`.
+2. **Secret Manager secrets:** Store the RevenueCat REST API secret key and a random webhook secret:
+   ```bash
+   printf '%s' '<REVENUECAT_SECRET_KEY>' | gcloud secrets create revenuecat-secret-key --data-file=- --project=<project>
+   openssl rand -hex 32 | tr -d '\n' | gcloud secrets create revenuecat-webhook-auth --data-file=- --project=<project>
+   gcloud secrets add-iam-policy-binding revenuecat-secret-key --member=serviceAccount:<runtime-sa> --role=roles/secretmanager.secretAccessor --project=<project>
+   gcloud secrets add-iam-policy-binding revenuecat-webhook-auth --member=serviceAccount:<runtime-sa> --role=roles/secretmanager.secretAccessor --project=<project>
+   ```
+3. **Webhook configuration:** In RevenueCat → Integrations → Webhooks, set endpoint URL to `<APP_URL>/api/webhooks/revenuecat` with `Authorization: Bearer <the-webhook-secret>`. Check that "Send test event" returns 200.
 
 ## Project structure
 

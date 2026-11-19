@@ -57,6 +57,7 @@ describe('GET /api/health', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('ok');
+    expect(res.body).toHaveProperty('billing');
     expect(res.body.gcp).not.toHaveProperty('project');
     expect(res.body).not.toHaveProperty('metrics');
     expect(res.body).not.toHaveProperty('privacy');

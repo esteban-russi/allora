@@ -5,11 +5,11 @@
 - Branch: `feature/billing-backend`
 - PR link: (pending opening)
 - Date: 2026-11-19
-- Summary: In progress.
+- Summary: Implemented RevenueCat billing backend, subscription skew tolerance, client launch sync, webhook handler, and Secret Manager configuration.
 - Items needing attention:
   - 🟠 Owner setup: Create RevenueCat project, entitlement \`premium\`, and offering \`default\` with packages \`$rc_monthly\` and \`$rc_annual\`.
-  - 🟠 Owner setup: Create \`revenuecat-secret-key\` and \`revenuecat-webhook-auth\` secrets in Secret Manager and grant \`roles/secretmanager.secretAccessor\` to runtime SA (\`parliamo-italiano-runtime@corso-di-italiano-496920.iam.gserviceaccount.com\`).
-  - 🟠 Owner setup: Configure RevenueCat webhook to \`https://parliamo-italiano-562781327825.europe-west1.run.app/api/webhooks/revenuecat\` with matching \`Authorization: Bearer <token>\`.
+  - 🟠 Owner setup: Create \`revenuecat-secret-key\` and \`revenuecat-webhook-auth\` in Secret Manager and grant \`roles/secretmanager.secretAccessor\` to runtime service account (\`parliamo-italiano-runtime@corso-di-italiano-496920.iam.gserviceaccount.com\`).
+  - 🟠 Owner setup: Configure RevenueCat webhook endpoint to \`<APP_URL>/api/webhooks/revenuecat\` with \`Authorization: Bearer <token>\`.
 
 Branch: `feature/billing-backend`. Depends on: 01 (and 03 for the delete hook).
 
@@ -132,7 +132,7 @@ the `/api/me` response.
    `me.subscription` exists and `Date.parse(me.subscription.expiresAt) < Date.now() + 3600_000`,
    call `POST /api/billing/sync` once and use its result. This repairs a missed webhook.
 
-8. **Config and docs.**
+8. ✅ **Config and docs.**
    - `.env.example`: `REVENUECAT_SECRET_KEY`, `REVENUECAT_WEBHOOK_AUTH` (commented, with a note).
    - `deploy.yml`: add to the `deploy-cloudrun` step
      ```yaml

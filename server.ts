@@ -174,6 +174,7 @@ async function generateContentWithFallback(requestConfig: any, isLearnerData = t
 app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
+    billing: Boolean(process.env.REVENUECAT_SECRET_KEY),
     models: {
       chat: CHAT_MODEL,
       tts: TTS_MODEL,
