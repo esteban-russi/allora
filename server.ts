@@ -12,6 +12,7 @@ import type { CefrLevel } from './src/types';
 import { attachLiveBridge, type LiveBridgeOptions } from './liveBridge';
 import { VertexCooldown, isPersistentVertexError, summarizeError } from './vertexCooldown';
 import { assertAuthConfig, authenticateHttpUser, isAuthEnforced } from './src/server/auth';
+import { requireAppCheck } from './src/server/appCheck';
 import { defaultSessionStore } from './src/server/defaultSessionStore';
 import { attachAccount } from './src/server/accountMiddleware';
 import { defaultAccountStore } from './src/server/defaultAccountStore';
@@ -256,9 +257,10 @@ app.get('/api/auth-config', (_req, res) => {
 // Webhook endpoints (not behind user authentication)
 app.use('/api/webhooks', createRevenueCatWebhookRouter());
 
-// Authentication and per-user rate limit middleware stack for billed routes
+// App Check, authentication, and per-user rate limit middleware stack for billed routes
 app.use(
   ['/api/chat', '/api/translate', '/api/tts', '/api/stt', '/api/session', '/api/me', '/api/account', '/api/billing', '/api/report'],
+  requireAppCheck(),
   authenticateHttpUser(),
   createUserRateLimitMiddleware(defaultUserLimiter),
   attachAccount(defaultAccountStore)

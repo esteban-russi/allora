@@ -774,3 +774,47 @@ describe('RevenueCat webhook rate limiting', () => {
     expect(statuses.has(429)).toBe(false);
   });
 });
+
+describe('App Check middleware wiring', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('rejects covered routes before auth when APP_CHECK_MODE=enforce', async () => {
+    vi.stubEnv('APP_CHECK_MODE', 'enforce');
+
+    const chatRes = await request(app)
+      .post('/api/chat')
+      .set('Authorization', 'Bearer bad-auth-token')
+      .send({});
+    expect(chatRes.status).toBe(401);
+    expect(chatRes.body).toEqual({
+      error: 'App verification failed',
+      code: 'APP_CHECK_REQUIRED'
+    });
+
+    const meRes = await request(app).get('/api/me');
+    expect(meRes.status).toBe(401);
+    expect(meRes.body.code).toBe('APP_CHECK_REQUIRED');
+  });
+
+  it('leaves public and webhook routes uncovered when APP_CHECK_MODE=enforce', async () => {
+    vi.stubEnv('APP_CHECK_MODE', 'enforce');
+
+    const health = await request(app).get('/api/health');
+    expect(health.status).toBe(200);
+
+    const authConfig = await request(app).get('/api/auth-config');
+    expect(authConfig.status).toBe(200);
+
+    const webhook = await request(app).post('/api/webhooks/revenuecat').send({});
+    expect(webhook.body?.code).not.toBe('APP_CHECK_REQUIRED');
+  });
+
+  it('allows covered routes without a token when APP_CHECK_MODE=monitor', async () => {
+    vi.stubEnv('APP_CHECK_MODE', 'monitor');
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const res = await request(app).post('/api/chat').send({});
+    expect(res.status).toBe(400);
+    warnSpy.mockRestore();
+  });
+});

@@ -575,3 +575,119 @@ describe('attachLiveBridge voice metering and quota cutoff', () => {
     expect(usage.voiceSeconds).toBe(0);
   });
 });
+
+describe('attachLiveBridge App Check', () => {
+  let server: Server;
+
+  afterEach(async () => {
+    if (server) {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  function rejectInfo(
+    port: number,
+    protocols?: string[],
+    headers?: Record<string, string>
+  ): Promise<{ status: number; body: string }> {
+    return new Promise((resolve, reject) => {
+      const ws = protocols
+        ? new WebSocket(`ws://localhost:${port}${VALID_URL}`, protocols, { headers })
+        : new WebSocket(`ws://localhost:${port}${VALID_URL}`, { headers });
+      ws.on('unexpected-response', (_req, res) => {
+        let body = '';
+        res.on('data', (chunk) => {
+          body += chunk.toString();
+        });
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, body }));
+      });
+      ws.on('open', () => {
+        ws.terminate();
+        reject(new Error('handshake unexpectedly succeeded'));
+      });
+      ws.on('error', () => undefined);
+    });
+  }
+
+  function connectAndWaitReady(port: number, protocols?: string[]): Promise<WebSocket> {
+    return new Promise((resolve, reject) => {
+      const ws = protocols
+        ? new WebSocket(`ws://localhost:${port}${VALID_URL}`, protocols)
+        : new WebSocket(`ws://localhost:${port}${VALID_URL}`);
+      ws.on('message', (data) => {
+        if (JSON.parse(data.toString()).type === 'session_ready') resolve(ws);
+      });
+      ws.on('unexpected-response', (_req, res) => reject(new Error(`unexpected status ${res.statusCode}`)));
+      ws.on('error', reject);
+    });
+  }
+
+  it('rejects missing and invalid tokens with 401 in enforce mode and allows valid ones', async () => {
+    const metrics = new MetricsCollector();
+    const verify = vi.fn(async (token: string) => token === 'good-ac');
+    ({ server } = await startBridgeServer({
+      clients: [fakeGemini().ai],
+      metrics,
+      appCheck: { verifier: { verify }, mode: 'enforce' }
+    }));
+    const port = (server.address() as AddressInfo).port;
+
+    const missing = await rejectInfo(port);
+    expect(missing.status).toBe(401);
+    expect(JSON.parse(missing.body)).toEqual({ error: 'App verification failed' });
+    expect(verify).not.toHaveBeenCalled();
+
+    const invalid = await rejectInfo(port, ['appcheck', 'bad-ac']);
+    expect(invalid.status).toBe(401);
+    expect(JSON.parse(invalid.body)).toEqual({ error: 'App verification failed' });
+    expect(verify).toHaveBeenCalledWith('bad-ac');
+
+    // Cross-origin check still runs before App Check
+    const crossOrigin = await rejectInfo(port, undefined, { Origin: 'https://evil.example' });
+    expect(crossOrigin.status).toBe(403);
+
+    const ws = await connectAndWaitReady(port, ['appcheck', 'good-ac']);
+    ws.terminate();
+
+    expect(metrics.getSummary().appCheck).toEqual({ ok: 1, failed: 1, missing: 1 });
+  });
+
+  it('allows missing and invalid tokens in monitor mode while recording metrics', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const metrics = new MetricsCollector();
+    const verify = vi.fn(async () => false);
+    ({ server } = await startBridgeServer({
+      clients: [fakeGemini().ai],
+      metrics,
+      appCheck: { verifier: { verify }, mode: 'monitor' }
+    }));
+    const port = (server.address() as AddressInfo).port;
+
+    const wsMissing = await connectAndWaitReady(port);
+    wsMissing.terminate();
+
+    const wsInvalid = await connectAndWaitReady(port, ['appcheck', 'bad-ac']);
+    wsInvalid.terminate();
+
+    expect(metrics.getSummary().appCheck).toEqual({ ok: 0, failed: 1, missing: 1 });
+    warnSpy.mockRestore();
+  });
+
+  it('skips verification when mode is off', async () => {
+    const metrics = new MetricsCollector();
+    const verify = vi.fn(async () => false);
+    ({ server } = await startBridgeServer({
+      clients: [fakeGemini().ai],
+      metrics,
+      appCheck: { verifier: { verify }, mode: 'off' }
+    }));
+    const port = (server.address() as AddressInfo).port;
+
+    const ws = await connectAndWaitReady(port);
+    ws.terminate();
+
+    expect(verify).not.toHaveBeenCalled();
+    expect(metrics.getSummary().appCheck).toEqual({ ok: 0, failed: 0, missing: 0 });
+  });
+});
