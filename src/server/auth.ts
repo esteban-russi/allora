@@ -3,6 +3,8 @@ import type { IncomingMessage } from 'http';
 import type { NextFunction, Request, Response } from 'express';
 import { createPublicKey, verify } from 'crypto';
 
+import type { RequestAccount } from './accountMiddleware';
+
 export interface AuthenticatedUser {
   userId: string;
   email?: string;
@@ -64,6 +66,7 @@ declare global {
   namespace Express {
     interface Request {
       user?: AuthenticatedUser;
+      account?: RequestAccount;
     }
   }
 }

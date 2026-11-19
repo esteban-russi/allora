@@ -141,19 +141,19 @@ export function tierFor(account: Account, nowMs: number): Tier
    `createAccountStore(env)` mirrors `createSessionStore`; export `defaultAccountStore`.
    Test it like `tests/defaultSessionStore.test.ts`.
 
-6. **Account middleware** (`src/server/accountMiddleware.ts`).
+6. ✅ **Account middleware** (`src/server/accountMiddleware.ts`).
    ```ts
    export interface RequestAccount { account: Account; tier: Tier; limits: PlanLimits; }
    export function attachAccount(store: AccountStore, options?: { cacheMs?: number; now?: () => number })
    export function invalidateAccountCache(userId: string): void
    ```
-   - Runs after `authenticateHttpUser()`; needs `req.user`.
-   - Looks in a `Map<userId, { value: RequestAccount; expiresAt: number }>`; on a miss or
+   - ✅ Runs after `authenticateHttpUser()`; needs `req.user`.
+   - ✅ Looks in a `Map<userId, { value: RequestAccount; expiresAt: number }>`; on a miss or
      when `req.user.isAnonymous !== cached.account.isAnonymous`, calls `upsertFromAuth`.
-   - Sets `req.account` (extend the Express `Request` type next to `user` in `auth.ts`).
-   - If the store throws, log with `summarizeError` and respond 503
+   - ✅ Sets `req.account` (extend the Express `Request` type next to `user` in `auth.ts`).
+   - ✅ If the store throws, log with `summarizeError` and respond 503
      `{ error: 'Account service unavailable', code: 'ACCOUNT_UNAVAILABLE' }`.
-   - Tests with supertest and an in-memory store: record is created; second request
+   - ✅ Tests with supertest and an in-memory store: record is created; second request
      within 60 s does not call the store (spy); anonymous→signed-in change bypasses the cache.
 
 7. **Wire it and add `GET /api/me`** (`server.ts`).
