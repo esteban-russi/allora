@@ -145,6 +145,8 @@ export default function App() {
     setLearnerProfile(null);
     setMessages(INITIAL_MESSAGES);
     setSavedPhrases(INITIAL_SAVED_PHRASES);
+    setLimitReached(null);
+    setChatDraft('');
     void refreshAccount();
     setScreen('onboarding');
   };
