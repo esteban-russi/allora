@@ -5,7 +5,7 @@
 - Branch: `feature/sign-in-web`
 - PR link: (pending opening)
 - Date: 2026-11-19
-- Summary: In progress.
+- Summary: Complete. Ready for PR against `feature/daily-usage-limits`.
 - Cloud changes made:
   - ✅ Granted `roles/firebaseauth.admin` to `parliamo-italiano-runtime@corso-di-italiano-496920.iam.gserviceaccount.com`:
     Command: `gcloud projects add-iam-policy-binding corso-di-italiano-496920 --member="serviceAccount:parliamo-italiano-runtime@corso-di-italiano-496920.iam.gserviceaccount.com" --role="roles/firebaseauth.admin" --condition=None --project=corso-di-italiano-496920 --account=estebangr2711@gmail.com`
@@ -215,22 +215,22 @@ Props: `mode: 'after-onboarding' | 'login'`, `onSignedIn: () => void`, `onSkip: 
   "Your subscription is not cancelled automatically. Cancel it in Google Play or from the
   link in your receipt email." before closing.
 
-### Step 10: docs
+### Step 10: ✅ docs
 
 README: sign-in, merge and delete endpoints; console setup below.
 
 ## Console setup (owner, before deploying)
 
-1. Firebase → Authentication → Sign-in method: enable **Google** and **Email/Password**
+1. 🟠 Firebase → Authentication → Sign-in method: enable **Google** and **Email/Password**
    with **Email link (passwordless sign-in)**.
-2. Authentication → Settings → Authorised domains: add the app's domain.
-3. Authentication → Templates → edit any template → "Customize action URL": `<APP_URL>/auth/action`.
-4. IAM: grant `roles/firebaseauth.admin` to the runtime service account.
+2. ✅ Authentication → Settings → Authorised domains: add the app's domain (Added `parliamo-italiano-562781327825.europe-west1.run.app`).
+3. 🟠 Authentication → Templates → edit any template → "Customize action URL": `<APP_URL>/auth/action`.
+4. ✅ IAM: grant `roles/firebaseauth.admin` to the runtime service account (Granted to `parliamo-italiano-runtime@corso-di-italiano-496920.iam.gserviceaccount.com`).
 
 ## Acceptance
 
-- Guest chats, signs in with Google: the conversation is still there, `/api/me` says `free`,
-  and the guest's Firebase user no longer exists.
-- Sign out, then "Log in" from onboarding: the conversation comes back without onboarding.
-- Magic link opened in the same browser signs in; in a different browser it asks for the email.
-- Delete account removes `learnerSessions`, `usage`, `users` documents and the Firebase user.
+- ✅ Guest chats, signs in with Google: the conversation is still there, `/api/me` says `free`,
+  and the guest's Firebase user no longer exists (covered by session transfer, merge endpoint, and auth unit tests). 🟠 Live end-to-end browser verification of Google popup requires owner Google provider setup.
+- ✅ Sign out, then "Log in" from onboarding: the conversation comes back without onboarding.
+- ✅ Magic link opened in the same browser signs in; in a different browser it asks for the email (tested via `completeMagicLink` and `localStorage` flows). 🟠 Real email delivery requires owner action URL and provider setup.
+- ✅ Delete account removes `learnerSessions`, `usage`, `users` documents and the Firebase user (verified in `tests/accountRoutes.test.ts`).

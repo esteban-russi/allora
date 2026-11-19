@@ -97,6 +97,8 @@ The billed API routes (`/api/chat`, `/api/translate`, `/api/tts`, `/api/stt`, `/
 
 On load the client signs the learner in anonymously with Firebase (`src/utils/firebaseAuth.ts`), using the public web config from `GET /api/auth-config`, and the same anonymous account is reused on that device. That needs `FIREBASE_API_KEY` and `FIREBASE_APP_ID` set on the server and Anonymous sign-in enabled in the Firebase project `GCP_PROJECT`; without them, the client sends no token, which only works when auth is not enforced. Anyone can create anonymous accounts, so the per-IP limits remain the backstop against abuse.
 
+**Sign-in, merging and account deletion.** Learners can upgrade from guest to an authenticated account using Google popup sign-in or an email magic link (`sendSignInLinkToEmail`). Upon signing in, `POST /api/account/merge` moves the guest's session and daily usage over to the account (unless the account already has active sessions, in which case guest sessions are discarded), deletes the guest `users` record, and deletes the anonymous Firebase user. `DELETE /api/account` deletes the learner's sessions, usage, and account documents, and permanently deletes their Firebase Auth user via `firebase-admin` (notifying the user if an active store subscription exists).
+
 **Accounts and tiers.** Authenticated users are assigned a tier (`guest`, `free`, `premium`). `GET /api/me` returns the learner's account details, current tier, plan limits, subscription metadata, today's usage, and quota reset time (`resetsAt`). Guest records in Firestore carry a 30-day inactivity TTL on `expiresAtTs`. Accounts and sessions live in the store selected by `SESSION_STORE` (`memory` or `firestore`).
 
 **Daily usage limits.** Daily quotas are tracked per user in Firestore (`usage` collection) or memory: chat messages, helper requests (TTS, STT, translation), and voice seconds. `QUOTAS_MODE` controls enforcement: `off` disables tracking, `monitor` (default in production) meters usage and logs over-limit events, and `enforce` rejects requests with HTTP 429 (`QUOTA_EXCEEDED`) or cuts off live voice calls when daily limits are reached. Usage documents expire after 2 days via Firestore TTL on `expiresAtTs`.
@@ -125,15 +127,25 @@ scripts/setup-gcp-deploy.sh <gcp-project-id> [region] [service-name]
 
 The script enables the APIs, creates the Artifact Registry repo, the deployer and runtime service accounts and the identity pool, and writes the GitHub repo variables the workflow reads. You can also trigger a deploy by hand from the Actions tab (**Deploy to Cloud Run → Run workflow**).
 
+### Firebase Console setup (owner, before deploying)
+
+1. **Sign-in providers:** In Firebase Console → Authentication → Sign-in method, enable **Google** and **Email/Password** with **Email link (passwordless sign-in)**.
+2. **Authorised domains:** In Firebase Console → Authentication → Settings → Authorised domains, add the app's Cloud Run or custom domain.
+3. **Customize action URL:** In Firebase Console → Authentication → Templates → edit template → "Customize action URL": `<APP_URL>/auth/action`.
+4. **IAM permissions:** Ensure `roles/firebaseauth.admin` is granted to the runtime service account (`parliamo-italiano-runtime@<project>.iam.gserviceaccount.com`).
+
 ## Project structure
 
 ```
-├── server.ts                  # Express server: chat, translate, TTS, STT, sessions, me, health, metrics, Vite/static serving
+├── server.ts                  # Express server: chat, translate, TTS, STT, sessions, me, account, health, metrics, Vite/static serving
 ├── liveBridge.ts              # /api/live WebSocket bridge to Gemini Live: auth, call limits, heartbeat, resumption
 ├── src/
-│   ├── App.tsx                # App state and dashboard layout
+│   ├── App.tsx                # App state, routing and dashboard layout
 │   ├── assets/emmanuele/      # Tutor portraits (resting and speaking)
 │   ├── components/
+│   │   ├── AccountMenu.tsx    # Account dialog: identity, plan, edit profile, sign out, delete account
+│   │   ├── SignInScreen.tsx   # Sign-in screen: Google popup and magic link email form
+│   │   ├── OnboardingPage.tsx # Learner name, CEFR level and tutor picker
 │   │   ├── IconRail.tsx       # Left navigation rail
 │   │   ├── TopHeader.tsx      # Brand, conversation title, Text/Voice switch
 │   │   ├── ChatInterface.tsx  # Chat bubbles, quick replies and composer
@@ -144,9 +156,11 @@ The script enables the APIs, creates the Artifact Registry repo, the deployer an
 │   │   ├── PersonaBadge.tsx
 │   │   └── UserBadge.tsx
 │   ├── data/personas.ts       # Emmanuele's persona, starter message and saved phrases
-│   ├── server/                # auth, accountStore, plans, accountMiddleware, sessionStore, rateLimiter, privacyAndPolicy, metrics, maintenance
-│   ├── utils/apiClient.ts     # Authenticated API calls and the ID token source
+│   ├── server/                # auth, accountStore, accountRoutes, identityAdmin, plans, usageStore, quota, sessionStore, rateLimiter, metrics
+│   ├── utils/apiClient.ts     # Authenticated API calls (get, post, delete) and ID token source
+│   ├── utils/firebaseAuth.ts  # Client auth: anonymous, Google popup, email magic link, account merge
 │   ├── utils/learnerSession.ts # Remembers the learner session and links chat turns to it
+│   ├── utils/me.ts            # Client account /api/me fetching and typing
 │   ├── utils/speech.ts        # Gemini TTS playback, browser TTS fallback, speech recognition
 │   ├── utils/liveCall.ts      # Gemini Live call client: mic streaming, playback, heartbeat, reconnect
 │   └── types/index.ts

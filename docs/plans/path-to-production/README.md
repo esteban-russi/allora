@@ -86,7 +86,7 @@ One plan file per PR. Do them in this order; each is deployable on its own.
 | 00 | [Brand constants and custom domain](00-brand-and-domain.md) | App name in one place, custom domain, final Android app ID | none (do first) | |
 | 01 | [Accounts and tiers](01-accounts-and-tiers.md) | `users` collection, tier logic, `GET /api/me` | firestore-sessions merged | ✅ |
 | 02 | [Daily usage limits](02-daily-usage-limits.md) | `usage` collection, caps on chat, helpers and voice minutes | 01 | 🟠 |
-| 03 | [Sign-in on the web](03-sign-in-web.md) | Google + magic link, guest merge, sign out, delete account | 01, 02 | |
+| 03 | [Sign-in on the web](03-sign-in-web.md) | Google + magic link, guest merge, sign out, delete account | 01, 02 | 🟠 |
 | 04 | [Limits and paywall UI](04-limits-and-paywall-ui.md) | Usage meter, limit-reached states, plans screen (no checkout yet) | 02, 03 | |
 | 05 | [Billing backend](05-billing-backend.md) | RevenueCat webhook and sync, subscription on the user record | 01 | |
 | 06 | [Web checkout](06-web-checkout.md) | Card payments on the web through RevenueCat Web Billing | 04, 05 | |
