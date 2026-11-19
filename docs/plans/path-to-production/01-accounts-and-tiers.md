@@ -1,5 +1,14 @@
 # Plan 01: accounts and tiers
 
+## Status
+
+- Branch: `feature/accounts-and-tiers`
+- PR link: not opened (in progress)
+- Date: 2026-11-19
+- Summary: In progress; adding account record, tier logic, AccountStore and GET /api/me.
+- Items needing attention:
+  - (none)
+
 Branch: `feature/accounts-and-tiers`. Depends on: `feature/firestore-sessions` merged to `main`.
 
 Read first: `src/server/auth.ts`, `src/server/sessionStore.ts`,
@@ -95,14 +104,14 @@ export function tierFor(account: Account, nowMs: number): Tier
 
 ## Steps (one commit each)
 
-1. **`isAnonymous` on `AuthenticatedUser`** (`src/server/auth.ts`).
-   - Add `isAnonymous: boolean` to the interface.
-   - In `verifyIdToken`, for Firebase tokens read
+1. ✅ **`isAnonymous` on `AuthenticatedUser`** (`src/server/auth.ts`).
+   - ✅ Add `isAnonymous: boolean` to the interface.
+   - ✅ In `verifyIdToken`, for Firebase tokens read
      `(payload.firebase as { sign_in_provider?: string } | undefined)?.sign_in_provider`
      and set `isAnonymous` to `true` when it equals `'anonymous'`. Google Identity tokens: `false`.
-   - Dev users (dev tokens, `x-dev-user-id`, `devUserId` query): `isAnonymous` is `true`
+   - ✅ Dev users (dev tokens, `x-dev-user-id`, `devUserId` query): `isAnonymous` is `true`
      when the user ID starts with `anon-`, else `false`.
-   - Tests in `tests/auth.test.ts`: a signed token with `firebase.sign_in_provider`
+   - ✅ Tests in `tests/auth.test.ts`: a signed token with `firebase.sign_in_provider`
      `anonymous` gives `true`; `google.com` gives `false`; dev ID `anon-1` gives `true`.
 
 2. **Plan constants and `tierFor`** (`src/server/plans.ts`, `tests/plans.test.ts`).

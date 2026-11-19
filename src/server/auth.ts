@@ -6,6 +6,7 @@ import { createPublicKey, verify } from 'crypto';
 export interface AuthenticatedUser {
   userId: string;
   email?: string;
+  isAnonymous: boolean;
   authProvider: 'firebase' | 'google' | 'dev';
   claims?: Record<string, unknown>;
 }
@@ -202,6 +203,7 @@ export async function verifyIdToken(
     return {
       userId,
       email,
+      isAnonymous: userId.startsWith('anon-'),
       authProvider: 'dev',
       claims: { dev: true }
     };
@@ -259,9 +261,15 @@ export async function verifyIdToken(
   const isValid = verifyRsaSha256(signedData, signature, certPem);
   if (!isValid) return null;
 
+  const isAnonymous =
+    authProvider === 'firebase'
+      ? (payload.firebase as { sign_in_provider?: string } | undefined)?.sign_in_provider === 'anonymous'
+      : false;
+
   return {
     userId,
     email: typeof payload.email === 'string' ? payload.email : undefined,
+    isAnonymous,
     authProvider,
     claims: payload
   };
@@ -339,6 +347,7 @@ export function authenticateHttpUser(options: AuthOptions = {}) {
       req.user = {
         userId: devUserId,
         email: `${devUserId}@example.com`,
+        isAnonymous: devUserId.startsWith('anon-'),
         authProvider: 'dev',
         claims: { dev: true }
       };
@@ -380,6 +389,7 @@ export async function authenticateWebSocketRequest(
     return {
       userId: devUserId,
       email: `${devUserId}@example.com`,
+      isAnonymous: devUserId.startsWith('anon-'),
       authProvider: 'dev',
       claims: { dev: true }
     };
