@@ -71,8 +71,10 @@ jobs:
             GCP_PROJECT=${{ vars.GCP_PROJECT_ID }}
             SESSION_STORE=firestore
             QUOTAS_MODE=monitor
+            APP_CHECK_MODE=off
             FIREBASE_API_KEY=${{ vars.FIREBASE_API_KEY }}
             FIREBASE_APP_ID=${{ vars.FIREBASE_APP_ID }}
+            FIREBASE_APPCHECK_SITE_KEY=${{ vars.FIREBASE_APPCHECK_SITE_KEY }}
             GCP_REGION=eu
             GEMINI_CHAT_MODEL=gemini-3.5-flash
             GEMINI_TTS_MODEL=gemini-3.8-flash-lite-tts

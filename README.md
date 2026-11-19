@@ -102,6 +102,8 @@ The billed API routes (`/api/chat`, `/api/translate`, `/api/tts`, `/api/stt`, `/
 
 On load the client signs the learner in anonymously with Firebase (`src/utils/firebaseAuth.ts`), using the public web config from `GET /api/auth-config`, and the same anonymous account is reused on that device. That needs `FIREBASE_API_KEY` and `FIREBASE_APP_ID` set on the server and Anonymous sign-in enabled in the Firebase project `GCP_PROJECT`; without them, the client sends no token, which only works when auth is not enforced. Anyone can create anonymous accounts, so the per-IP limits remain the backstop against abuse.
 
+**App Check.** Billed API routes and the `/api/live` WebSocket upgrade can require a Firebase App Check token (`X-Firebase-AppCheck` header on HTTP, or `appcheck, <token>` after `auth, <token>` in `Sec-WebSocket-Protocol`), verified via `firebase-admin/app-check`. `APP_CHECK_MODE` defaults to `off`; `monitor` verifies and records `appCheck: { ok, failed, missing }` counters in `/api/metrics` without blocking; `enforce` rejects invalid or missing tokens with HTTP 401 (`APP_CHECK_REQUIRED`) and prompts the learner to reload or update the app. Public routes (`/api/health`, `/api/auth-config`, `/api/webhooks/revenuecat`, static files) are uncovered. On web, the client lazily initializes reCAPTCHA Enterprise when `FIREBASE_APPCHECK_SITE_KEY` is served via `/api/auth-config`; native Android Play Integrity connects through `setNativeAppCheckProvider` in `src/utils/appCheck.ts`.
+
 **Sign-in, merging and account deletion.** Learners can upgrade from guest to an authenticated account using Google popup sign-in or an email magic link (`sendSignInLinkToEmail`). Upon signing in, `POST /api/account/merge` moves the guest's session and daily usage over to the account (unless the account already has active sessions, in which case guest sessions are discarded), deletes the guest `users` record, and deletes the anonymous Firebase user. `DELETE /api/account` deletes the learner's sessions, usage, and account documents, and permanently deletes their Firebase Auth user via `firebase-admin` (notifying the user if an active store subscription exists).
 
 **Accounts and tiers.** Authenticated users are assigned a tier (`guest`, `free`, `premium`). `GET /api/me` returns the learner's account details, current tier, plan limits, subscription metadata, today's usage, and quota reset time (`resetsAt`). Guest records in Firestore carry a 30-day inactivity TTL on `expiresAtTs`. Accounts and sessions live in the store selected by `SESSION_STORE` (`memory` or `firestore`).
@@ -157,6 +159,7 @@ The script enables the APIs, creates the Artifact Registry repo, the deployer an
 2. **Authorised domains:** In Firebase Console → Authentication → Settings → Authorised domains, add the app's Cloud Run or custom domain.
 3. **Customize action URL:** In Firebase Console → Authentication → Templates → edit template → "Customize action URL": `<APP_URL>/auth/action`.
 4. **IAM permissions:** Ensure `roles/firebaseauth.admin` is granted to the runtime service account (`parliamo-italiano-runtime@<project>.iam.gserviceaccount.com`).
+5. **App Check (when ready to roll out):** Create a score-based reCAPTCHA Enterprise website key in Google Cloud, register the web app in Firebase Console → App Check → Apps, store the key in GitHub repository variable `FIREBASE_APPCHECK_SITE_KEY`, then roll out `APP_CHECK_MODE` in `.github/workflows/deploy.yml` from `off` → `monitor` (watch `/api/metrics` `appCheck` counters) → `enforce`.
 
 ### RevenueCat setup (owner, before deploying billing)
 
@@ -245,8 +248,9 @@ Static, self-contained HTML pages live in `public/privacy.html`, `public/terms.h
 │   │   ├── PersonaBadge.tsx
 │   │   └── UserBadge.tsx
 │   ├── data/                  # brand.ts, legal.ts, personas.ts, personaPrompts.ts
-│   ├── server/                # auth, accountStore, accountRoutes, billingRoutes, billingSync, identityAdmin, modelSafety, plans, reportStore, reportRoutes, revenueCat, usageStore, quota, sessionStore, rateLimiter, metrics
-│   ├── utils/apiClient.ts     # Authenticated API calls (get, post, delete) and ID token source
+│   ├── server/                # appCheck, auth, accountStore, accountRoutes, billingRoutes, billingSync, firebaseAdmin, identityAdmin, modelSafety, plans, reportStore, reportRoutes, revenueCat, usageStore, quota, sessionStore, rateLimiter, metrics
+│   ├── utils/apiClient.ts     # Authenticated API calls (get, post, delete), ID token source, and App Check header/error handling
+│   ├── utils/appCheck.ts      # Client App Check token provider (web reCAPTCHA Enterprise + native seam)
 │   ├── utils/billing.ts       # Client billing interface and active adapter registry
 │   ├── utils/billingWeb.ts    # RevenueCat Web Billing adapter (@revenuecat/purchases-js)
 │   ├── utils/clientConfig.ts  # Client config loader (/api/auth-config)

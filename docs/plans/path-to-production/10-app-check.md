@@ -1,5 +1,18 @@
 # Plan 10: App Check
 
+## Status
+
+- Branch: `feature/app-check`
+- Date: 2026-11-19
+- Summary: Implemented the server and web App Check stack across steps 1–7 (`src/server/firebaseAdmin.ts`, `src/server/appCheck.ts`, `appCheck` counters in `defaultMetrics` / `/api/metrics`, `requireAppCheck()` wired first on authenticated routes in `server.ts`, upgrade verification in `liveBridge.ts`, `firebase.appCheckSiteKey` on `/api/auth-config`, lazy reCAPTCHA Enterprise web provider in `src/utils/appCheck.ts`, token attachment in `apiClient.ts` and `liveCall.ts`, `APP_CHECK_REQUIRED` notice handling via `setAppCheckFailedHandler` + `showNotice`, and config/docs updates with `APP_CHECK_MODE=off` by default).
+- Native Android seam: The Android shell (plan 07) does not exist yet; `src/utils/appCheck.ts` leaves a `NativeAppCheckProvider` / `setNativeAppCheckProvider` seam (no Capacitor code) for plan 07/08 to plug in `@capacitor-firebase/app-check` (Play Integrity + emulator debug token support).
+- Items needing attention:
+  - 🟠 Owner setup: Create a score-based reCAPTCHA Enterprise **website** key in Google Cloud for the app's domain.
+  - 🟠 Owner setup: In Firebase Console → App Check → Apps, register the web app with that key (and register the Android app with Play Integrity once the Play App Signing SHA-256 and Play Console link exist).
+  - 🟠 Owner setup: Set the GitHub repository variable `FIREBASE_APPCHECK_SITE_KEY` (currently unset; `deploy.yml` passes it harmlessly as empty while `APP_CHECK_MODE=off`).
+  - 🟠 Rollout: Change `APP_CHECK_MODE` in `.github/workflows/deploy.yml` from `off` to `monitor`, watch `metrics.appCheck` (`ok`, `failed`, `missing`) on `/api/metrics` for several days (and wait until any shipped Android build sends tokens), then switch to `APP_CHECK_MODE=enforce` in a separate commit (rollback = set back to `monitor`).
+  - 🟠 Optional post-enforce: Enforce App Check for **Authentication** in Firebase Console → App Check → APIs only after `enforce` is verified in production.
+
 Branch: `feature/app-check`. Depends on: 07 (the web half can ship earlier if needed).
 
 Read first: `src/server/auth.ts` (`extractTokenFromRequest`), `src/utils/apiClient.ts`,
