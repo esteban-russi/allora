@@ -1,5 +1,14 @@
 # Plan 04: limits and paywall UI
 
+## Status
+
+- Branch: `feature/limits-and-paywall-ui`
+- PR link: (pending opening)
+- Date: 2026-11-19
+- Summary: In progress.
+- Items needing attention:
+  - 🟠 Owner setup: `QUOTAS_MODE=enforce` should be enabled in `deploy.yml` after merging this PR to enforce limits in production.
+
 Branch: `feature/limits-and-paywall-ui`. Depends on: 02, 03.
 
 Read first: plans 02 and 03, `src/App.tsx` (`handleSendMessage`),
@@ -52,7 +61,7 @@ export function getBilling(): Billing
 
 ## Steps (one commit each)
 
-1. **Quota error helper** (`src/utils/quotaError.ts`).
+1. ✅ **Quota error helper** (`src/utils/quotaError.ts`).
    ```ts
    export interface QuotaError { counter: 'chatMessages' | 'voiceSeconds' | 'helperRequests';
      limit: number; tier: string; resetsAt: string; }
