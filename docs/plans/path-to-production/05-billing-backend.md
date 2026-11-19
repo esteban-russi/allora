@@ -73,7 +73,7 @@ the `/api/me` response.
 1. ✅ **Clock tolerance in `tierFor`.** Add `export const SUBSCRIPTION_SKEW_MS = 60 * 60 * 1000`
    to `plans.ts`, use `Date.parse(expiresAt) + SUBSCRIPTION_SKEW_MS > nowMs`, update tests.
 
-2. **RevenueCat client** (`src/server/revenueCat.ts`).
+2. ✅ **RevenueCat client** (`src/server/revenueCat.ts`).
    ```ts
    export interface RevenueCatClient {
      /** Raw `subscriber` object, or null when RevenueCat answers 404. Throws on other errors. */
