@@ -183,21 +183,21 @@ Props: `mode: 'after-onboarding' | 'login'`, `onSignedIn: () => void`, `onSkip: 
 - ✅ Errors in a `role="alert"` paragraph. Disable buttons while a request is running.
 - ✅ Real `<button type="button">` elements; labels as above.
 
-### Step 8: wire into `App.tsx`
+### Step 8: ✅ wire into `App.tsx`
 
-- Extract the body of the restore effect into `applySession(session)` so sign-in can reuse it.
-- New state `screen: 'onboarding' | 'signin-after-onboarding' | 'signin-login' | 'app'`
+- ✅ Extract the body of the restore effect into `applySession(session)` so sign-in can reuse it.
+- ✅ New state `screen: 'onboarding' | 'signin-after-onboarding' | 'signin-login' | 'app'`
   replacing `isOnboardingOpen` (keep `isRestoring`).
-- `handleCompleteOnboarding`: after starting the session, go to
+- ✅ `handleCompleteOnboarding`: after starting the session, go to
   `'signin-after-onboarding'` when `me?.isAnonymous`, else `'app'`.
-- `OnboardingPage` gets an `onLogin` prop that renders the "Already have an account? Log in"
+- ✅ `OnboardingPage` gets an `onLogin` prop that renders the "Already have an account? Log in"
   button (only when `me?.isAnonymous`).
-- After a successful sign-in (`onSignedIn`): `await refresh()`, then
+- ✅ After a successful sign-in (`onSignedIn`): `await refresh()`, then
   `const session = await loadLearnerSession()`; if there is one, `applySession(session)`
   and go to `'app'`; if none and the mode was `login`, go back to `'onboarding'`; if none
   and the mode was `after-onboarding`, call `startLearnerSession(...)` with the current
   profile and go to `'app'`.
-- Magic-link landing, in the first effect before restoring: if
+- ✅ Magic-link landing, in the first effect before restoring: if
   `await isMagicLink(window.location.href)`, read the email from `localStorage`
   (ask with a small inline form when missing), call `completeMagicLink`, then
   `history.replaceState(null, '', '/')` and continue as "after a successful sign-in".

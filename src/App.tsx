@@ -10,18 +10,24 @@ import { IconRail } from './components/IconRail';
 import { TopHeader } from './components/TopHeader';
 import { UtilityPanel } from './components/UtilityPanel';
 import { OnboardingPage } from './components/OnboardingPage';
+import { SignInScreen } from './components/SignInScreen';
 import { useDialog } from './hooks/useDialog';
+import { useAccount } from './hooks/useAccount';
 import { speechService } from './utils/speech';
+import { completeMagicLink, EMAIL_FOR_SIGN_IN_KEY, isMagicLink } from './utils/firebaseAuth';
 import { loadLearnerSession, postChat, saveLearnerSettings, startLearnerSession, toChatMessages } from './utils/learnerSession';
+import type { ClientLearnerSession } from './server/sessionStore';
 
 const countWords = (text: string) => text.trim().split(/\s+/).filter(Boolean).length;
 const GRAMMAR_STRICTNESS: DevSettings['grammarStrictness'][] = ['conversational', 'tutor', 'strict'];
 
 export default function App() {
   const [learnerProfile, setLearnerProfile] = useState<LearnerProfile | null>(null);
-  const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(true);
+  const [screen, setScreen] = useState<'onboarding' | 'signin-after-onboarding' | 'signin-login' | 'app'>('onboarding');
   // True until the saved session (if any) has been loaded, so onboarding does not flash
   const [isRestoring, setIsRestoring] = useState<boolean>(true);
+
+  const { me, refresh: refreshAccount } = useAccount();
 
   const persona: Persona = useMemo(
     () => TUTORS.find((t) => t.id === learnerProfile?.personaId) ?? EMMANUELE,
@@ -78,28 +84,78 @@ export default function App() {
     return total === 0 ? 0 : Math.round((learner / total) * 100);
   }, [messages]);
 
+  const applySession = (session: ClientLearnerSession) => {
+    const tutor = TUTORS.find((t) => t.id === session.personaId) ?? EMMANUELE;
+    const profile: LearnerProfile = { name: session.learnerName, level: session.learnerLevel, personaId: tutor.id };
+    setLearnerProfile(profile);
+    setMessages([
+      ...createInitialMessages(tutor, profile.name, profile.level),
+      ...toChatMessages(session.checkpointTurns, tutor.id)
+    ]);
+    setSavedPhrases(session.progress.savedPhrases);
+    if (GRAMMAR_STRICTNESS.includes(session.grammarStrictness as DevSettings['grammarStrictness'])) {
+      setDevSettings((prev) => ({ ...prev, grammarStrictness: session.grammarStrictness as DevSettings['grammarStrictness'] }));
+    }
+  };
+
+  const handleSignedIn = async (mode: 'login' | 'after-onboarding') => {
+    await refreshAccount();
+    const session = await loadLearnerSession();
+    if (session) {
+      applySession(session);
+      setScreen('app');
+    } else if (mode === 'login') {
+      setScreen('onboarding');
+    } else {
+      if (learnerProfile) {
+        void startLearnerSession({ profile: learnerProfile, grammarStrictness: devSettings.grammarStrictness, savedPhrases });
+      }
+      setScreen('app');
+    }
+  };
+
   // Bring back the learner's profile, conversation and notebook from their saved session
   useEffect(() => {
     let cancelled = false;
-    loadLearnerSession()
-      .then((session) => {
-        if (cancelled || !session) return;
-        const tutor = TUTORS.find((t) => t.id === session.personaId) ?? EMMANUELE;
-        const profile: LearnerProfile = { name: session.learnerName, level: session.learnerLevel, personaId: tutor.id };
-        setLearnerProfile(profile);
-        setMessages([
-          ...createInitialMessages(tutor, profile.name, profile.level),
-          ...toChatMessages(session.checkpointTurns, tutor.id)
-        ]);
-        setSavedPhrases(session.progress.savedPhrases);
-        if (GRAMMAR_STRICTNESS.includes(session.grammarStrictness as DevSettings['grammarStrictness'])) {
-          setDevSettings((prev) => ({ ...prev, grammarStrictness: session.grammarStrictness as DevSettings['grammarStrictness'] }));
+
+    const restore = async () => {
+      try {
+        if (typeof window !== 'undefined' && (await isMagicLink(window.location.href))) {
+          let email: string | null = null;
+          try {
+            email = localStorage.getItem(EMAIL_FOR_SIGN_IN_KEY);
+          } catch {
+            // Local storage unavailable
+          }
+          if (!email) {
+            email = window.prompt('Please enter your email to complete sign in') || '';
+          }
+          if (email) {
+            await completeMagicLink(window.location.href, email);
+          }
+          window.history.replaceState(null, '', '/');
+          if (cancelled) return;
+          await refreshAccount();
+          const session = await loadLearnerSession();
+          if (session) {
+            applySession(session);
+            setScreen('app');
+          } else {
+            setScreen('onboarding');
+          }
+          return;
         }
-        setIsOnboardingOpen(false);
-      })
-      .finally(() => {
+
+        const session = await loadLearnerSession();
+        if (cancelled || !session) return;
+        applySession(session);
+        setScreen('app');
+      } finally {
         if (!cancelled) setIsRestoring(false);
-      });
+      }
+    };
+
+    restore();
     return () => {
       cancelled = true;
     };
@@ -124,10 +180,14 @@ export default function App() {
   const handleCompleteOnboarding = (profile: LearnerProfile) => {
     const selectedTutor = TUTORS.find((t) => t.id === profile.personaId) ?? EMMANUELE;
     setLearnerProfile(profile);
-    setIsOnboardingOpen(false);
     setMessages(createInitialMessages(selectedTutor, profile.name, profile.level));
     // A new profile starts a new conversation; the notebook carries over
     void startLearnerSession({ profile, grammarStrictness: devSettings.grammarStrictness, savedPhrases });
+    if (me?.isAnonymous) {
+      setScreen('signin-after-onboarding');
+    } else {
+      setScreen('app');
+    }
   };
 
   // Handle student sending message in chat with real server Gemini API integration
@@ -227,11 +287,32 @@ export default function App() {
     );
   }
 
-  if (!learnerProfile || isOnboardingOpen) {
+  if (screen === 'signin-after-onboarding') {
+    return (
+      <SignInScreen
+        mode="after-onboarding"
+        onSignedIn={() => handleSignedIn('after-onboarding')}
+        onSkip={() => setScreen('app')}
+      />
+    );
+  }
+
+  if (screen === 'signin-login') {
+    return (
+      <SignInScreen
+        mode="login"
+        onSignedIn={() => handleSignedIn('login')}
+        onSkip={() => setScreen('onboarding')}
+      />
+    );
+  }
+
+  if (screen === 'onboarding' || !learnerProfile) {
     return (
       <OnboardingPage
         initialProfile={learnerProfile}
         onComplete={handleCompleteOnboarding}
+        onLogin={me?.isAnonymous ? () => setScreen('signin-login') : undefined}
       />
     );
   }
@@ -242,7 +323,7 @@ export default function App() {
         learnerInitial={learnerInitial}
         onOpenNotebook={openNotebook}
         onOpenVoiceLab={() => setIsDevLabOpen(true)}
-        onEditProfile={() => setIsOnboardingOpen(true)}
+        onEditProfile={() => setScreen('onboarding')}
       />
 
       <div className="flex-1 min-w-0 flex flex-col">
@@ -253,7 +334,7 @@ export default function App() {
           mode={isCallOpen ? 'voice' : 'text'}
           onSelectVoice={startCall}
           onOpenNotebook={openNotebook}
-          onEditProfile={() => setIsOnboardingOpen(true)}
+          onEditProfile={() => setScreen('onboarding')}
         />
 
         <div className="flex-1 min-h-0 flex gap-5 lg:pr-5 lg:pb-5">
