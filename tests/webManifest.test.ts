@@ -1,3 +1,4 @@
+/** Tests for the web manifest, app icons, and index.html metadata links. */
 import fs from 'fs';
 import path from 'path';
 import { describe, expect, it } from 'vitest';

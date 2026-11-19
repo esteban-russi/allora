@@ -1,3 +1,4 @@
+/** Learner-facing settings dialog and developer lab visibility gate. */
 import React, { useRef } from 'react';
 import { X, Sliders } from 'lucide-react';
 import type { DevSettings } from '../types';
@@ -5,7 +6,15 @@ import { useDialog } from '../hooks/useDialog';
 
 export const DEV_LAB_STORAGE_KEY = 'parliamo.devlab';
 
-/** Whether the developer lab is accessible (dev builds or localStorage flag). */
+/**
+ * Check whether the developer lab is accessible.
+ *
+ * Args:
+ *   isDev: Whether the app is running in development mode.
+ *
+ * Returns:
+ *   True in development builds or when `localStorage` sets `parliamo.devlab` to `"1"`.
+ */
 export function isDevLabEnabled(isDev: boolean = Boolean(import.meta.env.DEV)): boolean {
   if (isDev) return true;
   try {

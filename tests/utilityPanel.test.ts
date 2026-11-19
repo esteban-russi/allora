@@ -1,3 +1,4 @@
+/** Tests for UtilityPanel saved phrases and empty notebook state. */
 import { describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';

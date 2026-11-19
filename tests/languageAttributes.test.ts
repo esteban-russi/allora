@@ -1,3 +1,4 @@
+/** Tests for document lang="en" and lang="it" attributes on Italian UI text. */
 import fs from 'fs';
 import path from 'path';
 import React from 'react';
