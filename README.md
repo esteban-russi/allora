@@ -106,7 +106,7 @@ On load the client signs the learner in anonymously with Firebase (`src/utils/fi
 **Plans and limits.** The app provides three subscription tiers:
 - **Guest**: For unauthenticated learners exploring the app. Includes 5 chat messages, 2 minutes of voice calls, and 5 helper requests (TTS, STT, translation) per day.
 - **Free**: For registered accounts with email/magic link or Google sign-in. Includes 15 chat messages, 5 minutes of voice calls, and 100 helper requests per day.
-- **Premium**: For subscribers. Includes unlimited chat messages (fair use cap of 300), 60 minutes of voice calls, and unlimited helper requests per day.
+- **Premium**: For subscribers. Includes unlimited chat messages (fair use cap of 300), 30 minutes of voice calls, and unlimited helper requests per day.
 
 When daily quotas are reached:
 - In chat, a status card explains the limit, preserves unsent draft text in the composer, and prompts guests to sign in or free users to view plans (when billing is available).
