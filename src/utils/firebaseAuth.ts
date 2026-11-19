@@ -330,13 +330,33 @@ export async function completeMagicLink(
   );
 }
 
+let signOutInFlight: Promise<void> | null = null;
+
 /**
  * Sign out of the registered account and transition back to a fresh guest identity.
+ *
+ * Calls made while a sign-out is already running share it, so two triggers (for
+ * example the delete button and a late ACCOUNT_DELETED reply) create one guest, not two.
  *
  * Args:
  *   deps: Optional injectable dependencies for tests.
  */
-export async function signOutToGuest(
+export function signOutToGuest(
+  deps?: {
+    getAuth?: () => Promise<any>;
+    signOut?: (auth: any) => Promise<void>;
+    signInAnonymously?: (auth: any) => Promise<any>;
+  }
+): Promise<void> {
+  if (!signOutInFlight) {
+    signOutInFlight = runSignOutToGuest(deps).finally(() => {
+      signOutInFlight = null;
+    });
+  }
+  return signOutInFlight;
+}
+
+async function runSignOutToGuest(
   deps?: {
     getAuth?: () => Promise<any>;
     signOut?: (auth: any) => Promise<void>;
