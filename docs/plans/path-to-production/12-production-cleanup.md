@@ -1,5 +1,14 @@
 # Plan 12: production cleanup
 
+## Status
+
+- Branch: `chore/production-cleanup` (PR #19, stacked on #18). Date: 2026-11-19.
+- Summary: all 10 steps done, one commit each; checked in the browser.
+- Differences from the plan: manifest names are "Allora"; icons are placeholder art
+  (a serif A monogram, `scripts/generate-icons.mjs`); Fraunces uses its optical-size axis;
+  the chat error says "Check your connection" only for network failures.
+- 🟠 Owner: replace the placeholder icons with final artwork (also used by plan 07).
+
 Branch: `chore/production-cleanup`. Depends on: nothing (can be done any time; rebase if
 plan 04 has changed `handleSendMessage`).
 

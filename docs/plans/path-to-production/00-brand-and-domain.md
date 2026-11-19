@@ -10,8 +10,10 @@
   Vite plugin; `metadata.json` and README renamed.
 - Kept on purpose: repo, Cloud Run service, Artifact Registry, GCP project, `package.json`
   name and the `parliamo.*` storage keys.
-- 🟠 Open: buy the domain, map it (owner setup below), then step 5 (canonical redirect)
-  and step 6 (docs). Choose the Android application ID before plan 07.
+- Step 5 (canonical redirect) done in PR #20; it does nothing until the GitHub variable
+  `APP_URL` is set.
+- 🟠 Open: buy the domain, map it (owner setup below), set `APP_URL`, then step 6 (docs).
+  Choose the Android application ID before plan 07.
 - 🟠 Check that "Allora" is free as a Play title and as a trademark; the store title may
   need to be longer, e.g. "Allora: Italian Tutor".
 

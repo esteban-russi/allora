@@ -85,9 +85,14 @@ One plan file per PR. Do them in this order; each is deployable on its own.
 Plans 01–06 were reviewed and merged to `main` together on 2026-11-19 through PR #17
 (PRs #12–#16 were stacked under it). Their remaining owner steps are listed in each plan.
 
+Open PRs, stacked in this order (merge from the bottom): #18 chat duplicate fix →
+#19 plan 12 → #20 plan 00 step 5 → #21 plan 11 → #22 plan 10 (web) → #23 plan 13.
+Plans 07–09 (Android) are not started: they need the Android app ID and a JDK and
+Android SDK on the build machine.
+
 | # | Plan | What ships | Depends on | Status |
 |---|---|---|---|---|
-| 00 | [Brand constants and custom domain](00-brand-and-domain.md) | App name in one place, custom domain, final Android app ID | none (do first) | 🟠 name done; domain and app ID open |
+| 00 | [Brand constants and custom domain](00-brand-and-domain.md) | App name in one place, custom domain, final Android app ID | none (do first) | 🟠 name done; redirect in PR #20; domain and app ID open |
 | 01 | [Accounts and tiers](01-accounts-and-tiers.md) | `users` collection, tier logic, `GET /api/me` | firestore-sessions merged | ✅ merged |
 | 02 | [Daily usage limits](02-daily-usage-limits.md) | `usage` collection, caps on chat, helpers and voice minutes | 01 | ✅ merged |
 | 03 | [Sign-in on the web](03-sign-in-web.md) | Google + magic link, guest merge, sign out, delete account | 01, 02 | ✅ merged |
@@ -97,10 +102,10 @@ Plans 01–06 were reviewed and merged to `main` together on 2026-11-19 through 
 | 07 | [Android app shell](07-android-app-shell.md) | Capacitor project, API base URL, CORS, mic, lifecycle | 01–04 on main | |
 | 08 | [Android sign-in](08-android-sign-in.md) | Native Google sign-in, magic link through App Links | 03, 07 | |
 | 09 | [Android purchases](09-android-purchases.md) | Play Billing through RevenueCat, restore purchases | 05, 07, 08 | |
-| 10 | [App Check](10-app-check.md) | Attestation on web and Android, enforced on billed routes | 07 | |
-| 11 | [Store compliance](11-store-compliance.md) | Privacy/terms pages, deletion URL, report a reply, 18+ confirmation | 03 | |
-| 12 | [Production cleanup](12-production-cleanup.md) | Remove mocks, manifest and icons, headers, accessibility fixes | none | |
-| 13 | [Premium tutors](13-premium-tutors.md) | Extra tutors locked to premium, enforced on the server | 01, 04 | |
+| 10 | [App Check](10-app-check.md) | Attestation on web and Android, enforced on billed routes | 07 | 🟠 web done in PR #22; Android with 07/08 |
+| 11 | [Store compliance](11-store-compliance.md) | Privacy/terms pages, deletion URL, report a reply, 18+ confirmation | 03 | 🟠 PR #21; legal text needs owner |
+| 12 | [Production cleanup](12-production-cleanup.md) | Remove mocks, manifest and icons, headers, accessibility fixes | none | 🟠 PR #19 |
+| 13 | [Premium tutors](13-premium-tutors.md) | Extra tutors locked to premium, enforced on the server | 01, 04 | 🟠 mechanism in PR #23; tutors need owner content |
 
 Web-only launch = 00–06 + 11–13. Android launch adds 07–10.
 
