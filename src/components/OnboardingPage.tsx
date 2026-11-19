@@ -3,15 +3,18 @@ import { ArrowRight, Check, MapPin, Sparkles } from 'lucide-react';
 import { CefrLevel, LearnerProfile, Persona } from '../types';
 import { CEFR_LEVEL_OPTIONS, TUTORS } from '../data/personas';
 import { UserBadge } from './UserBadge';
+import { BRAND } from '../data/brand';
 
 interface OnboardingPageProps {
   initialProfile?: LearnerProfile | null;
   onComplete: (profile: LearnerProfile) => void;
+  onLogin?: () => void;
 }
 
 export const OnboardingPage: React.FC<OnboardingPageProps> = ({
   initialProfile,
-  onComplete
+  onComplete,
+  onLogin
 }) => {
   const [name, setName] = useState<string>(initialProfile?.name ?? '');
   const [level, setLevel] = useState<CefrLevel>(initialProfile?.level ?? 'A2');
@@ -39,11 +42,22 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
       {/* Top branding bar */}
       <header className="h-16 shrink-0 flex items-center justify-between px-5 sm:px-8 border-b border-line bg-canvas">
         <span className="font-serif text-[26px] leading-none font-semibold tracking-tight text-cobalt">
-          Parliamo
+          {BRAND.shortName}
         </span>
-        <span className="text-xs font-medium tracking-[0.08em] uppercase text-ink-muted">
-          Conversational Italian
-        </span>
+        <div className="flex items-center gap-4">
+          <span className="hidden sm:inline text-xs font-medium tracking-[0.08em] uppercase text-ink-muted">
+            Conversational Italian
+          </span>
+          {onLogin && (
+            <button
+              type="button"
+              onClick={onLogin}
+              className="text-xs font-semibold text-cobalt hover:underline py-1.5 px-2.5 rounded-lg hover:bg-cobalt-tint transition-colors"
+            >
+              Already have an account? Log in
+            </button>
+          )}
+        </div>
       </header>
 
       <main className="flex-1 overflow-y-auto px-4 sm:px-6 py-8 sm:py-12">

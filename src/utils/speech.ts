@@ -3,6 +3,7 @@
  * only when the learner explicitly selects the browser provider (never as a fallback)
  */
 import { postJson } from './apiClient';
+import { readQuotaError, QuotaLimitError } from './quotaError';
 
 /** Speed multiplier used when a learner asks the tutor to speak more slowly. */
 const SLOW_FACTOR = 0.8;
@@ -51,6 +52,11 @@ class SpeechService {
     try {
       const res = await postJson('/api/tts', body);
 
+      const quota = await readQuotaError(res);
+      if (quota) {
+        throw new QuotaLimitError(quota);
+      }
+
       if (!res.ok) {
         throw new Error(`TTS server returned status ${res.status}`);
       }
@@ -84,6 +90,10 @@ class SpeechService {
       await audio.play();
       return true;
     } catch (err) {
+      if (err instanceof QuotaLimitError) {
+        if (options.onError) options.onError();
+        throw err;
+      }
       console.warn('Server TTS failed:', err);
       if (options.onError) options.onError();
       return false;
@@ -427,22 +437,33 @@ export async function transcribeAudioBlob(
   audioBlob: Blob,
   languageCode: string = 'it-IT'
 ): Promise<{ transcript: string; provider?: string }> {
-  const base64 = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const res = reader.result as string;
-      const data = res.includes(',') ? res.split(',')[1] : res;
-      resolve(data);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(audioBlob);
-  });
+  let base64 = '';
+  if (typeof FileReader !== 'undefined') {
+    base64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const res = reader.result as string;
+        const data = res.includes(',') ? res.split(',')[1] : res;
+        resolve(data);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(audioBlob);
+    });
+  } else {
+    const buffer = await audioBlob.arrayBuffer();
+    base64 = Buffer.from(buffer).toString('base64');
+  }
 
   const response = await postJson('/api/stt', {
     audioBase64: base64,
     mimeType: audioBlob.type || 'audio/webm',
     languageCode,
   });
+
+  const quota = await readQuotaError(response);
+  if (quota) {
+    throw new QuotaLimitError(quota);
+  }
 
   if (!response.ok) {
     throw new Error(`STT request failed with status ${response.status}`);

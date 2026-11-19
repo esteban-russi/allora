@@ -21,7 +21,7 @@ export function runAccountStoreContract(name: string, makeStore: AccountStoreFac
 
     const sampleSub: Subscription = {
       status: 'active',
-      productId: 'parliamo_pro_annual',
+      productId: 'allora_pro_annual',
       store: 'web',
       periodType: 'normal',
       expiresAt: '2026-12-01T00:00:00.000Z',

@@ -70,6 +70,7 @@ jobs:
             NODE_ENV=production
             GCP_PROJECT=${{ vars.GCP_PROJECT_ID }}
             SESSION_STORE=firestore
+            QUOTAS_MODE=monitor
             FIREBASE_API_KEY=${{ vars.FIREBASE_API_KEY }}
             FIREBASE_APP_ID=${{ vars.FIREBASE_APP_ID }}
             GCP_REGION=eu
@@ -78,6 +79,10 @@ jobs:
             GEMINI_LIVE_MODEL=gemini-3.8-live
             TRUST_PROXY_HOPS=1
             RATE_LIMIT_PER_MINUTE=60
+            REVENUECAT_WEB_PUBLIC_KEY=${{ vars.REVENUECAT_WEB_PUBLIC_KEY }}
+          secrets: |-
+            REVENUECAT_SECRET_KEY=revenuecat-secret-key:latest
+            REVENUECAT_WEBHOOK_AUTH=revenuecat-webhook-auth:latest
 
       - name: Smoke test
         run: curl --fail --silent --show-error --retry 3 --retry-delay 5 "${{ steps.deploy.outputs.url }}/api/health"

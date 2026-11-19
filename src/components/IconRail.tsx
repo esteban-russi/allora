@@ -6,7 +6,7 @@ interface IconRailProps {
   learnerInitial: string;
   onOpenNotebook: () => void;
   onOpenVoiceLab: () => void;
-  onEditProfile?: () => void;
+  onOpenAccount?: () => void;
 }
 
 const railButton =
@@ -17,7 +17,7 @@ export const IconRail: React.FC<IconRailProps> = ({
   learnerInitial,
   onOpenNotebook,
   onOpenVoiceLab,
-  onEditProfile
+  onOpenAccount
 }) => (
   <nav
     aria-label="Main"
@@ -41,8 +41,8 @@ export const IconRail: React.FC<IconRailProps> = ({
 
     <UserBadge
       initial={learnerInitial}
-      onClick={onEditProfile}
-      title="Change name, level, or tutor"
+      onClick={onOpenAccount}
+      title="Account menu"
       className="mt-auto"
     />
   </nav>

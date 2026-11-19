@@ -1,4 +1,5 @@
 import type { CefrLevel } from '../types';
+import { BRAND } from './brand';
 
 /**
  * System-prompt text for each tutor, keyed by persona id.
@@ -62,7 +63,7 @@ function buildTutorContext(options: InstructionOptions): string[] {
     personaPrompt,
     levelPrompt,
     studentLine,
-    'Tu sei un tutor madrelingua italiano per una piattaforma di apprendimento conversazionale ("Parliamo Italiano").',
+    `Tu sei un tutor madrelingua italiano per una piattaforma di apprendimento conversazionale ("${BRAND.name}").`,
     `Rigidità correzione: "${strictness}".`
   ].filter(Boolean);
 }

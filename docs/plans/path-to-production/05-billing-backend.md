@@ -1,5 +1,21 @@
 # Plan 05: billing backend (RevenueCat → subscription on the account)
 
+## Status
+
+- Branch: `feature/billing-backend`
+- PR link: https://github.com/esteban-russi/parliamo-italiano/pull/16
+- Merged: to `main` on 2026-11-19 with plans 01–06, through PR #17.
+- After review: sync and webhook failures are logged; the webhook is outside the per-IP
+  rate limit. Secret Manager API enabled; `revenuecat-secret-key` and
+  `revenuecat-webhook-auth` created with access for the runtime service account.
+  🟠 Webhook in RevenueCat still to add after the deploy.
+- Date: 2026-11-19
+- Summary: Implemented RevenueCat billing backend, subscription skew tolerance, client launch sync, webhook handler, and Secret Manager configuration.
+- Items needing attention:
+  - 🟠 Owner setup: Create RevenueCat project, entitlement \`premium\`, and offering \`default\` with packages \`$rc_monthly\` and \`$rc_annual\`.
+  - 🟠 Owner setup: Create \`revenuecat-secret-key\` and \`revenuecat-webhook-auth\` in Secret Manager and grant \`roles/secretmanager.secretAccessor\` to runtime service account (\`parliamo-italiano-runtime@corso-di-italiano-496920.iam.gserviceaccount.com\`).
+  - 🟠 Owner setup: Configure RevenueCat webhook endpoint to \`<APP_URL>/api/webhooks/revenuecat\` with \`Authorization: Bearer <token>\`.
+
 Branch: `feature/billing-backend`. Depends on: 01 (and 03 for the delete hook).
 
 Read first: plan 01, `src/server/accountStore.ts`, `src/server/plans.ts`,
@@ -59,10 +75,10 @@ the `/api/me` response.
 
 ## Steps (one commit each)
 
-1. **Clock tolerance in `tierFor`.** Add `export const SUBSCRIPTION_SKEW_MS = 60 * 60 * 1000`
+1. ✅ **Clock tolerance in `tierFor`.** Add `export const SUBSCRIPTION_SKEW_MS = 60 * 60 * 1000`
    to `plans.ts`, use `Date.parse(expiresAt) + SUBSCRIPTION_SKEW_MS > nowMs`, update tests.
 
-2. **RevenueCat client** (`src/server/revenueCat.ts`).
+2. ✅ **RevenueCat client** (`src/server/revenueCat.ts`).
    ```ts
    export interface RevenueCatClient {
      /** Raw `subscriber` object, or null when RevenueCat answers 404. Throws on other errors. */
@@ -78,7 +94,7 @@ the `/api/me` response.
      (`willRenew` false), billing issue in grace, expired, no entitlement, lifetime, unknown
      store; `getSubscriber` with a fake `fetch` for 200, 404 and 500.
 
-3. **Sync function** (`src/server/billingSync.ts`).
+3. ✅ **Sync function** (`src/server/billingSync.ts`).
    ```ts
    export async function syncSubscription(userId: string, deps: {
      revenueCat: RevenueCatClient; accounts: AccountStore; now: () => number;
@@ -91,15 +107,16 @@ the `/api/me` response.
      so an event for a deleted account does nothing.
    - Tests with a fake client and the in-memory account store.
 
-4. **`POST /api/billing/sync`** (authenticated; add `/api/billing` to both middleware
+4. ✅ **`POST /api/billing/sync`** (authenticated; add `/api/billing` to both middleware
    path lists; handlers in `src/server/billingRoutes.ts`).
    - Guests: `403 { code: 'SIGN_IN_REQUIRED' }`.
    - Call `syncSubscription(req.user.userId)`; respond
      `{ tier, subscription }` (tier recomputed with `tierFor`).
    - RevenueCat failure: `502 { code: 'BILLING_UPSTREAM_ERROR' }`.
 
-5. **`POST /api/webhooks/revenuecat`** (not behind user auth; register it before the
-   authenticated block; it uses the global `express.json` parser and the IP rate limiter).
+5. ✅ **`POST /api/webhooks/revenuecat`** (not behind user auth; register it before the
+   authenticated block; it uses the global `express.json` parser but not the per-IP rate
+   limiter, so a burst of RevenueCat events is never answered with 429).
    - Missing config → 503. Wrong or missing `Authorization` header → 401 (constant-time compare
      of equal-length buffers; unequal length is a mismatch).
    - Body: `{ event: { id, type, app_user_id, original_app_user_id, aliases, transferred_from, transferred_to } }`.
@@ -113,15 +130,15 @@ the `/api/me` response.
    - Tests: auth cases; a purchase event sets the subscription; an expiration event sets
      `expired`; a transfer syncs both users; upstream failure gives 500; `TEST` gives 200.
 
-6. **Delete hook.** In `DELETE /api/account` (plan 03) call
+6. ✅ **Delete hook.** In `DELETE /api/account` (plan 03) call
    `revenueCat.deleteSubscriber(userId)` in try/catch after the stores are cleared (log on
    failure, do not fail the request). Skip when billing is not configured.
 
-7. **Client: sync on start.** In `useAccount` (plan 03), after the first `fetchMe`: if
+7. ✅ **Client: sync on start.** In `useAccount` (plan 03), after the first `fetchMe`: if
    `me.subscription` exists and `Date.parse(me.subscription.expiresAt) < Date.now() + 3600_000`,
    call `POST /api/billing/sync` once and use its result. This repairs a missed webhook.
 
-8. **Config and docs.**
+8. ✅ **Config and docs.**
    - `.env.example`: `REVENUECAT_SECRET_KEY`, `REVENUECAT_WEBHOOK_AUTH` (commented, with a note).
    - `deploy.yml`: add to the `deploy-cloudrun` step
      ```yaml

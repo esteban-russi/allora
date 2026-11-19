@@ -1,5 +1,18 @@
 # Plan 06: web checkout
 
+## Status
+
+- Branch: `feature/web-checkout`
+- PR link: https://github.com/esteban-russi/parliamo-italiano/pull/17
+- Merged: to `main` on 2026-11-19 with plans 01–06, through PR #17.
+- Date: 2026-11-19
+- Summary: Fully implemented; web billing adapter with Purchases JS, dynamic config, checkout/success states, tests, and documentation.
+- Items needing attention:
+  - ✅ Owner setup: Stripe account `allora` connected to RevenueCat Billing (web config "Allora (RevenueCat Billing)", GBP). 🟠 Stripe Tax is off and business verification is still needed before live payments.
+  - ✅ Owner setup: Web Billing products `allora_pro_monthly` (£3.99) and `allora_pro_annual` (£29.99, 7-day trial) attached to entitlement `premium` and to the current offering `default` as `$rc_monthly` and `$rc_annual`.
+  - ✅ Owner setup: `REVENUECAT_WEB_PUBLIC_KEY` GitHub variable set to the sandbox key. 🟠 Switch to the production key at launch.
+  - 🟠 Could not verify: End-to-end checkout modal with real Stripe processing; verified via comprehensive unit tests with fake SDK.
+
 Branch: `feature/web-checkout`. Depends on: 04, 05.
 
 Read first: plan 04 (the `Billing` interface and `PlansScreen`), plan 05,
@@ -27,18 +40,18 @@ A signed-in learner on the web can subscribe with a card, and becomes premium im
 
 ## Steps (one commit each)
 
-1. **Serve the key** (`server.ts`).
+1. ✅ **Serve the key** (`server.ts`).
    - `/api/auth-config` responds `{ firebase: …, billing: { revenueCatWebKey: string | null } }`.
    - `revenueCatWebKey` = trimmed `REVENUECAT_WEB_PUBLIC_KEY` or null.
    - Test in `tests/server.test.ts`. Add the variable to `.env.example`, README, `deploy.yml`
      (`REVENUECAT_WEB_PUBLIC_KEY=${{ vars.REVENUECAT_WEB_PUBLIC_KEY }}`).
 
-2. **Client config** (`src/utils/clientConfig.ts`).
+2. ✅ **Client config** (`src/utils/clientConfig.ts`).
    Move the `fetch('/api/auth-config')` call out of `firebaseAuth.ts` into
    `loadClientConfig(): Promise<{ firebase: FirebaseClientConfig | null; revenueCatWebKey: string | null }>`
    that fetches once and caches the promise. `firebaseAuth.ts` uses it. Update its tests.
 
-3. **Web billing implementation** (`src/utils/billingWeb.ts`).
+3. ✅ **Web billing implementation** (`src/utils/billingWeb.ts`).
    ```ts
    export function createWebBilling(apiKey: string, deps?: { loadSdk?: () => Promise<PurchasesModule>; email?: () => string | null }): Billing
    ```
@@ -61,19 +74,19 @@ A signed-in learner on the web can subscribe with a card, and becomes premium im
    - `tests/billingWeb.test.ts` with a fake SDK module: offer mapping (with and without
      trial, missing package), purchase success calls sync, cancel, failure.
 
-4. **Activate it** (`src/main.tsx` or the first effect in `App.tsx`).
+4. ✅ **Activate it** (`src/main.tsx` or the first effect in `App.tsx`).
    ```ts
    const { revenueCatWebKey } = await loadClientConfig();
    if (revenueCatWebKey) setBilling(createWebBilling(revenueCatWebKey, { email: () => currentEmail }));
    ```
    With no key the app behaves as after plan 04 (no plans screen).
 
-5. **Purchase states in `PlansScreen`.** While `purchase` runs, disable the buttons and
+5. ✅ **Purchase states in `PlansScreen`.** While `purchase` runs, disable the buttons and
    show "Opening secure checkout…". After `purchased`, show "Welcome to Premium" and a
    "Start practising" button. Cover these with a component test if the project has a
    component test setup by then; otherwise list them in the PR's manual test notes.
 
-6. **Docs.** README: web checkout setup and how to test in sandbox.
+6. ✅ **Docs.** README: web checkout setup and how to test in sandbox.
 
 ## Setup (owner)
 
@@ -81,8 +94,8 @@ A signed-in learner on the web can subscribe with a card, and becomes premium im
    how VAT on digital services (UK, EU) is handled. Ask an accountant if unsure.
 2. RevenueCat → add a **Web Billing** app to the project and connect Stripe.
 3. Create two Web Billing products:
-   - `parliamo_pro_monthly`: monthly, £8.99 / €9.99 / $9.99, no trial.
-   - `parliamo_pro_annual`: yearly, £59.99 / €69.99 / $69.99, 7-day free trial.
+   - `allora_pro_monthly`: monthly, £3.99, no trial.
+   - `allora_pro_annual`: yearly, £29.99, 7-day free trial.
 4. Attach both to entitlement `premium`, and to offering `default` as `$rc_monthly` and `$rc_annual`.
 5. Copy the Web Billing **sandbox** public key into the GitHub variable
    `REVENUECAT_WEB_PUBLIC_KEY` first; switch to the production key at launch.

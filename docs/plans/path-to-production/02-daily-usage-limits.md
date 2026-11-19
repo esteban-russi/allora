@@ -1,5 +1,20 @@
 # Plan 02: daily usage limits
 
+## Status
+
+- Branch: `feature/daily-usage-limits`
+- PR link: https://github.com/esteban-russi/parliamo-italiano/pull/13
+- Merged: to `main` on 2026-11-19 with plans 01–06, through PR #17.
+- After review: a request rejected with any 4xx (e.g. an empty message) now gets its unit refunded, not only 5xx.
+- Date: 2026-11-19
+- Summary: All steps completed and verified with passing unit and integration tests.
+- Cloud changes made:
+  - Command: `gcloud firestore fields ttls update expiresAtTs --collection-group=usage --enable-ttl --project=corso-di-italiano-496920 --account=estebangr2711@gmail.com`
+  - Before: No TTL policy on `usage`.
+  - After: TTL on `expiresAtTs` in state `ACTIVE`.
+- Items needing attention:
+  - 🟠 `tests/helpers/fakeGemini.ts` only implements the WebSocket `live.connect` interface for Gemini Live; the turn-based chat endpoint tests mock `primaryAi.models.generateContent` directly with Vitest.
+
 Branch: `feature/daily-usage-limits`. Depends on: 01.
 
 Read first: plan 01, `src/server/rateLimiter.ts`, the `/api/chat`, `/api/tts`,
@@ -76,7 +91,7 @@ export function requireQuota(counter: 'chatMessages' | 'helperRequests', deps?: 
 
 ## Steps (one commit each)
 
-1. **`UsageStore`, in-memory store, contract tests.**
+1. ✅ **`UsageStore`, in-memory store, contract tests.**
    `tests/helpers/usageStoreContract.ts` cases: empty usage is all zeros; `tryConsume`
    up to the limit succeeds and the next one fails without changing `used`; 20 parallel
    `tryConsume` calls with limit 10 allow exactly 10; `add` with a negative amount never
@@ -84,40 +99,40 @@ export function requireQuota(counter: 'chatMessages' | 'helperRequests', deps?: 
    every day for that user only. Also unit-test `usageDay` and `nextResetAt` at
    23:59:59 and 00:00:00 UTC.
 
-2. **`FirestoreUsageStore`** (`src/server/firestoreUsageStore.ts`).
-   - Document fields: `userId`, `day`, the three counters, `expiresAtTs`
+2. ✅ **`FirestoreUsageStore`** (`src/server/firestoreUsageStore.ts`).
+   - ✅ Document fields: `userId`, `day`, the three counters, `expiresAtTs`
      (Timestamp = day start + 35 days).
-   - `tryConsume`: `runTransaction` (read, check, `set(..., { merge: true })`).
-   - `add`: transaction too, clamping at 0.
-   - `deleteAllUserUsage`: query `where('userId', '==', userId)`, delete in batches of 500.
-   - Contract runs only with `FIRESTORE_TEST=1`.
+   - ✅ `tryConsume`: `runTransaction` (read, check, `set(..., { merge: true })`).
+   - ✅ `add`: transaction too, clamping at 0.
+   - ✅ `deleteAllUserUsage`: query `where('userId', '==', userId)`, delete in batches of 500.
+   - ✅ Contract runs only with `FIRESTORE_TEST=1`.
 
-3. **Store selection.** `src/server/defaultUsageStore.ts`, same pattern as plan 01 step 5.
+3. ✅ **Store selection.** `src/server/defaultUsageStore.ts`, same pattern as plan 01 step 5.
 
-4. **`quota.ts` with `requireQuota`**, tested with supertest on a tiny Express app:
+4. ✅ **`quota.ts` with `requireQuota`**, tested with supertest on a tiny Express app:
    each mode; the 429 body; the refund on a 500; fail-open when the store rejects.
 
-5. **Apply to HTTP routes** (`server.ts`).
-   - `app.post('/api/chat', requireQuota('chatMessages'), …)`.
-   - `requireQuota('helperRequests')` on `/api/tts`, `/api/stt`, `/api/translate`.
-   - In the chat success response add `quota: res.locals.quota ?? null`.
-   - Turn-based voice calls use these same routes, so they are covered.
-   - Tests: with `QUOTAS_MODE=enforce` and dev user `anon-q`, the 6th `/api/chat` call
+5. ✅ **Apply to HTTP routes** (`server.ts`).
+   - ✅ `app.post('/api/chat', requireQuota('chatMessages'), …)`.
+   - ✅ `requireQuota('helperRequests')` on `/api/tts`, `/api/stt`, `/api/translate`.
+   - ✅ In the chat success response add `quota: res.locals.quota ?? null`.
+   - ✅ Turn-based voice calls use these same routes, so they are covered.
+   - ✅ Tests: with `QUOTAS_MODE=enforce` and dev user `anon-q`, the 6th `/api/chat` call
      returns 429 `QUOTA_EXCEEDED` (mock Gemini with `tests/helpers/fakeGemini.ts`).
 
-6. **`/api/me` returns usage.** Add
+6. ✅ **`/api/me` returns usage.** Add
    `usage: await defaultUsageStore.getUsage(userId, usageDay(Date.now()))` and
    `resetsAt: nextResetAt(Date.now())`. Make the handler `async` with try/catch like the
    session routes.
 
-7. **Voice metering** (`liveBridge.ts`).
-   - Add to `LiveBridgeOptions`: `accountStore?`, `usageStore?`, `quotasMode?`, `now?`.
-   - In `handleLiveUpgrade`, after authentication and before `reserveSlots`:
+7. ✅ **Voice metering** (`liveBridge.ts`).
+   - ✅ Add to `LiveBridgeOptions`: `accountStore?`, `usageStore?`, `quotasMode?`, `now?`.
+   - ✅ In `handleLiveUpgrade`, after authentication and before `reserveSlots`:
      load the account (`accountStore.upsertFromAuth(user)`), compute `limits`, read
      today's usage, `remainingSec = limits.voiceSeconds - usage.voiceSeconds`. In
      `enforce` mode, if `remainingSec <= 0`, `rejectUpgrade(socket, 429, 'QUOTA_EXCEEDED')`.
-   - Pass `remainingSec` (or `Infinity` when mode is not `enforce`) into `runLiveCall`.
-   - In `runLiveCall`:
+   - ✅ Pass `remainingSec` (or `Infinity` when mode is not `enforce`) into `runLiveCall`.
+   - ✅ In `runLiveCall`:
      - `const startedAt = now(); let recordedSec = 0;`
      - `flush()`: `const total = Math.floor((now() - startedAt) / 1000);` then
        `usageStore.add(userId, usageDay(now()), 'voiceSeconds', total - recordedSec)` and
@@ -127,18 +142,31 @@ export function requireQuota(counter: 'chatMessages' | 'helperRequests', deps?: 
      - `setTimeout` for `remainingSec * 1000` (only when finite): send
        `{ type: 'quota_exceeded' }` and `ws.close(4008, 'Daily voice limit reached')`.
        Clear it on close.
-   - Add `{ type: 'quota_exceeded' }` to the `LiveClientEvent` union.
-   - Tests in `tests/liveBridge.test.ts` with fake timers and an in-memory usage store:
+   - ✅ Add `{ type: 'quota_exceeded' }` to the `LiveClientEvent` union.
+   - ✅ Tests in `tests/liveBridge.test.ts` with fake timers and an in-memory usage store:
      upgrade is rejected with 429 when no seconds remain; a call with 10 s remaining gets
      `quota_exceeded` and close code 4008; closing after 45 s records 45 seconds in total;
      `off` mode records nothing.
 
-8. **Config and docs.** `QUOTAS_MODE` in `.env.example`, README and `deploy.yml`
+8. ✅ **Config and docs.** `QUOTAS_MODE` in `.env.example`, README and `deploy.yml`
    (`QUOTAS_MODE=monitor`). Update the README "limits" paragraph.
 
 ## GCP setup
 
-`gcloud firestore fields ttls update expiresAtTs --collection-group=usage --enable-ttl --project=<project>`
+✅ Enabled Firestore TTL policy on `usage` collection group `expiresAtTs`:
+- Command: `gcloud firestore fields ttls update expiresAtTs --collection-group=usage --enable-ttl --project=corso-di-italiano-496920 --account=estebangr2711@gmail.com`
+- Before state: No TTL configuration on collection group `usage`.
+- After state: Verified with `gcloud firestore fields ttls list --project=corso-di-italiano-496920 --account=estebangr2711@gmail.com`:
+  ```json
+  [
+    {
+      "field": "projects/corso-di-italiano-496920/databases/(default)/collectionGroups/usage/fields/expiresAtTs",
+      "ttlConfig": {
+        "state": "ACTIVE"
+      }
+    }
+  ]
+  ```
 
 No composite index is needed (`userId ==` only).
 

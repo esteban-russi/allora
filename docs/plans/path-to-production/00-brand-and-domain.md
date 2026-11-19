@@ -1,5 +1,20 @@
 # Plan 00: brand constants and custom domain
 
+## Status
+
+- Date: 2026-11-19. Steps 1–4 merged to `main` with PR #17; steps 5–6 open.
+- Name: **Allora** (`BRAND.name` and `BRAND.shortName`), premium plan **Allora Premium**,
+  support email `estebangr2711@gmail.com` for now. All in `src/data/brand.ts`.
+- Done: brand module; header, onboarding, sign-in and plans screens, tutor and STT prompts,
+  server log and `User-Agent` use it; `index.html` gets `%APP_NAME%` from the `brand-html`
+  Vite plugin; `metadata.json` and README renamed.
+- Kept on purpose: repo, Cloud Run service, Artifact Registry, GCP project, `package.json`
+  name and the `parliamo.*` storage keys.
+- 🟠 Open: buy the domain, map it (owner setup below), then step 5 (canonical redirect)
+  and step 6 (docs). Choose the Android application ID before plan 07.
+- 🟠 Check that "Allora" is free as a Play title and as a trademark; the store title may
+  need to be longer, e.g. "Allora: Italian Tutor".
+
 Branch: `chore/brand-and-domain`. Depends on: nothing. **Do this first**: the Android
 application ID and the domain are baked into later plans and cannot be changed cheaply
 after the first Play upload (ID) or after App Links and Firebase are configured (domain).

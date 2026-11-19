@@ -10,18 +10,54 @@ import { IconRail } from './components/IconRail';
 import { TopHeader } from './components/TopHeader';
 import { UtilityPanel } from './components/UtilityPanel';
 import { OnboardingPage } from './components/OnboardingPage';
+import { SignInScreen } from './components/SignInScreen';
+import { MagicLinkEmailForm } from './components/MagicLinkEmailForm';
+import { AccountMenu } from './components/AccountMenu';
+import { LimitReachedCard } from './components/LimitReachedCard';
+import { PlansScreen } from './components/PlansScreen';
+import { getBilling, setBilling } from './utils/billing';
+import { loadClientConfig } from './utils/clientConfig';
+import { createWebBilling } from './utils/billingWeb';
 import { useDialog } from './hooks/useDialog';
+import { useAccount } from './hooks/useAccount';
 import { speechService } from './utils/speech';
+import { setAccountDeletedHandler } from './utils/apiClient';
+import { completeMagicLink, EMAIL_FOR_SIGN_IN_KEY, isMagicLink, signOutToGuest } from './utils/firebaseAuth';
+import { ACCOUNT_DELETED_NOTICE, MERGE_FAILED_NOTICE, showNotice } from './utils/notice';
 import { loadLearnerSession, postChat, saveLearnerSettings, startLearnerSession, toChatMessages } from './utils/learnerSession';
+import { readQuotaError, type QuotaError } from './utils/quotaError';
+import type { ClientLearnerSession } from './server/sessionStore';
 
 const countWords = (text: string) => text.trim().split(/\s+/).filter(Boolean).length;
 const GRAMMAR_STRICTNESS: DevSettings['grammarStrictness'][] = ['conversational', 'tutor', 'strict'];
 
 export default function App() {
   const [learnerProfile, setLearnerProfile] = useState<LearnerProfile | null>(null);
-  const [isOnboardingOpen, setIsOnboardingOpen] = useState<boolean>(true);
+  const [screen, setScreen] = useState<'onboarding' | 'signin-after-onboarding' | 'signin-login' | 'plans' | 'app'>('onboarding');
   // True until the saved session (if any) has been loaded, so onboarding does not flash
   const [isRestoring, setIsRestoring] = useState<boolean>(true);
+  // A sign-in link waiting for the learner to confirm which email it was sent to
+  const [pendingMagicLinkUrl, setPendingMagicLinkUrl] = useState<string | null>(null);
+
+  const { me, refresh: refreshAccount, setUsage } = useAccount();
+  const [limitReached, setLimitReached] = useState<QuotaError | null>(null);
+  const [chatDraft, setChatDraft] = useState<string>('');
+
+  const emailRef = useRef<string | null>(null);
+  emailRef.current = me?.email ?? null;
+
+  useEffect(() => {
+    (async () => {
+      const { revenueCatWebKey } = await loadClientConfig();
+      if (revenueCatWebKey) {
+        setBilling(
+          createWebBilling(revenueCatWebKey, {
+            email: () => emailRef.current
+          })
+        );
+      }
+    })();
+  }, []);
 
   const persona: Persona = useMemo(
     () => TUTORS.find((t) => t.id === learnerProfile?.personaId) ?? EMMANUELE,
@@ -38,6 +74,7 @@ export default function App() {
   const [isDevLabOpen, setIsDevLabOpen] = useState<boolean>(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
   const [isNotebookDrawerOpen, setIsNotebookDrawerOpen] = useState<boolean>(false);
+  const [isAccountMenuOpen, setIsAccountMenuOpen] = useState<boolean>(false);
 
   const notebookDrawerRef = useRef<HTMLDivElement>(null);
   const notebookHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -78,32 +115,160 @@ export default function App() {
     return total === 0 ? 0 : Math.round((learner / total) * 100);
   }, [messages]);
 
+  const applySession = (session: ClientLearnerSession) => {
+    const tutor = TUTORS.find((t) => t.id === session.personaId) ?? EMMANUELE;
+    const profile: LearnerProfile = { name: session.learnerName, level: session.learnerLevel, personaId: tutor.id };
+    setLearnerProfile(profile);
+    setMessages([
+      ...createInitialMessages(tutor, profile.name, profile.level),
+      ...toChatMessages(session.checkpointTurns, tutor.id)
+    ]);
+    setSavedPhrases(session.progress.savedPhrases);
+    if (GRAMMAR_STRICTNESS.includes(session.grammarStrictness as DevSettings['grammarStrictness'])) {
+      setDevSettings((prev) => ({ ...prev, grammarStrictness: session.grammarStrictness as DevSettings['grammarStrictness'] }));
+    }
+  };
+
+  const handleSignedIn = async (mode: 'login' | 'after-onboarding') => {
+    const updatedMe = await refreshAccount();
+    const session = await loadLearnerSession();
+    if (session) {
+      applySession(session);
+      if (mode === 'after-onboarding' && getBilling().isAvailable() && updatedMe?.tier !== 'premium') {
+        setScreen('plans');
+      } else {
+        setScreen('app');
+      }
+    } else if (mode === 'login') {
+      setScreen('onboarding');
+    } else {
+      if (learnerProfile) {
+        void startLearnerSession({ profile: learnerProfile, grammarStrictness: devSettings.grammarStrictness, savedPhrases });
+      }
+      if (getBilling().isAvailable() && updatedMe?.tier !== 'premium') {
+        setScreen('plans');
+      } else {
+        setScreen('app');
+      }
+    }
+  };
+
+  // Start over as a new guest: blank profile, conversation and notebook, back to onboarding,
+  // where the guest is offered sign-in again after finishing it
+  const resetToGuest = () => {
+    setIsAccountMenuOpen(false);
+    setIsCallOpen(false);
+    setIsNotebookDrawerOpen(false);
+    setIsProfileModalOpen(false);
+    setLearnerProfile(null);
+    setMessages(INITIAL_MESSAGES);
+    setSavedPhrases(INITIAL_SAVED_PHRASES);
+    setLimitReached(null);
+    setChatDraft('');
+    void refreshAccount();
+    setScreen('onboarding');
+  };
+
+  // The account was deleted in another tab or on another device: sign this tab out too
+  useEffect(() => {
+    setAccountDeletedHandler(() => {
+      signOutToGuest()
+        .catch((err: unknown) => console.warn('[Account] Sign out after deletion failed:', err))
+        .finally(() => {
+          resetToGuest();
+          showNotice(ACCOUNT_DELETED_NOTICE);
+        });
+    });
+    return () => setAccountDeletedHandler(null);
+  }, []);
+
+  // Leave the sign-in link's URL, so a reload does not try to use the one-time code again
+  const clearMagicLinkUrl = () => window.history.replaceState(null, '', '/');
+
+  // Complete an email-link sign-in, then show the account's conversation or say why it failed
+  const finishMagicLink = async (url: string, email: string) => {
+    const result = await completeMagicLink(url, email).catch(() => null);
+    clearMagicLinkUrl();
+    setPendingMagicLinkUrl(null);
+
+    if (!result?.ok) {
+      showNotice('That sign-in link has expired, was already used, or does not match this email. Request a new one.');
+      setScreen('signin-login');
+      return;
+    }
+    try {
+      localStorage.removeItem(EMAIL_FOR_SIGN_IN_KEY);
+    } catch {
+      // Local storage unavailable
+    }
+    if (result.mergeFailed) showNotice(MERGE_FAILED_NOTICE);
+
+    await refreshAccount();
+    const session = await loadLearnerSession();
+    if (session) {
+      applySession(session);
+      setScreen('app');
+    } else {
+      setScreen('onboarding');
+    }
+  };
+
   // Bring back the learner's profile, conversation and notebook from their saved session
   useEffect(() => {
     let cancelled = false;
-    loadLearnerSession()
-      .then((session) => {
-        if (cancelled || !session) return;
-        const tutor = TUTORS.find((t) => t.id === session.personaId) ?? EMMANUELE;
-        const profile: LearnerProfile = { name: session.learnerName, level: session.learnerLevel, personaId: tutor.id };
-        setLearnerProfile(profile);
-        setMessages([
-          ...createInitialMessages(tutor, profile.name, profile.level),
-          ...toChatMessages(session.checkpointTurns, tutor.id)
-        ]);
-        setSavedPhrases(session.progress.savedPhrases);
-        if (GRAMMAR_STRICTNESS.includes(session.grammarStrictness as DevSettings['grammarStrictness'])) {
-          setDevSettings((prev) => ({ ...prev, grammarStrictness: session.grammarStrictness as DevSettings['grammarStrictness'] }));
+
+    const restore = async () => {
+      try {
+        if (typeof window !== 'undefined' && (await isMagicLink(window.location.href))) {
+          const url = window.location.href;
+          let email: string | null = null;
+          try {
+            email = localStorage.getItem(EMAIL_FOR_SIGN_IN_KEY);
+          } catch {
+            // Local storage unavailable
+          }
+          if (!email) {
+            // Opened in a browser that did not request the link: ask for the email first
+            if (!cancelled) setPendingMagicLinkUrl(url);
+            return;
+          }
+          await finishMagicLink(url, email);
+          return;
         }
-        setIsOnboardingOpen(false);
-      })
-      .finally(() => {
+
+        const session = await loadLearnerSession();
+        if (cancelled || !session) return;
+        applySession(session);
+        setScreen('app');
+      } finally {
         if (!cancelled) setIsRestoring(false);
-      });
+      }
+    };
+
+    restore();
     return () => {
       cancelled = true;
     };
   }, []);
+
+  // Clear quota limit card when tier changes or reset time elapses
+  useEffect(() => {
+    if (!limitReached) return;
+    if (me && limitReached.tier !== me.tier) {
+      setLimitReached(null);
+      return;
+    }
+    const resetMs = Date.parse(limitReached.resetsAt);
+    if (!isNaN(resetMs)) {
+      const remaining = resetMs - Date.now();
+      if (remaining <= 0) {
+        setLimitReached(null);
+      } else {
+        const timer = setTimeout(() => setLimitReached(null), remaining);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [limitReached, me?.tier]);
 
   const updateSavedPhrases = (next: SavedPhrase[]) => {
     setSavedPhrases(next);
@@ -123,11 +288,17 @@ export default function App() {
 
   const handleCompleteOnboarding = (profile: LearnerProfile) => {
     const selectedTutor = TUTORS.find((t) => t.id === profile.personaId) ?? EMMANUELE;
+    // Only a guest's first onboarding offers sign-in; a profile edit goes back to the chat
+    const isFirstOnboarding = learnerProfile === null;
     setLearnerProfile(profile);
-    setIsOnboardingOpen(false);
     setMessages(createInitialMessages(selectedTutor, profile.name, profile.level));
     // A new profile starts a new conversation; the notebook carries over
     void startLearnerSession({ profile, grammarStrictness: devSettings.grammarStrictness, savedPhrases });
+    if (me?.isAnonymous && isFirstOnboarding) {
+      setScreen('signin-after-onboarding');
+    } else {
+      setScreen('app');
+    }
   };
 
   // Handle student sending message in chat with real server Gemini API integration
@@ -156,8 +327,20 @@ export default function App() {
         learnerName: learnerProfile?.name
       });
 
+      const quota = await readQuotaError(res);
+      if (quota) {
+        setMessages((prev) => prev.filter((m) => m.id !== userMsg.id));
+        setChatDraft(text);
+        setLimitReached(quota);
+        setIsAiGenerating(false);
+        return;
+      }
+
       if (res.ok) {
         const data = await res.json();
+        if (data?.quota && typeof data.quota.used === 'number') {
+          setUsage('chatMessages', data.quota.used);
+        }
         if (data.text) {
           const aiMessage: ChatMessage = {
             id: `b-${Date.now()}`,
@@ -168,7 +351,7 @@ export default function App() {
             grammarNotes: data.grammarNotes || [],
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
           };
-          setMessages(prev => [...prev, aiMessage]);
+          setMessages((prev) => [...prev, aiMessage]);
           speakIfAutoPlay(aiMessage.text);
           setIsAiGenerating(false);
           return;
@@ -178,10 +361,10 @@ export default function App() {
       console.warn('Server Gemini call error, using local fallback generator:', err);
     }
 
-    // Local fallback generator if server is offline or quota reached
+    // Local fallback generator if server is offline
     setTimeout(() => {
       const fallbackResponse = generatePersonaFallbackMessage(persona, text);
-      setMessages(prev => [...prev, fallbackResponse]);
+      setMessages((prev) => [...prev, fallbackResponse]);
       speakIfAutoPlay(fallbackResponse.text);
       setIsAiGenerating(false);
     }, 500);
@@ -204,8 +387,18 @@ export default function App() {
     }
   };
 
-  const startCall = () => {
+  const startCall = async () => {
     setIsNotebookDrawerOpen(false);
+    const m = await refreshAccount();
+    if (m && m.usage.voiceSeconds >= m.limits.voiceSeconds) {
+      setLimitReached({
+        counter: 'voiceSeconds',
+        limit: m.limits.voiceSeconds,
+        tier: m.tier,
+        resetsAt: m.resetsAt
+      });
+      return;
+    }
     setIsCallOpen(true);
   };
 
@@ -214,6 +407,7 @@ export default function App() {
     grammarHighlight,
     savedPhrases,
     talkingShare,
+    me,
     onSwitchToVoice: startCall,
     onOpenProfile: () => setIsProfileModalOpen(true),
     onRemovePhrase: (id: string) => updateSavedPhrases(savedPhrases.filter(p => p.id !== id))
@@ -227,11 +421,61 @@ export default function App() {
     );
   }
 
-  if (!learnerProfile || isOnboardingOpen) {
+  if (pendingMagicLinkUrl) {
+    return (
+      <MagicLinkEmailForm
+        onSubmit={(email) => void finishMagicLink(pendingMagicLinkUrl, email)}
+        onCancel={() => {
+          clearMagicLinkUrl();
+          setPendingMagicLinkUrl(null);
+          // Carry on as before the link was opened, with this browser's own session if any
+          void loadLearnerSession().then((session) => {
+            if (!session) return;
+            applySession(session);
+            setScreen('app');
+          });
+        }}
+      />
+    );
+  }
+
+  if (screen === 'signin-after-onboarding') {
+    return (
+      <SignInScreen
+        mode="after-onboarding"
+        onSignedIn={() => handleSignedIn('after-onboarding')}
+        onSkip={() => setScreen('app')}
+      />
+    );
+  }
+
+  if (screen === 'signin-login') {
+    return (
+      <SignInScreen
+        mode="login"
+        onSignedIn={() => handleSignedIn('login')}
+        onSkip={() => setScreen('onboarding')}
+      />
+    );
+  }
+
+  if (screen === 'plans' && me) {
+    return (
+      <PlansScreen
+        me={me}
+        onDone={() => setScreen('app')}
+        onNeedSignIn={() => setScreen('signin-login')}
+        refreshAccount={refreshAccount}
+      />
+    );
+  }
+
+  if (screen === 'onboarding' || !learnerProfile) {
     return (
       <OnboardingPage
         initialProfile={learnerProfile}
         onComplete={handleCompleteOnboarding}
+        onLogin={me?.isAnonymous ? () => setScreen('signin-login') : undefined}
       />
     );
   }
@@ -242,7 +486,7 @@ export default function App() {
         learnerInitial={learnerInitial}
         onOpenNotebook={openNotebook}
         onOpenVoiceLab={() => setIsDevLabOpen(true)}
-        onEditProfile={() => setIsOnboardingOpen(true)}
+        onOpenAccount={() => setIsAccountMenuOpen(true)}
       />
 
       <div className="flex-1 min-w-0 flex flex-col">
@@ -253,7 +497,7 @@ export default function App() {
           mode={isCallOpen ? 'voice' : 'text'}
           onSelectVoice={startCall}
           onOpenNotebook={openNotebook}
-          onEditProfile={() => setIsOnboardingOpen(true)}
+          onOpenAccount={() => setIsAccountMenuOpen(true)}
         />
 
         <div className="flex-1 min-h-0 flex gap-5 lg:pr-5 lg:pb-5">
@@ -266,6 +510,13 @@ export default function App() {
               onSendMessage={handleSendMessage}
               onSavePhrase={handleSavePhrase}
               isAiGenerating={isAiGenerating}
+              draft={chatDraft}
+              onDraftChange={setChatDraft}
+              limitReached={limitReached}
+              tier={me?.tier ?? 'guest'}
+              canUpgrade={getBilling().isAvailable() && me?.tier === 'free'}
+              onSignIn={() => setScreen('signin-login')}
+              onSeePlans={() => setScreen('plans')}
             />
           </div>
 
@@ -300,7 +551,58 @@ export default function App() {
           devSettings={devSettings}
           learnerProfile={learnerProfile}
           onEndCall={() => setIsCallOpen(false)}
+          onLimitReached={async () => {
+            const m = await refreshAccount();
+            if (m) {
+              setLimitReached({
+                counter: 'voiceSeconds',
+                limit: m.limits.voiceSeconds,
+                tier: m.tier,
+                resetsAt: m.resetsAt
+              });
+            }
+          }}
         />
+      )}
+
+      {limitReached && limitReached.counter === 'voiceSeconds' && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30 backdrop-blur-xs p-4 animate-in fade-in duration-200"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setLimitReached(null);
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Voice limit reached"
+            className="w-full max-w-sm bg-surface border border-line rounded-[24px] p-6 shadow-2xl space-y-4"
+          >
+            <LimitReachedCard
+              quota={limitReached}
+              tier={me?.tier ?? 'guest'}
+              canUpgrade={getBilling().isAvailable() && me?.tier === 'free'}
+              onSignIn={() => {
+                setLimitReached(null);
+                setScreen('signin-login');
+              }}
+              onSeePlans={() => {
+                setLimitReached(null);
+                setScreen('plans');
+              }}
+              onDismiss={() => setLimitReached(null)}
+            />
+            <div className="flex justify-end pt-1">
+              <button
+                type="button"
+                onClick={() => setLimitReached(null)}
+                className="px-4 py-2 rounded-xl text-sm font-semibold text-ink-muted hover:text-ink hover:bg-surface-tint transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <DevSettingsDrawer
@@ -321,6 +623,26 @@ export default function App() {
         isOpen={isProfileModalOpen}
         onClose={() => setIsProfileModalOpen(false)}
         onStartVideoCall={startCall}
+      />
+
+      <AccountMenu
+        isOpen={isAccountMenuOpen}
+        onClose={() => setIsAccountMenuOpen(false)}
+        me={me}
+        onEditProfile={() => {
+          setIsAccountMenuOpen(false);
+          setScreen('onboarding');
+        }}
+        onSignIn={() => {
+          setIsAccountMenuOpen(false);
+          setScreen('signin-login');
+        }}
+        onUpgrade={() => {
+          setIsAccountMenuOpen(false);
+          setScreen('plans');
+        }}
+        onSignedOut={resetToGuest}
+        onAccountDeleted={resetToGuest}
       />
     </div>
   );

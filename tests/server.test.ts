@@ -2,7 +2,7 @@ import request from 'supertest';
 import type { GoogleGenAI } from '@google/genai';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { VertexCooldown } from '../vertexCooldown';
-import { app, buildChatContents, buildFirebaseClientConfig, canReadMetrics, buildLiveClientOptions, cloudSttEncodingFor, parseModelJsonResponse, stripBase64DataUrlPrefix } from '../server';
+import { app, primaryAi, buildChatContents, buildFirebaseClientConfig, canReadMetrics, buildLiveClientOptions, cloudSttEncodingFor, parseModelJsonResponse, stripBase64DataUrlPrefix } from '../server';
 import { buildSystemInstruction, buildVoiceCallInstruction, LEVEL_PROMPTS, sanitizeLearnerName } from '../src/data/personaPrompts';
 
 describe('parseModelJsonResponse', () => {
@@ -57,6 +57,7 @@ describe('GET /api/health', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('ok');
+    expect(res.body).toHaveProperty('billing');
     expect(res.body.gcp).not.toHaveProperty('project');
     expect(res.body).not.toHaveProperty('metrics');
     expect(res.body).not.toHaveProperty('privacy');
@@ -445,11 +446,19 @@ describe('buildFirebaseClientConfig', () => {
 describe('GET /api/auth-config', () => {
   afterEach(() => vi.unstubAllEnvs());
 
-  it('serves null when Firebase is not configured', async () => {
+  it('serves null when Firebase and RevenueCat are not configured', async () => {
     vi.stubEnv('FIREBASE_API_KEY', '');
+    vi.stubEnv('REVENUECAT_WEB_PUBLIC_KEY', '');
     const res = await request(app).get('/api/auth-config');
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ firebase: null });
+    expect(res.body).toEqual({ firebase: null, billing: { revenueCatWebKey: null } });
+  });
+
+  it('serves trimmed revenueCatWebKey when configured', async () => {
+    vi.stubEnv('REVENUECAT_WEB_PUBLIC_KEY', '  rc_pub_test123  ');
+    const res = await request(app).get('/api/auth-config');
+    expect(res.status).toBe(200);
+    expect(res.body.billing).toEqual({ revenueCatWebKey: 'rc_pub_test123' });
   });
 });
 
@@ -468,6 +477,12 @@ describe('GET /api/me', () => {
       voiceSeconds: 120,
       helperRequests: 30
     });
+    expect(res.body.usage).toEqual({
+      chatMessages: 0,
+      voiceSeconds: 0,
+      helperRequests: 0
+    });
+    expect(typeof res.body.resetsAt).toBe('string');
     expect(res.body.subscription).toBeNull();
   });
 
@@ -485,6 +500,77 @@ describe('GET /api/me', () => {
       voiceSeconds: 300,
       helperRequests: 100
     });
+    expect(res.body.usage).toEqual({
+      chatMessages: 0,
+      voiceSeconds: 0,
+      helperRequests: 0
+    });
+    expect(typeof res.body.resetsAt).toBe('string');
     expect(res.body.subscription).toBeNull();
+  });
+});
+
+describe('POST /api/chat daily quotas enforcement', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it('rejects the 6th request with 429 QUOTA_EXCEEDED when QUOTAS_MODE=enforce for guest anon-q', async () => {
+    vi.stubEnv('QUOTAS_MODE', 'enforce');
+    vi.stubEnv('GEMINI_API_KEY', 'fake-key');
+
+    vi.spyOn(primaryAi.models, 'generateContent').mockResolvedValue({
+      text: JSON.stringify({
+        text: 'Ciao!',
+        translation: 'Hello!',
+        grammarNotes: []
+      }),
+      usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 5 }
+    } as any);
+
+    const payload = {
+      personaId: 'emmanuele',
+      userMessage: 'Ciao, come stai?'
+    };
+
+    // First 5 requests should succeed (guest limit is 5 chatMessages)
+    for (let i = 1; i <= 5; i++) {
+      const res = await request(app)
+        .post('/api/chat')
+        .set('x-dev-user-id', 'anon-q')
+        .send(payload);
+
+      expect(res.status).toBe(200);
+      expect(res.body.quota).toEqual({
+        counter: 'chatMessages',
+        used: i,
+        limit: 5
+      });
+    }
+
+    // 6th request must fail with 429 QUOTA_EXCEEDED
+    const res6 = await request(app)
+      .post('/api/chat')
+      .set('x-dev-user-id', 'anon-q')
+      .send(payload);
+
+    expect(res6.status).toBe(429);
+    expect(res6.body.code).toBe('QUOTA_EXCEEDED');
+    expect(res6.body.counter).toBe('chatMessages');
+    expect(res6.body.limit).toBe(5);
+    expect(res6.body.tier).toBe('guest');
+  });
+});
+
+describe('RevenueCat webhook rate limiting', () => {
+  it('does not apply the per-IP limit to the webhook endpoint', async () => {
+    const limit = Number(process.env.RATE_LIMIT_PER_MINUTE) || 60;
+    const statuses = new Set<number>();
+    for (let i = 0; i <= limit; i++) {
+      const res = await request(app).post('/api/webhooks/revenuecat').send({});
+      statuses.add(res.status);
+    }
+    expect(statuses.has(429)).toBe(false);
   });
 });

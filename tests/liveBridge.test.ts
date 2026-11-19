@@ -2,10 +2,13 @@ import { generateKeyPairSync, sign } from 'crypto';
 import { createServer, type Server } from 'http';
 import type { AddressInfo } from 'net';
 import type { GoogleGenAI, LiveServerMessage } from '@google/genai';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
 import { attachLiveBridge, buildRecapInstruction, parseLiveCallParams, toClientFrames } from '../liveBridge';
 import { InMemorySessionStore, initializeLearnerSession, type ConversationTurn } from '../src/server/sessionStore';
+import { InMemoryAccountStore } from '../src/server/accountStore';
+import { InMemoryUsageStore, usageDay } from '../src/server/usageStore';
+import { PLAN_LIMITS } from '../src/server/plans';
 import { MetricsCollector } from '../src/server/metrics';
 import { UserRateLimiter } from '../src/server/rateLimiter';
 import { fakeGemini, openCall, startBridgeServer, waitUntil, type TestCall } from './helpers/fakeGemini';
@@ -423,5 +426,152 @@ describe('attachLiveBridge authentication', () => {
       live.on('error', () => undefined);
     });
     expect(status).toBe(401);
+  });
+});
+
+describe('attachLiveBridge voice metering and quota cutoff', () => {
+  let server: Server;
+  const calls: TestCall[] = [];
+
+  afterEach(async () => {
+    vi.useRealTimers();
+    calls.splice(0).forEach((call) => call.ws.terminate());
+    if (server) {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  const call = (port: number, query: string, wsOptions = {}): TestCall => {
+    const opened = openCall(port, query, wsOptions);
+    calls.push(opened);
+    return opened;
+  };
+
+  it('rejects upgrade with 429 when no seconds remain in enforce mode', async () => {
+    const gemini = fakeGemini();
+    const accountStore = new InMemoryAccountStore();
+    const usageStore = new InMemoryUsageStore();
+    const nowMs = 1_700_000_000_000;
+    const day = usageDay(nowMs);
+    const userId = 'quota-user-0';
+
+    await accountStore.upsertFromAuth({ userId, isAnonymous: true });
+    // Anonymous free limit is 300 seconds
+    await usageStore.add(userId, day, 'voiceSeconds', PLAN_LIMITS.free.voiceSeconds);
+
+    ({ server } = await startBridgeServer({
+      clients: [gemini.ai],
+      accountStore,
+      usageStore,
+      quotasMode: 'enforce',
+      now: () => nowMs
+    }));
+    const port = (server.address() as AddressInfo).port;
+
+    const status = await new Promise<number>((resolve) => {
+      const ws = new WebSocket(`ws://localhost:${port}${VALID_URL}&devUserId=${userId}`);
+      ws.on('unexpected-response', (_req, res) => resolve(res.statusCode ?? 0));
+      ws.on('error', () => undefined);
+    });
+    expect(status).toBe(429);
+  });
+
+  it('sends quota_exceeded and closes with 4008 when daily limit is reached during a call', async () => {
+    const gemini = fakeGemini();
+    const accountStore = new InMemoryAccountStore();
+    const usageStore = new InMemoryUsageStore();
+    let currentMs = 1_700_000_000_000;
+    const day = usageDay(currentMs);
+    const userId = 'quota-user-10s';
+
+    await accountStore.upsertFromAuth({ userId, isAnonymous: true });
+    // Leave 10 seconds remaining
+    await usageStore.add(userId, day, 'voiceSeconds', PLAN_LIMITS.free.voiceSeconds - 10);
+
+    ({ server } = await startBridgeServer({
+      clients: [gemini.ai],
+      accountStore,
+      usageStore,
+      quotasMode: 'enforce',
+      now: () => currentMs
+    }));
+    const port = (server.address() as AddressInfo).port;
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const live = call(port, `${VALID_URL}&devUserId=${userId}`);
+    await vi.waitFor(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+      expect(live.events.some((e) => e.type === 'session_ready')).toBe(true);
+    });
+
+    // Advance 10 seconds
+    currentMs += 10_000;
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    const event = await live.waitForEvent('quota_exceeded');
+    expect(event).toEqual({ type: 'quota_exceeded' });
+    expect(await live.closed).toBe(4008);
+  });
+
+  it('records 45 seconds in total when closing after 45 s', async () => {
+    const gemini = fakeGemini();
+    const accountStore = new InMemoryAccountStore();
+    const usageStore = new InMemoryUsageStore();
+    let currentMs = 1_700_000_000_000;
+    const day = usageDay(currentMs);
+    const userId = 'metered-user-45s';
+
+    ({ server } = await startBridgeServer({
+      clients: [gemini.ai],
+      accountStore,
+      usageStore,
+      quotasMode: 'enforce',
+      now: () => currentMs
+    }));
+    const port = (server.address() as AddressInfo).port;
+
+    const live = call(port, `${VALID_URL}&devUserId=${userId}`);
+    await live.waitForEvent('session_ready');
+
+    currentMs += 45_000;
+    live.ws.close();
+    await live.closed;
+
+    for (let i = 0; i < 50; i++) {
+      const u = await usageStore.getUsage(userId, day);
+      if (u.voiceSeconds === 45) break;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    const usage = await usageStore.getUsage(userId, day);
+    expect(usage.voiceSeconds).toBe(45);
+  });
+
+  it('records nothing when quotasMode is off', async () => {
+    const gemini = fakeGemini();
+    const accountStore = new InMemoryAccountStore();
+    const usageStore = new InMemoryUsageStore();
+    let currentMs = 1_700_000_000_000;
+    const day = usageDay(currentMs);
+    const userId = 'off-mode-user';
+
+    ({ server } = await startBridgeServer({
+      clients: [gemini.ai],
+      accountStore,
+      usageStore,
+      quotasMode: 'off',
+      now: () => currentMs
+    }));
+    const port = (server.address() as AddressInfo).port;
+
+    const live = call(port, `${VALID_URL}&devUserId=${userId}`);
+    await live.waitForEvent('session_ready');
+
+    currentMs += 45_000;
+    live.ws.close();
+    await live.closed;
+
+    const usage = await usageStore.getUsage(userId, day);
+    expect(usage.voiceSeconds).toBe(0);
   });
 });

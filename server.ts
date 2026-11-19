@@ -15,6 +15,9 @@ import { assertAuthConfig, authenticateHttpUser, isAuthEnforced } from './src/se
 import { defaultSessionStore } from './src/server/defaultSessionStore';
 import { attachAccount } from './src/server/accountMiddleware';
 import { defaultAccountStore } from './src/server/defaultAccountStore';
+import { defaultUsageStore } from './src/server/defaultUsageStore';
+import { nextResetAt, usageDay } from './src/server/usageStore';
+import { requireQuota } from './src/server/quota';
 import {
   initializeLearnerSession,
   parseSavedPhrases,
@@ -30,6 +33,9 @@ import {
 import { defaultMetrics } from './src/server/metrics';
 import { scheduleMaintenance } from './src/server/maintenance';
 import type { FirebaseClientConfig } from './src/utils/firebaseAuth';
+import { createAccountRouter } from './src/server/accountRoutes';
+import { createBillingRouter, createRevenueCatWebhookRouter } from './src/server/billingRoutes';
+import { BRAND } from './src/data/brand';
 
 dotenv.config();
 
@@ -57,16 +63,19 @@ const TTS_MODEL = process.env.GEMINI_TTS_MODEL || 'gemini-3.8-flash-lite-tts';
 const LIVE_MODEL = process.env.GEMINI_LIVE_MODEL || 'gemini-3.8-live';
 
 // Gemini is reachable through Vertex AI (GCP_PROJECT + ADC) or an AI Studio key
-const HAS_GENAI_CREDENTIALS = Boolean(GCP_PROJECT || process.env.GEMINI_API_KEY);
+export function hasGenAiCredentials(): boolean {
+  return Boolean(process.env.GCP_PROJECT || process.env.GEMINI_API_KEY);
+}
 
 // Behind a load balancer (e.g. Cloud Run) set TRUST_PROXY_HOPS=1 so req.ip is
 // the client's address rather than the proxy's, or every user shares one limit.
 const TRUST_PROXY_HOPS = Number(process.env.TRUST_PROXY_HOPS) || 0;
 app.set('trust proxy', TRUST_PROXY_HOPS);
 
-// Outer perimeter rate limiting per IP
+// Outer perimeter rate limiting per IP. Webhooks are left out: RevenueCat can send
+// bursts of events from a few IPs, and its secret is checked before any work is done.
 const RATE_LIMIT_PER_MINUTE = Number(process.env.RATE_LIMIT_PER_MINUTE) || 60;
-app.use(['/api/chat', '/api/translate', '/api/tts', '/api/stt', '/api/session', '/api/me'], rateLimit({
+app.use(['/api/chat', '/api/translate', '/api/tts', '/api/stt', '/api/session', '/api/me', '/api/account', '/api/billing'], rateLimit({
   windowMs: 60_000,
   limit: RATE_LIMIT_PER_MINUTE,
   standardHeaders: 'draft-7',
@@ -84,7 +93,7 @@ function createGenAiClient(preferVertex: boolean) {
   const options: Record<string, any> = {
     httpOptions: {
       headers: {
-        'User-Agent': 'parliamo-italiano-gcp',
+        'User-Agent': 'allora-gcp',
       },
     },
   };
@@ -167,6 +176,7 @@ async function generateContentWithFallback(requestConfig: any, isLearnerData = t
 app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
+    billing: Boolean(process.env.REVENUECAT_SECRET_KEY),
     models: {
       chat: CHAT_MODEL,
       tts: TTS_MODEL,
@@ -207,12 +217,21 @@ export function buildFirebaseClientConfig(env: NodeJS.ProcessEnv = process.env):
 
 // Firebase web config is public by design; serving it at runtime keeps it out of the image build
 app.get('/api/auth-config', (_req, res) => {
-  res.json({ firebase: buildFirebaseClientConfig() });
+  const rcKey = process.env.REVENUECAT_WEB_PUBLIC_KEY?.trim() || null;
+  res.json({
+    firebase: buildFirebaseClientConfig(),
+    billing: {
+      revenueCatWebKey: rcKey
+    }
+  });
 });
+
+// Webhook endpoints (not behind user authentication)
+app.use('/api/webhooks', createRevenueCatWebhookRouter());
 
 // Authentication and per-user rate limit middleware stack for billed routes
 app.use(
-  ['/api/chat', '/api/translate', '/api/tts', '/api/stt', '/api/session', '/api/me'],
+  ['/api/chat', '/api/translate', '/api/tts', '/api/stt', '/api/session', '/api/me', '/api/account', '/api/billing'],
   authenticateHttpUser(),
   createUserRateLimitMiddleware(defaultUserLimiter),
   attachAccount(defaultAccountStore)
@@ -245,24 +264,41 @@ app.get('/api/metrics', authenticateHttpUser(), (req, res) => {
 });
 
 // Learner profile and account metadata
-app.get('/api/me', (req, res) => {
-  const { account, tier, limits } = req.account!;
-  res.json({
-    userId: account.userId,
-    email: account.email,
-    isAnonymous: account.isAnonymous,
-    tier,
-    limits,
-    subscription: account.subscription && {
-      status: account.subscription.status,
-      productId: account.subscription.productId,
-      store: account.subscription.store,
-      periodType: account.subscription.periodType,
-      expiresAt: account.subscription.expiresAt,
-      willRenew: account.subscription.willRenew
-    }
-  });
+app.get('/api/me', async (req, res) => {
+  try {
+    const { account, tier, limits } = req.account!;
+    const nowMs = Date.now();
+    const usage = await defaultUsageStore.getUsage(account.userId, usageDay(nowMs));
+    const resetsAt = nextResetAt(nowMs);
+    res.json({
+      userId: account.userId,
+      email: account.email,
+      isAnonymous: account.isAnonymous,
+      tier,
+      limits,
+      usage,
+      resetsAt,
+      subscription: account.subscription && {
+        status: account.subscription.status,
+        productId: account.subscription.productId,
+        store: account.subscription.store,
+        periodType: account.subscription.periodType,
+        expiresAt: account.subscription.expiresAt,
+        willRenew: account.subscription.willRenew,
+        managementUrl: account.subscription.managementUrl ?? null
+      }
+    });
+  } catch (err: unknown) {
+    console.error('[Account] Error fetching usage for /api/me:', summarizeError(err));
+    res.status(500).json({ error: 'Error fetching account details' });
+  }
 });
+
+// Account lifecycle routes (guest merge and account deletion)
+app.use('/api/account', createAccountRouter());
+
+// Billing routes (subscription sync)
+app.use('/api/billing', createBillingRouter());
 
 // Learner Session Endpoints (Session Continuity, Checkpointing, and GDPR Deletion)
 app.get('/api/session', async (req, res) => {
@@ -365,7 +401,7 @@ app.delete('/api/session', async (req, res) => {
 });
 
 // Gemini Conversational Chat API with Italian pedagogical grammar analysis and session checkpointing
-app.post('/api/chat', async (req, res) => {
+app.post('/api/chat', requireQuota('chatMessages'), async (req, res) => {
 
   const startTime = Date.now();
   try {
@@ -398,7 +434,7 @@ app.post('/api/chat', async (req, res) => {
       return res.status(400).json({ error: `learnerLevel must be one of ${Object.keys(LEVEL_PROMPTS).join(', ')}` });
     }
 
-    if (!HAS_GENAI_CREDENTIALS) {
+    if (!hasGenAiCredentials()) {
       return res.status(503).json({
         error: 'Neither GCP_PROJECT nor GEMINI_API_KEY is configured',
         fallbackNeeded: true
@@ -481,7 +517,7 @@ app.post('/api/chat', async (req, res) => {
     }
 
     // sessionId is null when the client's ID is unknown or expired, so it can start a new one
-    res.json({ ...parsed, sessionId: session?.sessionId ?? null });
+    res.json({ ...parsed, sessionId: session?.sessionId ?? null, quota: res.locals.quota ?? null });
   } catch (error: any) {
     console.error('Chat generation error:', error);
     res.status(500).json({
@@ -492,7 +528,7 @@ app.post('/api/chat', async (req, res) => {
 });
 
 // English translation of one spoken line
-app.post('/api/translate', async (req, res) => {
+app.post('/api/translate', requireQuota('helperRequests'), async (req, res) => {
   try {
     const { text } = req.body;
     if (!text || typeof text !== 'string') {
@@ -501,7 +537,7 @@ app.post('/api/translate', async (req, res) => {
     if (text.length > 2000) {
       return res.status(400).json({ error: 'Text exceeds maximum length of 2000 characters for translation' });
     }
-    if (!HAS_GENAI_CREDENTIALS) {
+    if (!hasGenAiCredentials()) {
       return res.status(503).json({ error: 'Neither GCP_PROJECT nor GEMINI_API_KEY is configured' });
     }
 
@@ -522,7 +558,7 @@ app.post('/api/translate', async (req, res) => {
 });
 
 // Text-to-Speech (TTS) Endpoint supporting both Google Cloud TTS & Gemini Native Audio
-app.post('/api/tts', async (req, res) => {
+app.post('/api/tts', requireQuota('helperRequests'), async (req, res) => {
   try {
     const { 
       text, 
@@ -578,7 +614,7 @@ app.post('/api/tts', async (req, res) => {
     }
 
     // 2. Gemini Native Multimodal Audio Generation
-    if (!HAS_GENAI_CREDENTIALS) {
+    if (!hasGenAiCredentials()) {
       return res.status(503).json({
         error: 'No AI credentials configured for Gemini TTS',
         fallbackToBrowser: true
@@ -675,7 +711,7 @@ export function cloudSttEncodingFor(mimeType: string): 'WEBM_OPUS' | 'OGG_OPUS' 
 }
 
 // Production-Grade Speech-to-Text (STT) Endpoint
-app.post('/api/stt', async (req, res) => {
+app.post('/api/stt', requireQuota('helperRequests'), async (req, res) => {
   try {
     const { audioBase64, mimeType = 'audio/webm', languageCode = 'it-IT' } = req.body;
 
@@ -717,7 +753,7 @@ app.post('/api/stt', async (req, res) => {
     }
 
     // 2. Multimodal Audio Transcription via Gemini
-    if (HAS_GENAI_CREDENTIALS) {
+    if (hasGenAiCredentials()) {
       const cleanMimeType = mimeType.split(';')[0] || 'audio/webm';
       const geminiResponse = await generateContentWithFallback({
         model: CHAT_MODEL,
@@ -732,7 +768,7 @@ app.post('/api/stt', async (req, res) => {
                 }
               },
               {
-                text: `You are an accurate speech-to-text transcriber for a conversational Italian learning platform ("Parliamo Italiano").
+                text: `You are an accurate speech-to-text transcriber for a conversational Italian learning platform ("${BRAND.name}").
 Transcribe the speaker's audio verbatim. 
 The student is speaking Italian (or attempting to speak Italian, with possible learner accents or brief English words).
 Do NOT reply with conversation, commentary, or corrections.
@@ -875,13 +911,13 @@ async function startServer() {
   }
 
   const server = app.listen(PORT, () => {
-    console.log(`Parliamo Italiano server listening on http://localhost:${PORT}`);
+    console.log(`${BRAND.name} server listening on http://localhost:${PORT}`);
     console.log(`[Config] Chat Model: ${CHAT_MODEL} | TTS Model: ${TTS_MODEL} | Live Model: ${LIVE_MODEL}`);
     console.log(`[Config] GCP Project: ${GCP_PROJECT || '(none - using API key)'} | Region: ${GCP_REGION}`);
   });
 
   attachLiveBridge(server, {
-    ...(HAS_GENAI_CREDENTIALS
+    ...(hasGenAiCredentials()
       ? buildLiveClientOptions(primaryAi, fallbackAi, isAiStudioFallbackPermitted(true), vertexCooldown, LIVE_MODEL)
       : { clients: [] }),
     model: LIVE_MODEL,
@@ -894,4 +930,4 @@ if (!process.env.VITEST) {
   startServer();
 }
 
-export { app };
+export { app, primaryAi };

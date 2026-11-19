@@ -1,6 +1,8 @@
 import React from 'react';
 import { AudioLines, CalendarDays, NotebookPen, X } from 'lucide-react';
 import { GrammarNote, Persona, SavedPhrase } from '../types';
+import type { Me } from '../utils/me';
+import { UsageMeter } from './UsageMeter';
 
 interface UtilityPanelProps {
   persona: Persona;
@@ -9,6 +11,7 @@ interface UtilityPanelProps {
   savedPhrases: SavedPhrase[];
   /** Share of the conversation spoken by the learner, 0–100. */
   talkingShare: number;
+  me?: Me | null;
   onSwitchToVoice: () => void;
   onOpenProfile: () => void;
   onRemovePhrase: (id: string) => void;
@@ -22,6 +25,7 @@ export const UtilityPanel: React.FC<UtilityPanelProps> = ({
   grammarHighlight,
   savedPhrases,
   talkingShare,
+  me,
   onSwitchToVoice,
   onOpenProfile,
   onRemovePhrase,
@@ -142,6 +146,7 @@ export const UtilityPanel: React.FC<UtilityPanelProps> = ({
         <div className="h-full rounded-full bg-mint transition-[width] duration-500" style={{ width: `${talkingShare}%` }} />
       </div>
       <p className="mt-2.5 text-[13px] text-ink">You did {talkingShare}% of the talking today</p>
+      <UsageMeter me={me ?? null} />
     </div>
   </aside>
 );

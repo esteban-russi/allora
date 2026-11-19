@@ -1,5 +1,16 @@
 # Plan 04: limits and paywall UI
 
+## Status
+
+- Branch: `feature/limits-and-paywall-ui`
+- PR link: https://github.com/esteban-russi/parliamo-italiano/pull/15
+- Merged: to `main` on 2026-11-19 with plans 01–06, through PR #17.
+- After review: the plans screen reads premium call minutes from `PLAN_LIMITS` and no longer promises extra tutors before plan 13.
+- Date: 2026-11-19
+- Summary: Completed limits and paywall UI with usage meters, quota cut-offs, PlansScreen, and entry points.
+- Items needing attention:
+  - 🟠 Owner setup: `QUOTAS_MODE=enforce` should be set in `deploy.yml` after merging this PR to enforce limits in production.
+
 Branch: `feature/limits-and-paywall-ui`. Depends on: 02, 03.
 
 Read first: plans 02 and 03, `src/App.tsx` (`handleSendMessage`),
@@ -52,7 +63,7 @@ export function getBilling(): Billing
 
 ## Steps (one commit each)
 
-1. **Quota error helper** (`src/utils/quotaError.ts`).
+1. ✅ **Quota error helper** (`src/utils/quotaError.ts`).
    ```ts
    export interface QuotaError { counter: 'chatMessages' | 'voiceSeconds' | 'helperRequests';
      limit: number; tier: string; resetsAt: string; }
@@ -62,7 +73,7 @@ export function getBilling(): Billing
    ```
    Unit tests for both.
 
-2. **Chat: handle the limit** (`src/App.tsx`).
+2. ✅ **Chat: handle the limit** (`src/App.tsx`).
    - In `handleSendMessage`, after `postChat`: `const quota = await readQuotaError(res)`.
      If not null: remove the just-added user message from `messages` (so it is not shown
      as sent), put its text back in the composer (add a `draft`/`onDraftChange` prop pair
@@ -74,7 +85,7 @@ export function getBilling(): Billing
    - Test (`tests/chatLimit.test.ts`, with `tests/helpers/fakeBrowser.ts`): a 429 quota
      response never calls `generatePersonaFallbackMessage`.
 
-3. **`LimitReachedCard`** (`src/components/LimitReachedCard.tsx`).
+3. ✅ **`LimitReachedCard`** (`src/components/LimitReachedCard.tsx`).
    Props: `quota: QuotaError`, `tier`, `canUpgrade: boolean`, `onSignIn`, `onSeePlans`, `onDismiss`.
    - Text: chat → "You've used today's {limit} messages."; voice → "You've used today's
      {limit/60} minutes of calls."; then "Your allowance resets at {time}."
@@ -84,14 +95,14 @@ export function getBilling(): Billing
      with `aria-describedby` pointing at the card.
    - Clear `limitReached` when `me` changes tier or when the time passes `resetsAt`.
 
-4. **Usage meter** (`src/components/UsageMeter.tsx`, shown in `UtilityPanel` under the
+4. ✅ **Usage meter** (`src/components/UsageMeter.tsx`, shown in `UtilityPanel` under the
    talking-share bar).
    - Two rows: "Messages today 7 / 15" and "Call minutes today 2 / 5" with a thin
      progress bar each (`role="progressbar"`, `aria-valuenow/min/max`).
    - Premium: "Messages: Unlimited" and "Call minutes today 12 / 60".
    - Hidden when `me` is null (local dev without auth).
 
-5. **Voice: preflight and mid-call cut-off.**
+5. ✅ **Voice: preflight and mid-call cut-off.**
    - `App.tsx` `startCall`: `const m = await refresh()`; if
      `m && m.usage.voiceSeconds >= m.limits.voiceSeconds`, set `limitReached` with counter
      `voiceSeconds` and show the card in a small dialog instead of opening `VoiceCallModal`.
@@ -105,15 +116,15 @@ export function getBilling(): Billing
      `generateCallFallback`.
    - Extend `tests/liveCall.test.ts`: `quota_exceeded` triggers the handler and no reconnect.
 
-6. **Helper limit messages.**
+6. ✅ **Helper limit messages.**
    - `speech.ts` `playServerTts` and `transcribeAudioBlob`, and the translate call in
      `VoiceCallModal`/`ChatInterface`: when `readQuotaError` matches, throw/return a typed
      `QuotaLimitError` instead of falling back to another provider.
    - The Listen and Translate buttons show "Daily limit reached" as inline text for 4 s.
 
-7. **Billing interface** (`src/utils/billing.ts`) with `unavailableBilling`, plus tests.
+7. ✅ **Billing interface** (`src/utils/billing.ts`) with `unavailableBilling`, plus tests.
 
-8. **`PlansScreen`** (`src/components/PlansScreen.tsx`).
+8. ✅ **`PlansScreen`** (`src/components/PlansScreen.tsx`).
    Props: `me: Me`, `onDone: () => void`, `onNeedSignIn: () => void`.
    - On mount `getBilling().getOffers(me.userId)`; loading and error states.
    - Layout: heading "Parliamo Premium"; a comparison list built from `me.limits` and the
@@ -128,14 +139,14 @@ export function getBilling(): Billing
      up to 5 times, 2 s apart), then `onDone()`; `cancelled` → stay; `failed` → show message.
    - Prices are never hard-coded; they come from `getOffers`.
 
-9. **Entry points.**
+9. ✅ **Entry points.**
    - Onboarding flow: after a successful sign-in in `signin-after-onboarding`, if
      `getBilling().isAvailable()` and tier is not premium, show `PlansScreen` before the app.
    - `LimitReachedCard` "See plans"; `AccountMenu` "Upgrade" (free) or
      "Manage subscription" (premium, opens `manageUrl` in a new tab when not null).
    - All three are hidden while `isAvailable()` is false.
 
-10. **Docs**: README section "Plans and limits" describing the three tiers and the UI states.
+10. ✅ **Docs**: README section "Plans and limits" describing the three tiers and the UI states.
 
 ## Manual test script
 

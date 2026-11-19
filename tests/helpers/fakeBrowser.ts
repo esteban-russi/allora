@@ -10,7 +10,7 @@ export class FakeSocket {
   closeCalls = 0;
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: unknown }) => void) | null = null;
-  onclose: (() => void) | null = null;
+  onclose: ((event?: any) => void) | null = null;
 
   constructor(
     public url: string,

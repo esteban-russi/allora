@@ -2,8 +2,11 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Bookmark, BookmarkCheck, Headphones, HelpCircle, Languages, Mic, Square, X } from 'lucide-react';
 import { Persona, ChatMessage, DevSettings } from '../types';
 import { PersonaBadge } from './PersonaBadge';
+import { LimitReachedCard } from './LimitReachedCard';
 import { ITALIAN_PRACTICE_PHRASES } from '../data/personas';
 import { speechService, createSpeechRecognizer, AudioRecorder, transcribeAudioBlob } from '../utils/speech';
+import { readQuotaError, QuotaLimitError, type QuotaError } from '../utils/quotaError';
+import { postJson } from '../utils/apiClient';
 
 interface ChatInterfaceProps {
   persona: Persona;
@@ -14,6 +17,13 @@ interface ChatInterfaceProps {
   onSendMessage: (text: string) => void;
   onSavePhrase: (message: ChatMessage) => void;
   isAiGenerating?: boolean;
+  draft?: string;
+  onDraftChange?: (draft: string) => void;
+  limitReached?: QuotaError | null;
+  tier?: string;
+  canUpgrade?: boolean;
+  onSignIn?: () => void;
+  onSeePlans?: () => void;
 }
 
 const ACCENTS = ['à', 'è', 'é', 'ì', 'ò', 'ù'];
@@ -25,14 +35,23 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   savedPhraseIds,
   onSendMessage,
   onSavePhrase,
-  isAiGenerating = false
+  isAiGenerating = false,
+  draft,
+  onDraftChange,
+  limitReached,
+  tier,
+  canUpgrade,
+  onSignIn,
+  onSeePlans
 }) => {
-  const [inputText, setInputText] = useState<string>('');
+  const [inputText, setInputText] = useState<string>(draft ?? '');
   const [visibleTranslations, setVisibleTranslations] = useState<Set<string>>(new Set());
   const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
   const [isRecordingMic, setIsRecordingMic] = useState<boolean>(false);
   const [isTranscribing, setIsTranscribing] = useState<boolean>(false);
   const [isHelpOpen, setIsHelpOpen] = useState<boolean>(false);
+  const [listenLimitMsgId, setListenLimitMsgId] = useState<string | null>(null);
+  const [translateLimitMsgId, setTranslateLimitMsgId] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -40,6 +59,12 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognizerRef = useRef<any>(null);
   const audioRecorderRef = useRef<AudioRecorder | null>(null);
+
+  useEffect(() => {
+    if (draft !== undefined && draft !== inputText) {
+      setInputText(draft);
+    }
+  }, [draft]);
 
   useEffect(() => {
     const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -79,8 +104,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   const handleSend = () => {
     if (!inputText.trim() || isAiGenerating) return;
-    onSendMessage(inputText.trim());
+    const text = inputText.trim();
     setInputText('');
+    onDraftChange?.('');
+    onSendMessage(text);
   };
 
   // Insert at the caret (replacing any selection) and keep typing focus in the composer
@@ -114,6 +141,30 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     });
   };
 
+  const handleTranslate = async (message: ChatMessage) => {
+    if (message.translation) {
+      toggleTranslation(message.id);
+      return;
+    }
+    try {
+      const res = await postJson('/api/translate', { text: message.text });
+      const quota = await readQuotaError(res);
+      if (quota) throw new QuotaLimitError(quota);
+      if (res.ok) {
+        const data = await res.json();
+        if (typeof data.translation === 'string') {
+          message.translation = data.translation;
+          toggleTranslation(message.id);
+        }
+      }
+    } catch (err: unknown) {
+      if ((err as Error)?.name === 'QuotaLimitError') {
+        setTranslateLimitMsgId(message.id);
+        setTimeout(() => setTranslateLimitMsgId(null), 4000);
+      }
+    }
+  };
+
   const handlePlayVoice = async (message: ChatMessage) => {
     if (playingMessageId === message.id) {
       speechService.stopSpeaking();
@@ -122,14 +173,22 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     }
 
     setPlayingMessageId(message.id);
-    await speechService.speakSmart(message.text, {
-      provider: devSettings.voiceProvider,
-      voiceName: persona.voiceId,
-      rate: devSettings.speechRate,
-      gender: persona.voiceGender,
-      onEnd: () => setPlayingMessageId(null),
-      onError: () => setPlayingMessageId(null)
-    });
+    try {
+      await speechService.speakSmart(message.text, {
+        provider: devSettings.voiceProvider,
+        voiceName: persona.voiceId,
+        rate: devSettings.speechRate,
+        gender: persona.voiceGender,
+        onEnd: () => setPlayingMessageId(null),
+        onError: () => setPlayingMessageId(null)
+      });
+    } catch (err: unknown) {
+      setPlayingMessageId(null);
+      if ((err as Error)?.name === 'QuotaLimitError') {
+        setListenLimitMsgId(message.id);
+        setTimeout(() => setListenLimitMsgId(null), 4000);
+      }
+    }
   };
 
   const toggleMicRecording = async () => {
@@ -242,18 +301,28 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     {isPlaying ? <Square className="w-3.5 h-3.5 fill-current" aria-hidden="true" /> : <Headphones className="w-4 h-4" aria-hidden="true" />}
                     {isPlaying ? 'Stop' : 'Listen'}
                   </button>
-                  {message.translation && (
+                  {listenLimitMsgId === message.id && (
+                    <span className="text-xs text-amber-700 font-normal ml-1" role="status">
+                      Daily limit reached
+                    </span>
+                  )}
+                  {(message.translation || !isUser) && (
                     <>
                       <span className="w-px h-4 bg-cobalt/25 mx-1" aria-hidden="true" />
                       <button
                         type="button"
-                        onClick={() => toggleTranslation(message.id)}
+                        onClick={() => handleTranslate(message)}
                         aria-pressed={showTranslation}
                         className="flex items-center gap-1.5 px-2 py-1 rounded-full hover:bg-cobalt/10 transition-colors"
                       >
                         <Languages className="w-4 h-4" aria-hidden="true" />
                         Translate
                       </button>
+                      {translateLimitMsgId === message.id && (
+                        <span className="text-xs text-amber-700 font-normal ml-1" role="status">
+                          Daily limit reached
+                        </span>
+                      )}
                     </>
                   )}
                   <span className="w-px h-4 bg-cobalt/25 mx-1" aria-hidden="true" />
@@ -282,6 +351,16 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
               <span className="w-2 h-2 rounded-full bg-cobalt/60 animate-bounce [animation-delay:300ms]" aria-hidden="true" />
             </div>
           </div>
+        )}
+
+        {limitReached && limitReached.counter === 'chatMessages' && (
+          <LimitReachedCard
+            quota={limitReached}
+            tier={tier ?? 'guest'}
+            canUpgrade={canUpgrade ?? false}
+            onSignIn={onSignIn}
+            onSeePlans={onSeePlans}
+          />
         )}
 
         <div ref={messagesEndRef} />
@@ -360,7 +439,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
               ref={inputRef}
               type="text"
               value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
+              onChange={(e) => {
+                setInputText(e.target.value);
+                onDraftChange?.(e.target.value);
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !isAiGenerating) handleSend();
               }}
@@ -401,7 +483,16 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             <button
               type="button"
               onClick={handleSend}
-              disabled={!inputText.trim() || isAiGenerating}
+              disabled={
+                !inputText.trim() ||
+                isAiGenerating ||
+                Boolean(limitReached && limitReached.counter === 'chatMessages')
+              }
+              aria-describedby={
+                limitReached && limitReached.counter === 'chatMessages'
+                  ? 'limit-reached-card'
+                  : undefined
+              }
               className="shrink-0 h-12 px-5 sm:px-7 rounded-full bg-cobalt hover:bg-cobalt-strong text-canvas text-base font-medium transition-colors disabled:opacity-50 disabled:hover:bg-cobalt"
             >
               Send

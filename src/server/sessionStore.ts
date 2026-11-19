@@ -184,6 +184,7 @@ export interface SessionStore {
   updateUpstreamHandle(sessionId: string, userId: string, handle: string | null, model?: string): Promise<void>;
   deleteSession(sessionId: string, userId: string): Promise<boolean>;
   deleteAllUserData(userId: string): Promise<number>;
+  transferUserSessions(fromUserId: string, toUserId: string): Promise<'moved' | 'discarded' | 'none'>;
   purgeExpiredSessions(): Promise<number>;
 }
 
@@ -478,6 +479,43 @@ export class InMemorySessionStore implements SessionStore {
       }
     }
     return deletedCount;
+  }
+
+  /**
+   * Give a guest's sessions to an account.
+   *
+   * Args:
+   *   fromUserId: Source user identifier (guest).
+   *   toUserId: Destination user identifier (registered account).
+   *
+   * Returns:
+   *   'moved' when reassigned, 'discarded' when target already has an active session,
+   *   'none' when source user had no sessions.
+   */
+  async transferUserSessions(fromUserId: string, toUserId: string): Promise<'moved' | 'discarded' | 'none'> {
+    let hasGuestSessions = false;
+    for (const session of this.sessions.values()) {
+      if (session.userId === fromUserId) {
+        hasGuestSessions = true;
+        break;
+      }
+    }
+    if (!hasGuestSessions) return 'none';
+
+    const targetActive = await this.getActiveUserSession(toUserId);
+    if (targetActive) {
+      await this.deleteAllUserData(fromUserId);
+      return 'discarded';
+    }
+
+    for (const session of this.sessions.values()) {
+      if (session.userId === fromUserId) {
+        session.userId = toUserId;
+        session.upstreamResumptionHandle = null;
+        session.upstreamModel = null;
+      }
+    }
+    return 'moved';
   }
 
   /**

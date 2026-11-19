@@ -4,6 +4,8 @@
 
 - Branch: `feature/accounts-and-tiers`
 - PR link: https://github.com/esteban-russi/parliamo-italiano/pull/12
+- Merged: to `main` on 2026-11-19 with plans 01–06, through PR #17.
+- After review: premium voice lowered to 30 minutes a day to fit the £3.99 price.
 - Date: 2026-11-19
 - Summary: All 8 steps implemented and verified. PR #12 opened.
 - Cloud changes:

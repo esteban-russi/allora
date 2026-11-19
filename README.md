@@ -1,8 +1,13 @@
-# Parliamo Italiano
+# Allora
 
 Learn conversational Italian by talking to people, not flashcards.
 
-Parliamo Italiano is a web app where you practise Italian with an AI tutor. For now there is one: **Emmanuele the Roman**, a retired legionary who chats about daily life in Rome. You can write to him or switch to a hands-free voice call: speak into your microphone, and he answers out loud in natural Italian, with captions, translations and short grammar notes to help you learn from every reply.
+The name, short name, premium plan name and support email live in `src/data/brand.ts`;
+`index.html` gets the name at build time and `metadata.json` carries it by hand. The
+repository, Cloud Run service, GCP project and the `parliamo.*` browser storage keys
+keep the old name on purpose: renaming them would risk the deployment and sign learners out.
+
+Allora is a web app where you practise Italian with an AI tutor. For now there is one: **Emmanuele the Roman**, a retired legionary who chats about daily life in Rome. You can write to him or switch to a hands-free voice call: speak into your microphone, and he answers out loud in natural Italian, with captions, translations and short grammar notes to help you learn from every reply.
 
 ## Meet your tutor
 
@@ -97,7 +102,30 @@ The billed API routes (`/api/chat`, `/api/translate`, `/api/tts`, `/api/stt`, `/
 
 On load the client signs the learner in anonymously with Firebase (`src/utils/firebaseAuth.ts`), using the public web config from `GET /api/auth-config`, and the same anonymous account is reused on that device. That needs `FIREBASE_API_KEY` and `FIREBASE_APP_ID` set on the server and Anonymous sign-in enabled in the Firebase project `GCP_PROJECT`; without them, the client sends no token, which only works when auth is not enforced. Anyone can create anonymous accounts, so the per-IP limits remain the backstop against abuse.
 
-**Accounts and tiers.** Authenticated users are assigned a tier (`guest`, `free`, `premium`). `GET /api/me` returns the learner's account details, current tier, plan limits, and subscription metadata. Guest records in Firestore carry a 30-day inactivity TTL on `expiresAtTs`. Accounts and sessions live in the store selected by `SESSION_STORE` (`memory` or `firestore`).
+**Sign-in, merging and account deletion.** Learners can upgrade from guest to an authenticated account using Google popup sign-in or an email magic link (`sendSignInLinkToEmail`). Upon signing in, `POST /api/account/merge` moves the guest's session and daily usage over to the account (unless the account already has active sessions, in which case guest sessions are discarded), deletes the guest `users` record, and deletes the anonymous Firebase user. `DELETE /api/account` deletes the learner's sessions, usage, and account documents, and permanently deletes their Firebase Auth user via `firebase-admin` (notifying the user if an active store subscription exists).
+
+**Accounts and tiers.** Authenticated users are assigned a tier (`guest`, `free`, `premium`). `GET /api/me` returns the learner's account details, current tier, plan limits, subscription metadata, today's usage, and quota reset time (`resetsAt`). Guest records in Firestore carry a 30-day inactivity TTL on `expiresAtTs`. Accounts and sessions live in the store selected by `SESSION_STORE` (`memory` or `firestore`).
+
+**Daily usage limits.** Daily quotas are tracked per user in Firestore (`usage` collection) or memory: chat messages, helper requests (TTS, STT, translation), and voice seconds. `QUOTAS_MODE` controls enforcement: `off` disables tracking, `monitor` (default in production) meters usage and logs over-limit events, and `enforce` rejects requests with HTTP 429 (`QUOTA_EXCEEDED`) or cuts off live voice calls when daily limits are reached. Usage documents expire after 2 days via Firestore TTL on `expiresAtTs`.
+
+**Plans and limits.** The app provides three subscription tiers:
+- **Guest**: For unauthenticated learners exploring the app. Includes 5 chat messages, 2 minutes of voice calls, and 5 helper requests (TTS, STT, translation) per day.
+- **Free**: For registered accounts with email/magic link or Google sign-in. Includes 15 chat messages, 5 minutes of voice calls, and 100 helper requests per day.
+- **Premium**: For subscribers. Includes unlimited chat messages (fair use cap of 300), 30 minutes of voice calls, and unlimited helper requests per day.
+
+When daily quotas are reached:
+- In chat, a status card explains the limit, preserves unsent draft text in the composer, and prompts guests to sign in or free users to view plans (when billing is available).
+- In voice calls, calls gracefully cut off with an explanatory modal when time expires, or prevent connecting if zero time remains today.
+- In helper tools (Listen and Translate), transient inline alerts ("Daily limit reached") are shown for 4 seconds.
+- The drawer utility panel displays a real-time daily usage meter showing progress towards message and call limits and the local reset time.
+- The plans screen (`PlansScreen`) compares allowances between free and premium tiers, with monthly and annual options.
+
+**Billing backend and subscription synchronization.** RevenueCat acts as the source of truth for premium subscriptions across web and mobile stores:
+- `POST /api/billing/sync`: Authenticated endpoint that queries RevenueCat REST API v1 for the current learner's entitlements and synchronizes `users/<uid>.subscription`. Invoked by the client post-purchase or on app launch when subscriptions near expiration.
+- `POST /api/webhooks/revenuecat`: Webhook listener secured with constant-time token comparison (`REVENUECAT_WEBHOOK_AUTH`). Processes subscriber events (initial purchase, renewal, expiration, user transfer) by pulling latest status directly from RevenueCat.
+- Subscription state includes a 1-hour grace window (`SUBSCRIPTION_SKEW_MS`) past `expiresAt` to avoid disruptions during delayed renewal webhooks.
+- Account deletion (`DELETE /api/account`) cleans up subscriber data in RevenueCat via `deleteSubscriber`.
+- When `REVENUECAT_SECRET_KEY` is omitted, the app runs normally without billing (endpoints return 503 `BILLING_UNAVAILABLE`).
 
 **Learner sessions.** A session holds the learner's level, saved phrases and the last 50 conversation turns. The server assigns its ID, the client remembers it on the device, and both chat and Live turns are checkpointed to it. `GET /api/session` returns the latest session, `POST` creates or updates one, `DELETE /api/session/:id` deletes one and `DELETE /api/session` deletes all of a user's data. Sessions expire after 30 days without activity.
 
@@ -123,15 +151,48 @@ scripts/setup-gcp-deploy.sh <gcp-project-id> [region] [service-name]
 
 The script enables the APIs, creates the Artifact Registry repo, the deployer and runtime service accounts and the identity pool, and writes the GitHub repo variables the workflow reads. You can also trigger a deploy by hand from the Actions tab (**Deploy to Cloud Run → Run workflow**).
 
+### Firebase Console setup (owner, before deploying)
+
+1. **Sign-in providers:** In Firebase Console → Authentication → Sign-in method, enable **Google** and **Email/Password** with **Email link (passwordless sign-in)**.
+2. **Authorised domains:** In Firebase Console → Authentication → Settings → Authorised domains, add the app's Cloud Run or custom domain.
+3. **Customize action URL:** In Firebase Console → Authentication → Templates → edit template → "Customize action URL": `<APP_URL>/auth/action`.
+4. **IAM permissions:** Ensure `roles/firebaseauth.admin` is granted to the runtime service account (`parliamo-italiano-runtime@<project>.iam.gserviceaccount.com`).
+
+### RevenueCat setup (owner, before deploying billing)
+
+1. **RevenueCat project:** Create the project, entitlement `premium`, and offering `default` with packages `$rc_monthly` and `$rc_annual`.
+2. **Secret Manager secrets:** Store the RevenueCat REST API secret key and a random webhook secret:
+   ```bash
+   printf '%s' '<REVENUECAT_SECRET_KEY>' | gcloud secrets create revenuecat-secret-key --data-file=- --project=<project>
+   openssl rand -hex 32 | tr -d '\n' | gcloud secrets create revenuecat-webhook-auth --data-file=- --project=<project>
+   gcloud secrets add-iam-policy-binding revenuecat-secret-key --member=serviceAccount:<runtime-sa> --role=roles/secretmanager.secretAccessor --project=<project>
+   gcloud secrets add-iam-policy-binding revenuecat-webhook-auth --member=serviceAccount:<runtime-sa> --role=roles/secretmanager.secretAccessor --project=<project>
+   ```
+3. **Webhook configuration:** In RevenueCat → Integrations → Webhooks, set endpoint URL to `<APP_URL>/api/webhooks/revenuecat` with `Authorization: Bearer <the-webhook-secret>`. Check that "Send test event" returns 200.
+4. **Web Billing public key:** In RevenueCat → Project Settings → Apps → Web Billing app, copy the Public API key (sandbox or production) and store it in the GitHub repository variable `REVENUECAT_WEB_PUBLIC_KEY`. The server exposes it safely to the browser client via `GET /api/auth-config`.
+5. **Stripe & Web Billing products:**
+   - In RevenueCat → Project Settings → Apps, create a Web Billing app and connect a verified Stripe account.
+   - Create products `allora_pro_monthly` (£3.99/mo) and `allora_pro_annual` (£29.99/yr with a 7-day free trial), each with a 3-day grace period.
+   - Attach both to entitlement `premium`, and to offering `default` as `$rc_monthly` and `$rc_annual`.
+6. **Sandbox testing:**
+   - Set `REVENUECAT_WEB_PUBLIC_KEY` to the sandbox Web Billing public key in the environment or GitHub repository variables.
+   - Use Stripe test card `4242 4242 4242 4242` (any valid future date, 3-digit CVC) in checkout to test successful subscriptions and trial activation.
+   - Use card `4000 0000 0000 0002` to verify payment decline error handling.
+
 ## Project structure
 
 ```
-├── server.ts                  # Express server: chat, translate, TTS, STT, sessions, me, health, metrics, Vite/static serving
+├── server.ts                  # Express server: chat, translate, TTS, STT, sessions, me, account, billing, health, metrics, Vite/static serving
 ├── liveBridge.ts              # /api/live WebSocket bridge to Gemini Live: auth, call limits, heartbeat, resumption
 ├── src/
-│   ├── App.tsx                # App state and dashboard layout
+│   ├── App.tsx                # App state, routing and dashboard layout
 │   ├── assets/emmanuele/      # Tutor portraits (resting and speaking)
 │   ├── components/
+│   │   ├── AccountMenu.tsx    # Account dialog: identity, plan, edit profile, sign out, delete account
+│   │   ├── PlansScreen.tsx    # Full-screen paywall and subscription plan selection
+│   │   ├── UsageMeter.tsx     # Daily usage meter & upgrade call-to-action
+│   │   ├── SignInScreen.tsx   # Sign-in screen: Google popup and magic link email form
+│   │   ├── OnboardingPage.tsx # Learner name, CEFR level and tutor picker
 │   │   ├── IconRail.tsx       # Left navigation rail
 │   │   ├── TopHeader.tsx      # Brand, conversation title, Text/Voice switch
 │   │   ├── ChatInterface.tsx  # Chat bubbles, quick replies and composer
@@ -142,9 +203,14 @@ The script enables the APIs, creates the Artifact Registry repo, the deployer an
 │   │   ├── PersonaBadge.tsx
 │   │   └── UserBadge.tsx
 │   ├── data/personas.ts       # Emmanuele's persona, starter message and saved phrases
-│   ├── server/                # auth, accountStore, plans, accountMiddleware, sessionStore, rateLimiter, privacyAndPolicy, metrics, maintenance
-│   ├── utils/apiClient.ts     # Authenticated API calls and the ID token source
+│   ├── server/                # auth, accountStore, accountRoutes, billingRoutes, billingSync, identityAdmin, plans, revenueCat, usageStore, quota, sessionStore, rateLimiter, metrics
+│   ├── utils/apiClient.ts     # Authenticated API calls (get, post, delete) and ID token source
+│   ├── utils/billing.ts       # Client billing interface and active adapter registry
+│   ├── utils/billingWeb.ts    # RevenueCat Web Billing adapter (@revenuecat/purchases-js)
+│   ├── utils/clientConfig.ts  # Client config loader (/api/auth-config)
+│   ├── utils/firebaseAuth.ts  # Client auth: anonymous, Google popup, email magic link, account merge
 │   ├── utils/learnerSession.ts # Remembers the learner session and links chat turns to it
+│   ├── utils/me.ts            # Client account /api/me fetching and typing
 │   ├── utils/speech.ts        # Gemini TTS playback, browser TTS fallback, speech recognition
 │   ├── utils/liveCall.ts      # Gemini Live call client: mic streaming, playback, heartbeat, reconnect
 │   └── types/index.ts
