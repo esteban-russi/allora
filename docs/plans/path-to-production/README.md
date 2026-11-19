@@ -82,15 +82,18 @@ Web ───── RevenueCat Web Billing (Stripe) ─────────�
 
 One plan file per PR. Do them in this order; each is deployable on its own.
 
+Plans 01–06 were reviewed and merged to `main` together on 2026-11-19 through PR #17
+(PRs #12–#16 were stacked under it). Their remaining owner steps are listed in each plan.
+
 | # | Plan | What ships | Depends on | Status |
 |---|---|---|---|---|
-| 00 | [Brand constants and custom domain](00-brand-and-domain.md) | App name in one place, custom domain, final Android app ID | none (do first) | |
-| 01 | [Accounts and tiers](01-accounts-and-tiers.md) | `users` collection, tier logic, `GET /api/me` | firestore-sessions merged | ✅ |
-| 02 | [Daily usage limits](02-daily-usage-limits.md) | `usage` collection, caps on chat, helpers and voice minutes | 01 | 🟠 |
-| 03 | [Sign-in on the web](03-sign-in-web.md) | Google + magic link, guest merge, sign out, delete account | 01, 02 | 🟠 |
-| 04 | [Limits and paywall UI](04-limits-and-paywall-ui.md) | Usage meter, limit-reached states, plans screen (no checkout yet) | 02, 03 | 🟠 |
-| 05 | [Billing backend](05-billing-backend.md) | RevenueCat webhook and sync, subscription on the user record | 01 | 🟠 |
-| 06 | [Web checkout](06-web-checkout.md) | Card payments on the web through RevenueCat Web Billing | 04, 05 | 🟠 |
+| 00 | [Brand constants and custom domain](00-brand-and-domain.md) | App name in one place, custom domain, final Android app ID | none (do first) | 🟠 name done; domain and app ID open |
+| 01 | [Accounts and tiers](01-accounts-and-tiers.md) | `users` collection, tier logic, `GET /api/me` | firestore-sessions merged | ✅ merged |
+| 02 | [Daily usage limits](02-daily-usage-limits.md) | `usage` collection, caps on chat, helpers and voice minutes | 01 | ✅ merged |
+| 03 | [Sign-in on the web](03-sign-in-web.md) | Google + magic link, guest merge, sign out, delete account | 01, 02 | ✅ merged |
+| 04 | [Limits and paywall UI](04-limits-and-paywall-ui.md) | Usage meter, limit-reached states, plans screen (no checkout yet) | 02, 03 | ✅ merged |
+| 05 | [Billing backend](05-billing-backend.md) | RevenueCat webhook and sync, subscription on the user record | 01 | ✅ merged |
+| 06 | [Web checkout](06-web-checkout.md) | Card payments on the web through RevenueCat Web Billing | 04, 05 | ✅ merged |
 | 07 | [Android app shell](07-android-app-shell.md) | Capacitor project, API base URL, CORS, mic, lifecycle | 01–04 on main | |
 | 08 | [Android sign-in](08-android-sign-in.md) | Native Google sign-in, magic link through App Links | 03, 07 | |
 | 09 | [Android purchases](09-android-purchases.md) | Play Billing through RevenueCat, restore purchases | 05, 07, 08 | |
@@ -151,12 +154,13 @@ be tested until a build with the billing library is on a track.
 ## 8. Owner answers and open questions
 
 Answered:
-- Custom domain: yes, and the app will be renamed (plan 00).
+- Custom domain: yes, and the app is renamed to **Allora** (plan 00, name done).
+- Web prices: £3.99 a month, £29.99 a year with a 7-day trial; premium voice is 30 minutes a day.
 - Premium also unlocks extra tutors (plan 13).
 - Play developer account: personal. This means the 12-tester, 14-day closed test applies,
   and the developer's contact details are public on a paid app.
 
 Still open:
 1. Guest allowance (5 messages, 2 voice minutes a day): keep, or require sign-in before any use?
-2. The new name, domain and Android app ID (plan 00 lists what is needed).
+2. The domain and Android app ID (plan 00 lists what is needed); the name is Allora.
 3. Which premium tutors to launch with, and who produces the portraits (plan 13).

@@ -4,6 +4,8 @@
 
 - Branch: `feature/limits-and-paywall-ui`
 - PR link: https://github.com/esteban-russi/parliamo-italiano/pull/15
+- Merged: to `main` on 2026-11-19 with plans 01–06, through PR #17.
+- After review: the plans screen reads premium call minutes from `PLAN_LIMITS` and no longer promises extra tutors before plan 13.
 - Date: 2026-11-19
 - Summary: Completed limits and paywall UI with usage meters, quota cut-offs, PlansScreen, and entry points.
 - Items needing attention:

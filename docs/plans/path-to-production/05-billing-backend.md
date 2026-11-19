@@ -4,6 +4,11 @@
 
 - Branch: `feature/billing-backend`
 - PR link: https://github.com/esteban-russi/parliamo-italiano/pull/16
+- Merged: to `main` on 2026-11-19 with plans 01–06, through PR #17.
+- After review: sync and webhook failures are logged; the webhook is outside the per-IP
+  rate limit. Secret Manager API enabled; `revenuecat-secret-key` and
+  `revenuecat-webhook-auth` created with access for the runtime service account.
+  🟠 Webhook in RevenueCat still to add after the deploy.
 - Date: 2026-11-19
 - Summary: Implemented RevenueCat billing backend, subscription skew tolerance, client launch sync, webhook handler, and Secret Manager configuration.
 - Items needing attention:

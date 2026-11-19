@@ -4,6 +4,7 @@
 
 - Branch: `feature/web-checkout`
 - PR link: https://github.com/esteban-russi/parliamo-italiano/pull/17
+- Merged: to `main` on 2026-11-19 with plans 01–06, through PR #17.
 - Date: 2026-11-19
 - Summary: Fully implemented; web billing adapter with Purchases JS, dynamic config, checkout/success states, tests, and documentation.
 - Items needing attention:

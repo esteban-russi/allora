@@ -4,6 +4,8 @@
 
 - Branch: `feature/daily-usage-limits`
 - PR link: https://github.com/esteban-russi/parliamo-italiano/pull/13
+- Merged: to `main` on 2026-11-19 with plans 01–06, through PR #17.
+- After review: a request rejected with any 4xx (e.g. an empty message) now gets its unit refunded, not only 5xx.
 - Date: 2026-11-19
 - Summary: All steps completed and verified with passing unit and integration tests.
 - Cloud changes made:

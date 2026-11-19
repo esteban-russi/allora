@@ -4,6 +4,11 @@
 
 - Branch: `feature/sign-in-web`
 - PR link: https://github.com/esteban-russi/parliamo-italiano/pull/14
+- Merged: to `main` on 2026-11-19 with plans 01–06, through PR #17.
+- After review: a deleted account's other tabs or devices can no longer recreate `users/<uid>`
+  (401 `ACCOUNT_DELETED`); the client then signs out to a new guest, clears the old
+  conversation and returns to onboarding with a notice. Guests see the sign-in offer only
+  after their first onboarding, not after each profile edit.
 - Date: 2026-11-19
 - Summary: Complete. PR #14 open against `feature/daily-usage-limits`.
 - Cloud changes made:
@@ -17,7 +22,7 @@
 - Items needing attention:
   - 🟠 Owner console setup: In Firebase Console -> Authentication -> Sign-in method, enable **Google** provider (requires OAuth client ID / secret).
   - 🟠 Owner console setup: In Firebase Console -> Authentication -> Sign-in method -> Email/Password, verify **Email link (passwordless sign-in)** is checked.
-  - 🟠 Owner console setup: In Firebase Console -> Authentication -> Templates -> Edit template -> Customize action URL, set to `https://parliamo-italiano-562781327825.europe-west1.run.app/auth/action`. (API rejected template patch with `EMAIL_TEMPLATE_UPDATE_NOT_ALLOWED`).
+  - Optional: Customize action URL in Firebase email templates. Not needed: the sign-in email sets the continue URL to `<APP_URL>/auth/action` and Firebase's default handler redirects there. The console and API refuse the change on this project (`EMAIL_TEMPLATE_UPDATE_NOT_ALLOWED`); retry once the custom domain exists.
   - 🟠 Live verification: Real Google sign-in popup and real email link delivery could not be executed unattended in test environments; auth flows are verified via unit tests with fakes and mocked Firebase Auth.
 
 Branch: `feature/sign-in-web`. Depends on: 01, 02.
@@ -224,7 +229,7 @@ README: sign-in, merge and delete endpoints; console setup below.
 1. 🟠 Firebase → Authentication → Sign-in method: enable **Google** and **Email/Password**
    with **Email link (passwordless sign-in)**.
 2. ✅ Authentication → Settings → Authorised domains: add the app's domain (Added `parliamo-italiano-562781327825.europe-west1.run.app`).
-3. 🟠 Authentication → Templates → edit any template → "Customize action URL": `<APP_URL>/auth/action`.
+3. Optional: Authentication → Templates → "Customize action URL": `<APP_URL>/auth/action`. Only changes the domain shown in the email link; see Status.
 4. ✅ IAM: grant `roles/firebaseauth.admin` to the runtime service account (Granted to `parliamo-italiano-runtime@corso-di-italiano-496920.iam.gserviceaccount.com`).
 
 ## Acceptance
