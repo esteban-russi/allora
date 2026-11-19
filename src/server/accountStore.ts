@@ -4,7 +4,7 @@ export type Tier = 'guest' | 'free' | 'premium';
 
 export interface Subscription {
   status: 'active' | 'grace' | 'expired';
-  productId: string; // e.g. "parliamo_pro_annual"
+  productId: string; // e.g. "allora_pro_annual"
   store: 'play_store' | 'web';
   periodType: 'trial' | 'normal';
   expiresAt: string; // ISO time

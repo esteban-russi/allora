@@ -59,7 +59,7 @@ describe('PlansScreen', () => {
         onNeedSignIn: vi.fn()
       })
     );
-    expect(html).toContain('Parliamo Premium');
+    expect(html).toContain('Allora Premium');
     expect(html).toContain('Unlimited');
     expect(html).toContain('chat messages daily');
     expect(html).toContain('5</strong> → <strong class="font-semibold text-cobalt">30</strong> call minutes daily');
@@ -85,6 +85,6 @@ describe('PlansScreen', () => {
         onNeedSignIn: vi.fn()
       })
     );
-    expect(html).toContain('Parliamo Premium');
+    expect(html).toContain('Allora Premium');
   });
 });

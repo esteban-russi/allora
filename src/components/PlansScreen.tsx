@@ -3,6 +3,7 @@ import { Check, ShieldCheck, Sparkles } from 'lucide-react';
 import type { Me } from '../utils/me';
 import { getBilling, type PlanId, type PlanOffer } from '../utils/billing';
 import { PLAN_LIMITS } from '../server/plans';
+import { BRAND } from '../data/brand';
 
 export interface PlansScreenProps {
   me: Me;
@@ -153,7 +154,7 @@ export const PlansScreen: React.FC<PlansScreenProps> = ({
             <span>Accelerate your fluency</span>
           </div>
           <h1 className="font-serif text-2xl sm:text-3xl font-semibold text-ink">
-            Parliamo Premium
+            {BRAND.premiumName}
           </h1>
           <p className="text-sm text-ink-muted">
             Unlimited daily conversation practice with personalized Italian tutors.

@@ -2,6 +2,7 @@ import React from 'react';
 import { NotebookText } from 'lucide-react';
 import { CefrLevel, Persona } from '../types';
 import { UserBadge } from './UserBadge';
+import { BRAND } from '../data/brand';
 
 interface TopHeaderProps {
   persona: Persona;
@@ -24,7 +25,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
 }) => (
   <header className="h-16 shrink-0 grid grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 md:px-6 bg-canvas">
     <span className="font-serif text-[26px] leading-none font-semibold tracking-tight text-cobalt">
-      Parliamo
+      {BRAND.shortName}
     </span>
 
     <div className="hidden sm:flex items-center gap-2">

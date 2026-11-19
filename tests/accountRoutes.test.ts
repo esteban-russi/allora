@@ -245,7 +245,7 @@ describe('DELETE /api/account', () => {
     await accountStore.upsertFromAuth({ userId: 'u-premium', isAnonymous: false });
     await accountStore.setSubscription('u-premium', {
       status: 'active',
-      productId: 'parliamo_pro_annual',
+      productId: 'allora_pro_annual',
       store: 'web',
       periodType: 'normal',
       expiresAt: '2027-01-01T00:00:00.000Z',

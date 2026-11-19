@@ -35,6 +35,7 @@ import { scheduleMaintenance } from './src/server/maintenance';
 import type { FirebaseClientConfig } from './src/utils/firebaseAuth';
 import { createAccountRouter } from './src/server/accountRoutes';
 import { createBillingRouter, createRevenueCatWebhookRouter } from './src/server/billingRoutes';
+import { BRAND } from './src/data/brand';
 
 dotenv.config();
 
@@ -92,7 +93,7 @@ function createGenAiClient(preferVertex: boolean) {
   const options: Record<string, any> = {
     httpOptions: {
       headers: {
-        'User-Agent': 'parliamo-italiano-gcp',
+        'User-Agent': 'allora-gcp',
       },
     },
   };
@@ -767,7 +768,7 @@ app.post('/api/stt', requireQuota('helperRequests'), async (req, res) => {
                 }
               },
               {
-                text: `You are an accurate speech-to-text transcriber for a conversational Italian learning platform ("Parliamo Italiano").
+                text: `You are an accurate speech-to-text transcriber for a conversational Italian learning platform ("${BRAND.name}").
 Transcribe the speaker's audio verbatim. 
 The student is speaking Italian (or attempting to speak Italian, with possible learner accents or brief English words).
 Do NOT reply with conversation, commentary, or corrections.
@@ -910,7 +911,7 @@ async function startServer() {
   }
 
   const server = app.listen(PORT, () => {
-    console.log(`Parliamo Italiano server listening on http://localhost:${PORT}`);
+    console.log(`${BRAND.name} server listening on http://localhost:${PORT}`);
     console.log(`[Config] Chat Model: ${CHAT_MODEL} | TTS Model: ${TTS_MODEL} | Live Model: ${LIVE_MODEL}`);
     console.log(`[Config] GCP Project: ${GCP_PROJECT || '(none - using API key)'} | Region: ${GCP_REGION}`);
   });

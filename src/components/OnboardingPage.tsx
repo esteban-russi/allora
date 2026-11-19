@@ -3,6 +3,7 @@ import { ArrowRight, Check, MapPin, Sparkles } from 'lucide-react';
 import { CefrLevel, LearnerProfile, Persona } from '../types';
 import { CEFR_LEVEL_OPTIONS, TUTORS } from '../data/personas';
 import { UserBadge } from './UserBadge';
+import { BRAND } from '../data/brand';
 
 interface OnboardingPageProps {
   initialProfile?: LearnerProfile | null;
@@ -41,7 +42,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
       {/* Top branding bar */}
       <header className="h-16 shrink-0 flex items-center justify-between px-5 sm:px-8 border-b border-line bg-canvas">
         <span className="font-serif text-[26px] leading-none font-semibold tracking-tight text-cobalt">
-          Parliamo
+          {BRAND.shortName}
         </span>
         <div className="flex items-center gap-4">
           <span className="hidden sm:inline text-xs font-medium tracking-[0.08em] uppercase text-ink-muted">

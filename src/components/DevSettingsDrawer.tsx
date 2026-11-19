@@ -16,6 +16,7 @@ import { DevSettings, VoiceProvider, SttProvider, VoiceCallEngine } from '../typ
 import { speechService } from '../utils/speech';
 import { EMMANUELE } from '../data/personas';
 import { useDialog } from '../hooks/useDialog';
+import { BRAND } from '../data/brand';
 
 interface DevSettingsDrawerProps {
   isOpen: boolean;
@@ -104,7 +105,7 @@ export const DevSettingsDrawer: React.FC<DevSettingsDrawerProps> = ({
   };
 
   const payloadInspection = {
-    runtime: 'Parliamo Italiano Video & Audio Engine v3.2',
+    runtime: `${BRAND.name} Video & Audio Engine v3.2`,
     endpoints: {
       tts: '/api/tts (Gemini 3.8 Flash-Lite TTS, 24kHz WAV)',
       chat: '/api/chat (Gemini 2.5 Flash + Pedagogical JSON)',
