@@ -53,6 +53,36 @@ app.use((_req, res, next) => {
   }
   next();
 });
+
+// Redirect browser page loads from secondary hosts (e.g. *.run.app) to APP_URL in production.
+// API, WebSocket and .well-known requests are never redirected.
+app.use((req, res, next) => {
+  if (process.env.NODE_ENV !== 'production' || req.method !== 'GET') return next();
+  const rawAppUrl = process.env.APP_URL?.trim();
+  if (!rawAppUrl) return next();
+
+  let canonical: URL;
+  try {
+    canonical = new URL(rawAppUrl);
+  } catch {
+    return next();
+  }
+  if (canonical.protocol !== 'http:' && canonical.protocol !== 'https:') return next();
+
+  if (
+    req.path === '/api' ||
+    req.path.startsWith('/api/') ||
+    req.path === '/.well-known' ||
+    req.path.startsWith('/.well-known/')
+  ) {
+    return next();
+  }
+
+  const requestHost = req.get('host')?.trim().toLowerCase();
+  if (!requestHost || requestHost === canonical.host.toLowerCase()) return next();
+
+  return res.redirect(308, `${canonical.origin}${req.originalUrl}`);
+});
 const PORT = process.env.PORT || 3000;
 
 // Configuration

@@ -272,6 +272,54 @@ describe('HTTP hardening', () => {
   });
 });
 
+describe('canonical host redirect', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('redirects GET / on another host to APP_URL with 308 in production', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('APP_URL', 'https://app.example.com');
+
+    const res = await request(app)
+      .get('/?ref=old')
+      .set('Host', 'allora-xyz.a.run.app');
+
+    expect(res.status).toBe(308);
+    expect(res.headers.location).toBe('https://app.example.com/?ref=old');
+  });
+
+  it('never redirects /api/health or /.well-known requests', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('APP_URL', 'https://app.example.com');
+
+    const healthRes = await request(app)
+      .get('/api/health')
+      .set('Host', 'allora-xyz.a.run.app');
+    expect(healthRes.status).toBe(200);
+    expect(healthRes.body).toEqual({ status: 'ok' });
+
+    const wellKnownRes = await request(app)
+      .get('/.well-known/assetlinks.json')
+      .set('Host', 'allora-xyz.a.run.app');
+    expect(wellKnownRes.status).not.toBe(308);
+  });
+
+  it('does not redirect when APP_URL is unset or empty', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('APP_URL', '');
+
+    const emptyRes = await request(app)
+      .get('/')
+      .set('Host', 'allora-xyz.a.run.app');
+    expect(emptyRes.status).not.toBe(308);
+
+    delete process.env.APP_URL;
+    const unsetRes = await request(app)
+      .get('/')
+      .set('Host', 'allora-xyz.a.run.app');
+    expect(unsetRes.status).not.toBe(308);
+  });
+});
+
 describe('API 404 fallback', () => {
   it('returns structured JSON 404 for unknown /api routes', async () => {
     const getRes = await request(app).get('/api/typo');
