@@ -71,7 +71,7 @@ export function getBilling(): Billing
    ```
    Unit tests for both.
 
-2. **Chat: handle the limit** (`src/App.tsx`).
+2. ✅ **Chat: handle the limit** (`src/App.tsx`).
    - In `handleSendMessage`, after `postChat`: `const quota = await readQuotaError(res)`.
      If not null: remove the just-added user message from `messages` (so it is not shown
      as sent), put its text back in the composer (add a `draft`/`onDraftChange` prop pair

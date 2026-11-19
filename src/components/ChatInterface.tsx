@@ -14,6 +14,8 @@ interface ChatInterfaceProps {
   onSendMessage: (text: string) => void;
   onSavePhrase: (message: ChatMessage) => void;
   isAiGenerating?: boolean;
+  draft?: string;
+  onDraftChange?: (draft: string) => void;
 }
 
 const ACCENTS = ['à', 'è', 'é', 'ì', 'ò', 'ù'];
@@ -25,9 +27,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   savedPhraseIds,
   onSendMessage,
   onSavePhrase,
-  isAiGenerating = false
+  isAiGenerating = false,
+  draft,
+  onDraftChange
 }) => {
-  const [inputText, setInputText] = useState<string>('');
+  const [inputText, setInputText] = useState<string>(draft ?? '');
   const [visibleTranslations, setVisibleTranslations] = useState<Set<string>>(new Set());
   const [playingMessageId, setPlayingMessageId] = useState<string | null>(null);
   const [isRecordingMic, setIsRecordingMic] = useState<boolean>(false);
@@ -40,6 +44,12 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognizerRef = useRef<any>(null);
   const audioRecorderRef = useRef<AudioRecorder | null>(null);
+
+  useEffect(() => {
+    if (draft !== undefined && draft !== inputText) {
+      setInputText(draft);
+    }
+  }, [draft]);
 
   useEffect(() => {
     const prefersReducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -79,8 +89,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   const handleSend = () => {
     if (!inputText.trim() || isAiGenerating) return;
-    onSendMessage(inputText.trim());
+    const text = inputText.trim();
     setInputText('');
+    onDraftChange?.('');
+    onSendMessage(text);
   };
 
   // Insert at the caret (replacing any selection) and keep typing focus in the composer
@@ -360,7 +372,10 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
               ref={inputRef}
               type="text"
               value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
+              onChange={(e) => {
+                setInputText(e.target.value);
+                onDraftChange?.(e.target.value);
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !isAiGenerating) handleSend();
               }}

@@ -17,6 +17,7 @@ import { useAccount } from './hooks/useAccount';
 import { speechService } from './utils/speech';
 import { completeMagicLink, EMAIL_FOR_SIGN_IN_KEY, isMagicLink } from './utils/firebaseAuth';
 import { loadLearnerSession, postChat, saveLearnerSettings, startLearnerSession, toChatMessages } from './utils/learnerSession';
+import { readQuotaError, type QuotaError } from './utils/quotaError';
 import type { ClientLearnerSession } from './server/sessionStore';
 
 const countWords = (text: string) => text.trim().split(/\s+/).filter(Boolean).length;
@@ -28,7 +29,9 @@ export default function App() {
   // True until the saved session (if any) has been loaded, so onboarding does not flash
   const [isRestoring, setIsRestoring] = useState<boolean>(true);
 
-  const { me, refresh: refreshAccount } = useAccount();
+  const { me, refresh: refreshAccount, setUsage } = useAccount();
+  const [limitReached, setLimitReached] = useState<QuotaError | null>(null);
+  const [chatDraft, setChatDraft] = useState<string>('');
 
   const persona: Persona = useMemo(
     () => TUTORS.find((t) => t.id === learnerProfile?.personaId) ?? EMMANUELE,
@@ -163,6 +166,25 @@ export default function App() {
     };
   }, []);
 
+  // Clear quota limit card when tier changes or reset time elapses
+  useEffect(() => {
+    if (!limitReached) return;
+    if (me && limitReached.tier !== me.tier) {
+      setLimitReached(null);
+      return;
+    }
+    const resetMs = Date.parse(limitReached.resetsAt);
+    if (!isNaN(resetMs)) {
+      const remaining = resetMs - Date.now();
+      if (remaining <= 0) {
+        setLimitReached(null);
+      } else {
+        const timer = setTimeout(() => setLimitReached(null), remaining);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [limitReached, me?.tier]);
+
   const updateSavedPhrases = (next: SavedPhrase[]) => {
     setSavedPhrases(next);
     if (learnerProfile) {
@@ -218,8 +240,20 @@ export default function App() {
         learnerName: learnerProfile?.name
       });
 
+      const quota = await readQuotaError(res);
+      if (quota) {
+        setMessages((prev) => prev.filter((m) => m.id !== userMsg.id));
+        setChatDraft(text);
+        setLimitReached(quota);
+        setIsAiGenerating(false);
+        return;
+      }
+
       if (res.ok) {
         const data = await res.json();
+        if (data?.quota && typeof data.quota.used === 'number') {
+          setUsage('chatMessages', data.quota.used);
+        }
         if (data.text) {
           const aiMessage: ChatMessage = {
             id: `b-${Date.now()}`,
@@ -230,7 +264,7 @@ export default function App() {
             grammarNotes: data.grammarNotes || [],
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
           };
-          setMessages(prev => [...prev, aiMessage]);
+          setMessages((prev) => [...prev, aiMessage]);
           speakIfAutoPlay(aiMessage.text);
           setIsAiGenerating(false);
           return;
@@ -240,10 +274,10 @@ export default function App() {
       console.warn('Server Gemini call error, using local fallback generator:', err);
     }
 
-    // Local fallback generator if server is offline or quota reached
+    // Local fallback generator if server is offline
     setTimeout(() => {
       const fallbackResponse = generatePersonaFallbackMessage(persona, text);
-      setMessages(prev => [...prev, fallbackResponse]);
+      setMessages((prev) => [...prev, fallbackResponse]);
       speakIfAutoPlay(fallbackResponse.text);
       setIsAiGenerating(false);
     }, 500);
@@ -349,6 +383,8 @@ export default function App() {
               onSendMessage={handleSendMessage}
               onSavePhrase={handleSavePhrase}
               isAiGenerating={isAiGenerating}
+              draft={chatDraft}
+              onDraftChange={setChatDraft}
             />
           </div>
 

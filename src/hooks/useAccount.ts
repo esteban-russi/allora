@@ -5,6 +5,7 @@ import { fetchMe, type Me } from '../utils/me';
 export interface UseAccountResult {
   me: Me | null;
   refresh: () => Promise<Me | null>;
+  setUsage: (counter: 'chatMessages' | 'voiceSeconds' | 'helperRequests', used: number) => void;
 }
 
 /**
@@ -16,7 +17,7 @@ export interface UseAccountResult {
  *   initialMe: Optional initial state.
  *
  * Returns:
- *   Current Me state and refresh function.
+ *   Current Me state, refresh function, and optimistic usage updater.
  */
 export function useAccount(initialMe: Me | null = null): UseAccountResult {
   const [me, setMe] = useState<Me | null>(initialMe);
@@ -27,9 +28,25 @@ export function useAccount(initialMe: Me | null = null): UseAccountResult {
     return fresh;
   }, []);
 
+  const setUsage = useCallback(
+    (counter: 'chatMessages' | 'voiceSeconds' | 'helperRequests', used: number) => {
+      setMe((prev) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          usage: {
+            ...prev.usage,
+            [counter]: used
+          }
+        };
+      });
+    },
+    []
+  );
+
   useEffect(() => {
     refresh();
   }, [refresh]);
 
-  return { me, refresh };
+  return { me, refresh, setUsage };
 }
