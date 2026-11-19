@@ -53,7 +53,7 @@ Missing for a paid launch:
 | | Guest | Free | Premium |
 |---|---|---|---|
 | Chat messages per day | 5 | 15 | 300 (shown as "unlimited") |
-| Voice call minutes per day | 2 | 5 | 60 |
+| Voice call minutes per day | 2 | 5 | 30 |
 | Helper requests per day (listen, translate, speech-to-text) | 30 | 100 | 1000 |
 | Saved conversation across devices | no | yes | yes |
 | Tutors | Emmanuele | Emmanuele | All tutors (plan 13) |
