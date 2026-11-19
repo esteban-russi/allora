@@ -12,6 +12,7 @@ import { UtilityPanel } from './components/UtilityPanel';
 import { OnboardingPage } from './components/OnboardingPage';
 import { SignInScreen } from './components/SignInScreen';
 import { AccountMenu } from './components/AccountMenu';
+import { LimitReachedCard } from './components/LimitReachedCard';
 import { useDialog } from './hooks/useDialog';
 import { useAccount } from './hooks/useAccount';
 import { speechService } from './utils/speech';
@@ -300,8 +301,18 @@ export default function App() {
     }
   };
 
-  const startCall = () => {
+  const startCall = async () => {
     setIsNotebookDrawerOpen(false);
+    const m = await refreshAccount();
+    if (m && m.usage.voiceSeconds >= m.limits.voiceSeconds) {
+      setLimitReached({
+        counter: 'voiceSeconds',
+        limit: m.limits.voiceSeconds,
+        tier: m.tier,
+        resetsAt: m.resetsAt
+      });
+      return;
+    }
     setIsCallOpen(true);
   };
 
@@ -424,7 +435,57 @@ export default function App() {
           devSettings={devSettings}
           learnerProfile={learnerProfile}
           onEndCall={() => setIsCallOpen(false)}
+          onLimitReached={async () => {
+            const m = await refreshAccount();
+            if (m) {
+              setLimitReached({
+                counter: 'voiceSeconds',
+                limit: m.limits.voiceSeconds,
+                tier: m.tier,
+                resetsAt: m.resetsAt
+              });
+            }
+          }}
         />
+      )}
+
+      {limitReached && limitReached.counter === 'voiceSeconds' && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30 backdrop-blur-xs p-4 animate-in fade-in duration-200"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setLimitReached(null);
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Voice limit reached"
+            className="w-full max-w-sm bg-surface border border-line rounded-[24px] p-6 shadow-2xl space-y-4"
+          >
+            <LimitReachedCard
+              quota={limitReached}
+              tier={me?.tier ?? 'guest'}
+              canUpgrade={Boolean(me && me.tier === 'free')}
+              onSignIn={() => {
+                setLimitReached(null);
+                setScreen('signin-login');
+              }}
+              onSeePlans={() => {
+                setLimitReached(null);
+              }}
+              onDismiss={() => setLimitReached(null)}
+            />
+            <div className="flex justify-end pt-1">
+              <button
+                type="button"
+                onClick={() => setLimitReached(null)}
+                className="px-4 py-2 rounded-xl text-sm font-semibold text-ink-muted hover:text-ink hover:bg-surface-tint transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <DevSettingsDrawer

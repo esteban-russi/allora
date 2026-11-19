@@ -75,6 +75,8 @@ export interface LiveCallHandlers {
   onSpeakingChange: (isSpeaking: boolean) => void;
   /** The call failed or ended unexpectedly. */
   onError: (message: string, beforeReady: boolean) => void;
+  /** Triggered when the daily voice quota is exceeded. */
+  onQuotaExceeded?: () => void;
 }
 
 /** One Gemini Live voice call: microphone up, tutor audio and transcripts down. */
@@ -205,8 +207,13 @@ export class LiveCall {
       }
     };
 
-    socket.onclose = () => {
+    socket.onclose = (event: CloseEvent) => {
       this.clearTimers();
+      if (event?.code === 4008) {
+        this.stop();
+        this.handlers.onQuotaExceeded?.();
+        return;
+      }
       if (!this.isStopped) {
         this.attemptReconnect(sampleRate);
       }
@@ -315,6 +322,10 @@ export class LiveCall {
         console.warn('[LiveCall] Upstream resumption failed:', event.message);
         this.stop();
         this.handlers.onResumptionFailed?.('turn_based', event.message ?? 'Resumption failed');
+        break;
+      case 'quota_exceeded':
+        this.stop();
+        this.handlers.onQuotaExceeded?.();
         break;
       case 'error':
         this.fail(event.message ?? 'Gemini Live error');

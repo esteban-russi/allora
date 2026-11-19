@@ -96,6 +96,29 @@ describe('LiveCall reconnects', () => {
     expect(FakeSocket.instances).toHaveLength(1);
   });
 
+  it('triggers onQuotaExceeded and does not reconnect on quota_exceeded event', async () => {
+    const onQuotaExceeded = vi.fn();
+    const { socket } = await startCall({ onQuotaExceeded });
+
+    socket.receive({ type: 'quota_exceeded' });
+    socket.onclose?.();
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(onQuotaExceeded).toHaveBeenCalledTimes(1);
+    expect(FakeSocket.instances).toHaveLength(1);
+  });
+
+  it('triggers onQuotaExceeded and does not reconnect on close code 4008', async () => {
+    const onQuotaExceeded = vi.fn();
+    const { socket } = await startCall({ onQuotaExceeded });
+
+    socket.onclose?.({ code: 4008 } as CloseEvent);
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(onQuotaExceeded).toHaveBeenCalledTimes(1);
+    expect(FakeSocket.instances).toHaveLength(1);
+  });
+
   it('checkpoints both sides of a finished exchange to the server', async () => {
     const { call, socket } = await startCall();
     socket.receive({ type: 'input_transcript', text: 'Vorrei ' });

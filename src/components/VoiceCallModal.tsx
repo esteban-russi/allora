@@ -9,12 +9,14 @@ import { generateCallFallback } from '../data/fallbacks';
 import { useDialog } from '../hooks/useDialog';
 import { postJson } from '../utils/apiClient';
 import { getLearnerSessionId, postChat, rememberLearnerSessionId } from '../utils/learnerSession';
+import { readQuotaError } from '../utils/quotaError';
 
 interface VoiceCallModalProps {
   persona: Persona;
   devSettings: DevSettings;
   learnerProfile?: LearnerProfile | null;
   onEndCall: () => void;
+  onLimitReached?: () => void;
 }
 
 interface CallExchange {
@@ -45,7 +47,8 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
   persona,
   devSettings,
   learnerProfile,
-  onEndCall
+  onEndCall,
+  onLimitReached
 }) => {
   const [callStatus, setCallStatus] = useState<'connecting' | 'connected'>('connecting');
   const [callDurationSec, setCallDurationSec] = useState<number>(0);
@@ -219,6 +222,14 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
         learnerLevel: learnerProfileRef.current?.level ?? 'A2',
         learnerName: learnerProfileRef.current?.name
       });
+
+      const quota = await readQuotaError(res);
+      if (quota) {
+        speechService.stopSpeaking();
+        onEndCall();
+        onLimitReached?.();
+        return;
+      }
 
       if (res.ok) {
         const data = await res.json();
@@ -423,6 +434,14 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
         onSpeakingChange: (isSpeaking) => {
           isAiSpeakingRef.current = isSpeaking;
           setSpeakingState(isSpeaking ? 'speaking' : 'listening');
+        },
+        onQuotaExceeded: () => {
+          liveCallRef.current?.stop();
+          liveCallRef.current = null;
+          isAiSpeakingRef.current = false;
+          speechService.stopSpeaking();
+          onEndCall();
+          onLimitReached?.();
         },
         onError: (message, beforeReady) => {
           console.warn('Gemini Live call failed, switching to turn-based:', message);

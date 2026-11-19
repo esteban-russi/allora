@@ -100,7 +100,7 @@ export function getBilling(): Billing
    - Premium: "Messages: Unlimited" and "Call minutes today 12 / 60".
    - Hidden when `me` is null (local dev without auth).
 
-5. **Voice: preflight and mid-call cut-off.**
+5. ✅ **Voice: preflight and mid-call cut-off.**
    - `App.tsx` `startCall`: `const m = await refresh()`; if
      `m && m.usage.voiceSeconds >= m.limits.voiceSeconds`, set `limitReached` with counter
      `voiceSeconds` and show the card in a small dialog instead of opening `VoiceCallModal`.
