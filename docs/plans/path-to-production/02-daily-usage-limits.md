@@ -93,13 +93,13 @@ export function requireQuota(counter: 'chatMessages' | 'helperRequests', deps?: 
    every day for that user only. Also unit-test `usageDay` and `nextResetAt` at
    23:59:59 and 00:00:00 UTC.
 
-2. **`FirestoreUsageStore`** (`src/server/firestoreUsageStore.ts`).
-   - Document fields: `userId`, `day`, the three counters, `expiresAtTs`
+2. ✅ **`FirestoreUsageStore`** (`src/server/firestoreUsageStore.ts`).
+   - ✅ Document fields: `userId`, `day`, the three counters, `expiresAtTs`
      (Timestamp = day start + 35 days).
-   - `tryConsume`: `runTransaction` (read, check, `set(..., { merge: true })`).
-   - `add`: transaction too, clamping at 0.
-   - `deleteAllUserUsage`: query `where('userId', '==', userId)`, delete in batches of 500.
-   - Contract runs only with `FIRESTORE_TEST=1`.
+   - ✅ `tryConsume`: `runTransaction` (read, check, `set(..., { merge: true })`).
+   - ✅ `add`: transaction too, clamping at 0.
+   - ✅ `deleteAllUserUsage`: query `where('userId', '==', userId)`, delete in batches of 500.
+   - ✅ Contract runs only with `FIRESTORE_TEST=1`.
 
 3. **Store selection.** `src/server/defaultUsageStore.ts`, same pattern as plan 01 step 5.
 
