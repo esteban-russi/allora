@@ -77,7 +77,10 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({
         <div className="w-full max-w-md p-6 sm:p-8 rounded-[24px] bg-surface border border-line shadow-soft space-y-6">
           {/* Header */}
           <div className="space-y-2">
-            <p className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cobalt-tint text-cobalt text-xs font-semibold tracking-[0.06em] uppercase">
+            <p
+              lang={mode === 'after-onboarding' ? undefined : 'it'}
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cobalt-tint text-cobalt text-xs font-semibold tracking-[0.06em] uppercase"
+            >
               <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
               {mode === 'after-onboarding' ? 'Account' : 'Accedi'}
             </p>

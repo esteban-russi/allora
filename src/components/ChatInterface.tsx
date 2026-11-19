@@ -311,7 +311,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             <div key={message.id} className="flex items-start gap-3 sm:gap-4">
               <PersonaBadge persona={persona} size="sm" speakingState={isPlaying ? 'speaking' : 'idle'} className="mt-1" />
               <div className="max-w-[85%] sm:max-w-[70%] px-5 pt-4 pb-3 rounded-[20px] rounded-bl-md bg-cobalt-tint text-ink">
-                <p className="font-serif text-[17px] sm:text-[19px] leading-snug">{message.text}</p>
+                <p lang="it" className="font-serif text-[17px] sm:text-[19px] leading-snug">{message.text}</p>
                 {showTranslation && (
                   <p className="mt-1.5 text-[13px] leading-relaxed text-ink-muted">{message.translation}</p>
                 )}
@@ -398,6 +398,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             <button
               key={word}
               type="button"
+              lang="it"
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => insertQuickReply(word)}
               className="shrink-0 px-5 py-2 rounded-full bg-coral-tint border border-transparent hover:border-coral text-ink text-[15px] transition-colors"
@@ -436,7 +437,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                       }}
                       className="w-full text-left px-3 py-2 rounded-2xl hover:bg-cobalt-tint transition-colors"
                     >
-                      <span className="block font-serif text-[15px] text-ink">{phrase.it}</span>
+                      <span lang="it" className="block font-serif text-[15px] text-ink">{phrase.it}</span>
                       <span className="block text-xs text-ink-muted">{phrase.en}</span>
                     </button>
                   </li>

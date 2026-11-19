@@ -98,7 +98,7 @@ export const PersonaProfileModal: React.FC<PersonaProfileModalProps> = ({
             <div className="text-[11px] uppercase tracking-wider text-cobalt font-bold mb-1">
               Motto & Philosophy
             </div>
-            <p className="font-serif text-lg italic text-ink">
+            <p lang="it" className="font-serif text-lg italic text-ink">
               &ldquo;{persona.nativeSaying}&rdquo;
             </p>
             <p className="text-xs text-ink-muted mt-1">

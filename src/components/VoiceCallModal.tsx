@@ -669,7 +669,7 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
             <div className="mt-6 space-y-3">
               {personaLine && (
                 <div className="px-5 py-4 rounded-[20px] rounded-bl-md bg-cobalt-tint">
-                  <p className="font-serif text-[19px] leading-snug">{personaLine.text}</p>
+                  <p lang="it" className="font-serif text-[19px] leading-snug">{personaLine.text}</p>
                   {personaLine.translation && (
                     <p className="mt-1.5 text-[13px] text-ink-muted">{personaLine.translation}</p>
                   )}
@@ -707,7 +707,7 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
                       }}
                       className="w-full text-left px-3 py-2 rounded-2xl hover:bg-cobalt-tint transition-colors"
                     >
-                      <span className="block font-serif text-[15px]">{item.it}</span>
+                      <span lang="it" className="block font-serif text-[15px]">{item.it}</span>
                       <span className="block text-xs text-ink-muted">{item.en}</span>
                     </button>
                   </li>

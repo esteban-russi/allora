@@ -68,7 +68,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
         >
           {/* Intro header */}
           <div className="space-y-2">
-            <p className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cobalt-tint text-cobalt text-xs font-semibold tracking-[0.06em] uppercase">
+            <p lang="it" className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cobalt-tint text-cobalt text-xs font-semibold tracking-[0.06em] uppercase">
               <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
               Benvenuto
             </p>
@@ -91,7 +91,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                   Step 1
                 </span>
                 <h2 id="onboarding-name-heading" className="font-serif text-xl text-ink mt-0.5">
-                  Come ti chiami? · What is your name?
+                  <span lang="it">Come ti chiami?</span> · What is your name?
                 </h2>
               </div>
               <UserBadge initial={learnerInitial} />
@@ -276,7 +276,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
               disabled={!trimmedName}
               className="w-full sm:w-auto h-13 px-8 rounded-full bg-cobalt hover:bg-cobalt-strong text-canvas text-base font-medium flex items-center justify-center gap-2 shadow-soft transition-colors disabled:opacity-50 disabled:hover:bg-cobalt"
             >
-              <span>Inizia a parlare with {selectedTutor.name}</span>
+              <span><span lang="it">Inizia a parlare</span> with {selectedTutor.name}</span>
               <ArrowRight className="w-5 h-5" aria-hidden="true" />
             </button>
           </div>
