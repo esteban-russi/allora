@@ -1,9 +1,44 @@
 /** Public client configuration loader for Firebase Auth and RevenueCat Web Billing. */
-import type { FirebaseClientConfig } from './firebaseAuth';
+
+/** Public Firebase web config, served by `GET /api/auth-config`. */
+export interface FirebaseClientConfig {
+  apiKey: string;
+  authDomain: string;
+  projectId: string;
+  appId: string;
+  appCheckSiteKey?: string | null;
+}
 
 export interface ClientConfig {
   firebase: FirebaseClientConfig | null;
   revenueCatWebKey: string | null;
+}
+
+/**
+ * Check that a value from the server is a usable Firebase config.
+ *
+ * Args:
+ *   value: Parsed `firebase` field of the `/api/auth-config` response.
+ *
+ * Returns:
+ *   The config, or null when it is missing or any required field is not a non-empty string.
+ */
+export function parseFirebaseClientConfig(value: unknown): FirebaseClientConfig | null {
+  if (!value || typeof value !== 'object') return null;
+  const config = value as Record<string, unknown>;
+  const fields = ['apiKey', 'authDomain', 'projectId', 'appId'] as const;
+  if (!fields.every((field) => typeof config[field] === 'string' && config[field] !== '')) return null;
+  const appCheckSiteKey =
+    typeof config.appCheckSiteKey === 'string' && config.appCheckSiteKey.trim() !== ''
+      ? config.appCheckSiteKey.trim()
+      : null;
+  return {
+    apiKey: config.apiKey as string,
+    authDomain: config.authDomain as string,
+    projectId: config.projectId as string,
+    appId: config.appId as string,
+    appCheckSiteKey
+  };
 }
 
 let cachedPromise: Promise<ClientConfig> | null = null;
@@ -35,19 +70,7 @@ export function loadClientConfig(fetchImpl: typeof fetch = fetch): Promise<Clien
         return { firebase: null, revenueCatWebKey: null };
       }
       const data = await res.json();
-      const rawFirebase = data?.firebase;
-      let firebase: FirebaseClientConfig | null = null;
-      if (rawFirebase && typeof rawFirebase === 'object') {
-        const fields = ['apiKey', 'authDomain', 'projectId', 'appId'] as const;
-        if (fields.every((f) => typeof rawFirebase[f] === 'string' && rawFirebase[f] !== '')) {
-          firebase = {
-            apiKey: rawFirebase.apiKey,
-            authDomain: rawFirebase.authDomain,
-            projectId: rawFirebase.projectId,
-            appId: rawFirebase.appId
-          };
-        }
-      }
+      const firebase = parseFirebaseClientConfig(data?.firebase);
 
       const revenueCatWebKey =
         typeof data?.billing?.revenueCatWebKey === 'string' && data.billing.revenueCatWebKey.trim() !== ''

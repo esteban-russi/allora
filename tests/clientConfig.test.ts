@@ -15,7 +15,8 @@ describe('loadClientConfig', () => {
           apiKey: 'fb-key',
           authDomain: 'test.firebaseapp.com',
           projectId: 'proj-123',
-          appId: '1:123:web:456'
+          appId: '1:123:web:456',
+          appCheckSiteKey: '  6Le-site  '
         },
         billing: {
           revenueCatWebKey: '  rcb_sb_key123  '
@@ -29,7 +30,8 @@ describe('loadClientConfig', () => {
       apiKey: 'fb-key',
       authDomain: 'test.firebaseapp.com',
       projectId: 'proj-123',
-      appId: '1:123:web:456'
+      appId: '1:123:web:456',
+      appCheckSiteKey: '6Le-site'
     });
     expect(config.revenueCatWebKey).toBe('rcb_sb_key123');
     expect(fakeFetch).toHaveBeenCalledTimes(1);

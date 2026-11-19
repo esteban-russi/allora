@@ -1,17 +1,15 @@
 /** Anonymous and federated Firebase sign-in for the browser client. */
 import { postJson, setAuthTokenProvider } from './apiClient';
 import { rememberLearnerSessionId } from './learnerSession';
-import { loadClientConfig } from './clientConfig';
+import {
+  loadClientConfig,
+  parseFirebaseClientConfig,
+  type FirebaseClientConfig
+} from './clientConfig';
+
+export { parseFirebaseClientConfig, type FirebaseClientConfig };
 
 export const EMAIL_FOR_SIGN_IN_KEY = 'parliamo.emailForSignIn';
-
-/** Public Firebase web config, served by `GET /api/auth-config`. */
-export interface FirebaseClientConfig {
-  apiKey: string;
-  authDomain: string;
-  projectId: string;
-  appId: string;
-}
 
 /** Result of a sign-in operation. */
 export type SignInResult =
@@ -34,28 +32,6 @@ let authReady: Promise<any> | null = null;
 export function setAuthInstanceForTesting(auth: any | null): void {
   authInstance = auth;
   authReady = auth ? Promise.resolve(auth) : null;
-}
-
-/**
- * Check that a value from the server is a usable Firebase config.
- *
- * Args:
- *   value: Parsed `firebase` field of the `/api/auth-config` response.
- *
- * Returns:
- *   The config, or null when it is missing or any field is not a non-empty string.
- */
-export function parseFirebaseClientConfig(value: unknown): FirebaseClientConfig | null {
-  if (!value || typeof value !== 'object') return null;
-  const config = value as Record<string, unknown>;
-  const fields = ['apiKey', 'authDomain', 'projectId', 'appId'] as const;
-  if (!fields.every((field) => typeof config[field] === 'string' && config[field] !== '')) return null;
-  return {
-    apiKey: config.apiKey as string,
-    authDomain: config.authDomain as string,
-    projectId: config.projectId as string,
-    appId: config.appId as string
-  };
 }
 
 async function fetchFirebaseConfig(): Promise<FirebaseClientConfig | null> {

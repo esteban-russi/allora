@@ -604,17 +604,27 @@ describe('buildChatContents', () => {
 describe('buildFirebaseClientConfig', () => {
   const env = { FIREBASE_API_KEY: 'api-key', FIREBASE_APP_ID: '1:123:web:abc', GCP_PROJECT: 'demo' };
 
-  it('defaults the auth domain to the project firebaseapp.com domain', () => {
+  it('defaults the auth domain to the project firebaseapp.com domain and appCheckSiteKey to null', () => {
     expect(buildFirebaseClientConfig(env)).toEqual({
       apiKey: 'api-key',
       authDomain: 'demo.firebaseapp.com',
       projectId: 'demo',
-      appId: '1:123:web:abc'
+      appId: '1:123:web:abc',
+      appCheckSiteKey: null
     });
   });
 
-  it('uses FIREBASE_AUTH_DOMAIN when set', () => {
-    expect(buildFirebaseClientConfig({ ...env, FIREBASE_AUTH_DOMAIN: 'login.example' })?.authDomain).toBe('login.example');
+  it('uses FIREBASE_AUTH_DOMAIN and trims FIREBASE_APPCHECK_SITE_KEY when set', () => {
+    expect(
+      buildFirebaseClientConfig({
+        ...env,
+        FIREBASE_AUTH_DOMAIN: 'login.example',
+        FIREBASE_APPCHECK_SITE_KEY: '  6Le-site-key  '
+      })
+    ).toMatchObject({
+      authDomain: 'login.example',
+      appCheckSiteKey: '6Le-site-key'
+    });
   });
 
   it.each(['FIREBASE_API_KEY', 'FIREBASE_APP_ID', 'GCP_PROJECT'])('returns null without %s', (key) => {
@@ -638,6 +648,22 @@ describe('GET /api/auth-config', () => {
     const res = await request(app).get('/api/auth-config');
     expect(res.status).toBe(200);
     expect(res.body.billing).toEqual({ revenueCatWebKey: 'rc_pub_test123' });
+  });
+
+  it('serves firebase.appCheckSiteKey from FIREBASE_APPCHECK_SITE_KEY or null when unset', async () => {
+    vi.stubEnv('FIREBASE_API_KEY', 'api-key');
+    vi.stubEnv('FIREBASE_APP_ID', '1:123:web:abc');
+    vi.stubEnv('GCP_PROJECT', 'demo');
+    vi.stubEnv('FIREBASE_APPCHECK_SITE_KEY', '');
+
+    const unsetRes = await request(app).get('/api/auth-config');
+    expect(unsetRes.status).toBe(200);
+    expect(unsetRes.body.firebase.appCheckSiteKey).toBeNull();
+
+    vi.stubEnv('FIREBASE_APPCHECK_SITE_KEY', '  site-key-xyz  ');
+    const setRes = await request(app).get('/api/auth-config');
+    expect(setRes.status).toBe(200);
+    expect(setRes.body.firebase.appCheckSiteKey).toBe('site-key-xyz');
   });
 });
 

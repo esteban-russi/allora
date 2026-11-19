@@ -240,7 +240,8 @@ export function buildFirebaseClientConfig(env: NodeJS.ProcessEnv = process.env):
   const projectId = env.GCP_PROJECT?.trim();
   if (!apiKey || !appId || !projectId) return null;
   const authDomain = env.FIREBASE_AUTH_DOMAIN?.trim() || `${projectId}.firebaseapp.com`;
-  return { apiKey, authDomain, projectId, appId };
+  const appCheckSiteKey = env.FIREBASE_APPCHECK_SITE_KEY?.trim() || null;
+  return { apiKey, authDomain, projectId, appId, appCheckSiteKey };
 }
 
 // Firebase web config is public by design; serving it at runtime keeps it out of the image build
