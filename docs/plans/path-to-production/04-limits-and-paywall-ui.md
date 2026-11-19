@@ -114,7 +114,7 @@ export function getBilling(): Billing
      `generateCallFallback`.
    - Extend `tests/liveCall.test.ts`: `quota_exceeded` triggers the handler and no reconnect.
 
-6. **Helper limit messages.**
+6. ✅ **Helper limit messages.**
    - `speech.ts` `playServerTts` and `transcribeAudioBlob`, and the translate call in
      `VoiceCallModal`/`ChatInterface`: when `readQuotaError` matches, throw/return a typed
      `QuotaLimitError` instead of falling back to another provider.

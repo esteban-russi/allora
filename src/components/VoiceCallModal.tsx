@@ -9,7 +9,7 @@ import { generateCallFallback } from '../data/fallbacks';
 import { useDialog } from '../hooks/useDialog';
 import { postJson } from '../utils/apiClient';
 import { getLearnerSessionId, postChat, rememberLearnerSessionId } from '../utils/learnerSession';
-import { readQuotaError } from '../utils/quotaError';
+import { readQuotaError, QuotaLimitError } from '../utils/quotaError';
 
 interface VoiceCallModalProps {
   persona: Persona;
@@ -34,10 +34,17 @@ const LIVE_NORMAL_SPEED_REQUEST = 'Puoi tornare a parlare a velocità normale.';
 async function translateLine(text: string): Promise<string> {
   try {
     const res = await postJson('/api/translate', { text });
+    const quota = await readQuotaError(res);
+    if (quota) {
+      throw new QuotaLimitError(quota);
+    }
     if (!res.ok) return '';
     const data = await res.json();
     return typeof data.translation === 'string' ? data.translation : '';
-  } catch {
+  } catch (err: unknown) {
+    if ((err as Error)?.name === 'QuotaLimitError') {
+      throw err;
+    }
     return '';
   }
 }

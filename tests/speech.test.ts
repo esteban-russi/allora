@@ -127,4 +127,53 @@ describe('speakSmart failures', () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(synth.speak).toHaveBeenCalledTimes(1);
   });
+
+  it('throws QuotaLimitError when server returns 429 QUOTA_EXCEEDED', async () => {
+    fetchMock.mockResolvedValue({
+      status: 429,
+      ok: false,
+      clone: () => ({
+        json: async () => ({
+          error: 'Daily limit reached',
+          code: 'QUOTA_EXCEEDED',
+          counter: 'helperRequests',
+          limit: 30,
+          tier: 'guest',
+          resetsAt: '2026-11-20T00:00:00.000Z'
+        })
+      })
+    });
+    const onError = vi.fn();
+    const speech = await loadSpeechService();
+
+    await expect(
+      speech.speakSmart('Ciao', { provider: 'gcp_cloud_tts', onError })
+    ).rejects.toThrow('Daily limit reached for helperRequests');
+
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(synth.speak).not.toHaveBeenCalled();
+  });
+
+  it('transcribeAudioBlob throws QuotaLimitError when STT returns 429 QUOTA_EXCEEDED', async () => {
+    fetchMock.mockResolvedValue({
+      status: 429,
+      ok: false,
+      clone: () => ({
+        json: async () => ({
+          error: 'Daily limit reached',
+          code: 'QUOTA_EXCEEDED',
+          counter: 'helperRequests',
+          limit: 30,
+          tier: 'guest',
+          resetsAt: '2026-11-20T00:00:00.000Z'
+        })
+      })
+    });
+    const { transcribeAudioBlob } = await import('../src/utils/speech');
+    const fakeBlob = new Blob(['audio-data'], { type: 'audio/webm' });
+
+    await expect(transcribeAudioBlob(fakeBlob)).rejects.toThrow(
+      'Daily limit reached for helperRequests'
+    );
+  });
 });

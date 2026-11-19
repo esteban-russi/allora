@@ -9,6 +9,14 @@ export interface QuotaError {
   resetsAt: string;
 }
 
+/** Error thrown when a daily usage quota is exceeded on helper/audio requests. */
+export class QuotaLimitError extends Error {
+  constructor(public readonly quota: QuotaError) {
+    super(`Daily limit reached for ${quota.counter}`);
+    this.name = 'QuotaLimitError';
+  }
+}
+
 /**
  * Parse a 429 QUOTA_EXCEEDED response; returns null for any other response status or structure.
  * Clones the response before reading so that non-matching responses retain their unread body.
