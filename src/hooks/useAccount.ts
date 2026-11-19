@@ -1,6 +1,8 @@
 /** React hook managing current authenticated learner account state. */
 import { useCallback, useEffect, useState } from 'react';
 import { fetchMe, type Me } from '../utils/me';
+import { postJson } from '../utils/apiClient';
+import type { Tier } from '../server/accountStore';
 
 export interface UseAccountResult {
   me: Me | null;
@@ -11,7 +13,8 @@ export interface UseAccountResult {
 /**
  * Hook providing the current learner's account details and refresh trigger.
  *
- * Fetches once on mount.
+ * Fetches once on mount. If a subscription is within 1 hour of expiration (or already expired),
+ * triggers a background sync to RevenueCat to repair any missed webhooks.
  *
  * Args:
  *   initialMe: Optional initial state.
@@ -45,7 +48,38 @@ export function useAccount(initialMe: Me | null = null): UseAccountResult {
   );
 
   useEffect(() => {
-    refresh();
+    let mounted = true;
+
+    (async () => {
+      const fresh = await refresh();
+      if (!mounted || !fresh) return;
+
+      if (
+        fresh.subscription &&
+        Date.parse(fresh.subscription.expiresAt) < Date.now() + 3600_000
+      ) {
+        try {
+          const res = await postJson('/api/billing/sync', {});
+          if (res.ok && mounted) {
+            const data = (await res.json()) as { tier?: Tier; subscription?: Me['subscription'] };
+            setMe((prev) => {
+              if (!prev) return null;
+              return {
+                ...prev,
+                tier: data.tier ?? prev.tier,
+                subscription: data.subscription !== undefined ? data.subscription : prev.subscription
+              };
+            });
+          }
+        } catch (err) {
+          console.warn('[Billing] Failed to sync expiring subscription on start:', err);
+        }
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
   }, [refresh]);
 
   return { me, refresh, setUsage };

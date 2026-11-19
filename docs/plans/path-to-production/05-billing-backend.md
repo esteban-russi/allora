@@ -128,7 +128,7 @@ the `/api/me` response.
    `revenueCat.deleteSubscriber(userId)` in try/catch after the stores are cleared (log on
    failure, do not fail the request). Skip when billing is not configured.
 
-7. **Client: sync on start.** In `useAccount` (plan 03), after the first `fetchMe`: if
+7. ✅ **Client: sync on start.** In `useAccount` (plan 03), after the first `fetchMe`: if
    `me.subscription` exists and `Date.parse(me.subscription.expiresAt) < Date.now() + 3600_000`,
    call `POST /api/billing/sync` once and use its result. This repairs a missed webhook.
 
