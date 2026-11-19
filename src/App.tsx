@@ -310,6 +310,7 @@ export default function App() {
     grammarHighlight,
     savedPhrases,
     talkingShare,
+    me,
     onSwitchToVoice: startCall,
     onOpenProfile: () => setIsProfileModalOpen(true),
     onRemovePhrase: (id: string) => updateSavedPhrases(savedPhrases.filter(p => p.id !== id))

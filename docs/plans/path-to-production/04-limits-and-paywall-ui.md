@@ -93,7 +93,7 @@ export function getBilling(): Billing
      with `aria-describedby` pointing at the card.
    - Clear `limitReached` when `me` changes tier or when the time passes `resetsAt`.
 
-4. **Usage meter** (`src/components/UsageMeter.tsx`, shown in `UtilityPanel` under the
+4. ✅ **Usage meter** (`src/components/UsageMeter.tsx`, shown in `UtilityPanel` under the
    talking-share bar).
    - Two rows: "Messages today 7 / 15" and "Call minutes today 2 / 5" with a thin
      progress bar each (`role="progressbar"`, `aria-valuenow/min/max`).
