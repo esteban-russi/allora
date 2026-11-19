@@ -35,6 +35,9 @@ export interface RequireQuotaDeps {
 /**
  * Express middleware factory to reserve one unit of daily quota for a counter.
  *
+ * The unit is refunded when the handler answers with any error status, so invalid
+ * requests (400) and server failures (5xx) never count against the learner.
+ *
  * Args:
  *   counter: Usage counter to consume ('chatMessages' | 'helperRequests').
  *   deps: Injectable store, clock, and quotas mode overrides.
@@ -91,9 +94,9 @@ export function requireQuota(
         }
       }
 
-      // Unit was consumed: refund on 5xx status code
+      // Unit was consumed: refund it if the request was rejected or failed (4xx/5xx)
       res.on('finish', () => {
-        if (res.statusCode >= 500) {
+        if (res.statusCode >= 400) {
           store.add(userId, day, counter, -1).catch((err: unknown) => {
             console.error('[Quota] Refund failed:', summarizeError(err));
           });
