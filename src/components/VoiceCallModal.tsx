@@ -5,10 +5,9 @@ import { PersonaBadge } from './PersonaBadge';
 import { speechService, createSpeechRecognizer, AudioRecorder, transcribeAudioBlob } from '../utils/speech';
 import { LiveCall } from '../utils/liveCall';
 import { ITALIAN_PRACTICE_PHRASES } from '../data/personas';
-import { generateCallFallback } from '../data/fallbacks';
 import { useDialog } from '../hooks/useDialog';
 import { postJson } from '../utils/apiClient';
-import { getLearnerSessionId, postChat, rememberLearnerSessionId } from '../utils/learnerSession';
+import { getLearnerSessionId, rememberLearnerSessionId, requestChatReply } from '../utils/learnerSession';
 import { readQuotaError, QuotaLimitError } from '../utils/quotaError';
 
 interface VoiceCallModalProps {
@@ -64,6 +63,7 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
   const [showSubtitles, setShowSubtitles] = useState<boolean>(devSettings.subtitlesEnabled);
   const [showPromptAssistance, setShowPromptAssistance] = useState<boolean>(false);
   const [speakingState, setSpeakingState] = useState<CharacterSpeakingState>('idle');
+  const [callError, setCallError] = useState<string | null>(null);
   
   // Live transcript of the learner and the call's spoken lines
   const [liveUserTranscript, setLiveUserTranscript] = useState<string>('');
@@ -151,6 +151,7 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
 
   // Handle persona speaking with Gemini TTS & subtitles (stable callback)
   const handlePersonaSpeak = useCallback(async (text: string, translation: string) => {
+    setCallError(null);
     isAiSpeakingRef.current = true;
     setSpeakingState('speaking');
     setLiveUserTranscript('');
@@ -202,6 +203,7 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
       audioRecorderRef.current = null;
     }
 
+    setCallError(null);
     setSpeakingState('thinking');
 
     const currentSec = Math.floor((Date.now() - startTimeRef.current) / 1000);
@@ -218,39 +220,32 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
     setLiveUserTranscript('');
     activeTranscriptRef.current = '';
 
-    try {
-      const res = await postChat({
-        personaId: personaRef.current.id,
-        // The server reads `sender`; call exchanges name it `speaker`
-        history: dialogueHistoryRef.current.slice(-4).map(({ speaker, text }) => ({ sender: speaker, text })),
-        userMessage: trimmed,
-        temperature: devSettingsRef.current.temperature,
-        grammarStrictness: devSettingsRef.current.grammarStrictness,
-        learnerLevel: learnerProfileRef.current?.level ?? 'A2',
-        learnerName: learnerProfileRef.current?.name
-      });
+    const result = await requestChatReply({
+      personaId: personaRef.current.id,
+      // The server reads `sender`; call exchanges name it `speaker`
+      history: dialogueHistoryRef.current.slice(-4).map(({ speaker, text }) => ({ sender: speaker, text })),
+      userMessage: trimmed,
+      temperature: devSettingsRef.current.temperature,
+      grammarStrictness: devSettingsRef.current.grammarStrictness,
+      learnerLevel: learnerProfileRef.current?.level ?? 'A2',
+      learnerName: learnerProfileRef.current?.name
+    });
 
-      const quota = await readQuotaError(res);
-      if (quota) {
-        speechService.stopSpeaking();
-        onEndCall();
-        onLimitReached?.();
-        return;
-      }
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data.text) {
-          handlePersonaSpeakRef.current(data.text, data.translation || '');
-          return;
-        }
-      }
-    } catch (err) {
-      console.warn('Live call AI reply failed, using native fallback:', err);
+    if (result.status === 'quota') {
+      speechService.stopSpeaking();
+      onEndCall();
+      onLimitReached?.();
+      return;
     }
 
-    const fallback = generateCallFallback(personaRef.current, trimmed);
-    handlePersonaSpeakRef.current(fallback.it, fallback.en);
+    if (result.status === 'ok') {
+      handlePersonaSpeakRef.current(result.text, result.translation);
+      return;
+    }
+
+    setCallError(`${personaRef.current.name} couldn't reply. Check your connection.`);
+    isAiSpeakingRef.current = false;
+    setSpeakingState('listening');
   }, []);
 
   // Continuous hands-free live speech recognition loop (Cloud STT / Browser STT)
@@ -659,6 +654,15 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
               </span>
               <span className="text-lg font-semibold">{statusLabel}</span>
             </div>
+
+            {callError && (
+              <div
+                role="alert"
+                className="mt-4 w-full px-4 py-3 rounded-2xl bg-coral-tint border border-coral/25 text-coral-strong text-sm text-center"
+              >
+                {callError}
+              </div>
+            )}
           </div>
 
           {showSubtitles && (

@@ -2,6 +2,7 @@
 import type { ClientLearnerSession, ConversationTurn } from '../server/sessionStore';
 import type { CefrLevel, ChatMessage, GrammarNote, LearnerProfile, SavedPhrase } from '../types';
 import { getWithAuth, postJson } from './apiClient';
+import { readQuotaError, type QuotaError } from './quotaError';
 
 const STORAGE_KEY = 'parliamo.learnerSessionId';
 const CEFR_LEVELS: CefrLevel[] = ['A1', 'A2', 'B1', 'B2', 'C1'];
@@ -213,4 +214,48 @@ export async function postChat(request: ChatRequest): Promise<Response> {
     if (body && body.sessionId === null) rememberLearnerSessionId(null);
   }
   return res;
+}
+
+export type ChatTurnResult =
+  | {
+      status: 'ok';
+      text: string;
+      translation: string;
+      grammarNotes: GrammarNote[];
+      quotaUsed?: number;
+    }
+  | { status: 'quota'; quota: QuotaError }
+  | { status: 'error' };
+
+/**
+ * Send a chat turn and classify the response as a tutor reply, quota limit, or failure.
+ *
+ * Args:
+ *   request: The chat body, without a sessionId.
+ *
+ * Returns:
+ *   The parsed reply, quota error, or an error marker when the server cannot reply.
+ */
+export async function requestChatReply(request: ChatRequest): Promise<ChatTurnResult> {
+  try {
+    const res = await postChat(request);
+    const quota = await readQuotaError(res);
+    if (quota) return { status: 'quota', quota };
+
+    if (res.ok) {
+      const data = await res.json();
+      if (typeof data?.text === 'string' && data.text) {
+        return {
+          status: 'ok',
+          text: data.text,
+          translation: typeof data.translation === 'string' ? data.translation : '',
+          grammarNotes: Array.isArray(data.grammarNotes) ? data.grammarNotes : [],
+          quotaUsed: typeof data?.quota?.used === 'number' ? data.quota.used : undefined,
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('Chat reply request failed:', err);
+  }
+  return { status: 'error' };
 }

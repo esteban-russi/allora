@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { EMMANUELE, INITIAL_MESSAGES, INITIAL_SAVED_PHRASES, TUTORS, createInitialMessages } from './data/personas';
-import { generatePersonaFallbackMessage } from './data/fallbacks';
 import { ChatMessage, DevSettings, GrammarNote, LearnerProfile, Persona, SavedPhrase } from './types';
 import { ChatInterface } from './components/ChatInterface';
 import { VoiceCallModal } from './components/VoiceCallModal';
@@ -25,8 +24,8 @@ import { speechService } from './utils/speech';
 import { setAccountDeletedHandler } from './utils/apiClient';
 import { completeMagicLink, EMAIL_FOR_SIGN_IN_KEY, isMagicLink, signOutToGuest } from './utils/firebaseAuth';
 import { ACCOUNT_DELETED_NOTICE, MERGE_FAILED_NOTICE, showNotice } from './utils/notice';
-import { loadLearnerSession, postChat, saveLearnerSettings, startLearnerSession, toChatMessages } from './utils/learnerSession';
-import { readQuotaError, type QuotaError } from './utils/quotaError';
+import { loadLearnerSession, requestChatReply, saveLearnerSettings, startLearnerSession, toChatMessages } from './utils/learnerSession';
+import type { QuotaError } from './utils/quotaError';
 import type { ClientLearnerSession } from './server/sessionStore';
 
 const countWords = (text: string) => text.trim().split(/\s+/).filter(Boolean).length;
@@ -42,6 +41,7 @@ export default function App() {
 
   const { me, refresh: refreshAccount, setUsage } = useAccount();
   const [limitReached, setLimitReached] = useState<QuotaError | null>(null);
+  const [failedReply, setFailedReply] = useState<{ messageId: string; text: string } | null>(null);
   const [chatDraft, setChatDraft] = useState<string>('');
 
   const emailRef = useRef<string | null>(null);
@@ -125,6 +125,7 @@ export default function App() {
       ...createInitialMessages(tutor, profile.name, profile.level),
       ...toChatMessages(session.checkpointTurns, tutor.id)
     ]);
+    setFailedReply(null);
     setSavedPhrases(session.progress.savedPhrases);
     if (GRAMMAR_STRICTNESS.includes(session.grammarStrictness as DevSettings['grammarStrictness'])) {
       setDevSettings((prev) => ({ ...prev, grammarStrictness: session.grammarStrictness as DevSettings['grammarStrictness'] }));
@@ -166,6 +167,7 @@ export default function App() {
     setMessages(INITIAL_MESSAGES);
     setSavedPhrases(INITIAL_SAVED_PHRASES);
     setLimitReached(null);
+    setFailedReply(null);
     setChatDraft('');
     void refreshAccount();
     setScreen('onboarding');
@@ -294,6 +296,7 @@ export default function App() {
     const isFirstOnboarding = learnerProfile === null;
     setLearnerProfile(profile);
     setMessages(createInitialMessages(selectedTutor, profile.name, profile.level));
+    setFailedReply(null);
     // A new profile starts a new conversation; the notebook carries over
     void startLearnerSession({ profile, grammarStrictness: devSettings.grammarStrictness, savedPhrases });
     if (me?.isAnonymous && isFirstOnboarding) {
@@ -301,6 +304,52 @@ export default function App() {
     } else {
       setScreen('app');
     }
+  };
+
+  const requestTutorReply = async (text: string, messageId: string, history: ChatMessage[]) => {
+    setIsAiGenerating(true);
+
+    const result = await requestChatReply({
+      personaId: persona.id,
+      history,
+      userMessage: text,
+      temperature: devSettings.temperature,
+      grammarStrictness: devSettings.grammarStrictness,
+      learnerLevel: learnerProfile?.level ?? 'A2',
+      learnerName: learnerProfile?.name
+    });
+
+    if (result.status === 'quota') {
+      setMessages((prev) => prev.filter((m) => m.id !== messageId));
+      setFailedReply(null);
+      setChatDraft(text);
+      setLimitReached(result.quota);
+      setIsAiGenerating(false);
+      return;
+    }
+
+    if (result.status === 'ok') {
+      if (result.quotaUsed !== undefined) {
+        setUsage('chatMessages', result.quotaUsed);
+      }
+      const aiMessage: ChatMessage = {
+        id: `b-${Date.now()}`,
+        sender: 'persona',
+        personaId: persona.id,
+        text: result.text,
+        translation: result.translation,
+        grammarNotes: result.grammarNotes,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+      setMessages((prev) => [...prev, aiMessage]);
+      setFailedReply(null);
+      speakIfAutoPlay(aiMessage.text);
+      setIsAiGenerating(false);
+      return;
+    }
+
+    setFailedReply({ messageId, text });
+    setIsAiGenerating(false);
   };
 
   // Handle student sending message in chat with real server Gemini API integration
@@ -314,61 +363,19 @@ export default function App() {
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
-    setMessages([...messages, userMsg]);
-    setIsAiGenerating(true);
+    const history = messages.slice(-6);
+    setFailedReply(null);
+    setMessages((prev) => [...prev, userMsg]);
+    await requestTutorReply(text, userMsg.id, history);
+  };
 
-    try {
-      const res = await postChat({
-        personaId: persona.id,
-        history: messages.slice(-6),
-        userMessage: text,
-        temperature: devSettings.temperature,
-        grammarStrictness: devSettings.grammarStrictness,
-        learnerLevel: learnerProfile?.level ?? 'A2',
-        learnerName: learnerProfile?.name
-      });
-
-      const quota = await readQuotaError(res);
-      if (quota) {
-        setMessages((prev) => prev.filter((m) => m.id !== userMsg.id));
-        setChatDraft(text);
-        setLimitReached(quota);
-        setIsAiGenerating(false);
-        return;
-      }
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data?.quota && typeof data.quota.used === 'number') {
-          setUsage('chatMessages', data.quota.used);
-        }
-        if (data.text) {
-          const aiMessage: ChatMessage = {
-            id: `b-${Date.now()}`,
-            sender: 'persona',
-            personaId: persona.id,
-            text: data.text,
-            translation: data.translation || '',
-            grammarNotes: data.grammarNotes || [],
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-          };
-          setMessages((prev) => [...prev, aiMessage]);
-          speakIfAutoPlay(aiMessage.text);
-          setIsAiGenerating(false);
-          return;
-        }
-      }
-    } catch (err) {
-      console.warn('Server Gemini call error, using local fallback generator:', err);
-    }
-
-    // Local fallback generator if server is offline
-    setTimeout(() => {
-      const fallbackResponse = generatePersonaFallbackMessage(persona, text);
-      setMessages((prev) => [...prev, fallbackResponse]);
-      speakIfAutoPlay(fallbackResponse.text);
-      setIsAiGenerating(false);
-    }, 500);
+  const handleRetryReply = async () => {
+    if (!failedReply || isAiGenerating) return;
+    const { messageId, text } = failedReply;
+    const msgIndex = messages.findIndex((m) => m.id === messageId);
+    const history = (msgIndex === -1 ? messages : messages.slice(0, msgIndex)).slice(-6);
+    setFailedReply(null);
+    await requestTutorReply(text, messageId, history);
   };
 
   const handleSavePhrase = (message: ChatMessage) => {
@@ -522,6 +529,8 @@ export default function App() {
               isAiGenerating={isAiGenerating}
               draft={chatDraft}
               onDraftChange={setChatDraft}
+              failedReply={failedReply}
+              onRetryReply={handleRetryReply}
               limitReached={limitReached}
               tier={me?.tier ?? 'guest'}
               canUpgrade={getBilling().isAvailable() && me?.tier === 'free'}

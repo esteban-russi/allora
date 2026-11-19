@@ -19,6 +19,8 @@ interface ChatInterfaceProps {
   isAiGenerating?: boolean;
   draft?: string;
   onDraftChange?: (draft: string) => void;
+  failedReply?: { messageId: string; text: string } | null;
+  onRetryReply?: () => void;
   limitReached?: QuotaError | null;
   tier?: string;
   canUpgrade?: boolean;
@@ -38,6 +40,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   isAiGenerating = false,
   draft,
   onDraftChange,
+  failedReply,
+  onRetryReply,
   limitReached,
   tier,
   canUpgrade,
@@ -273,11 +277,32 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
           const showTranslation = !!message.translation && visibleTranslations.has(message.id);
 
           if (isUser) {
+            const isFailed = failedReply?.messageId === message.id;
             return (
-              <div key={message.id} className="flex justify-end">
-                <div className="max-w-[85%] sm:max-w-[70%] px-5 py-3.5 rounded-[20px] rounded-br-md bg-mint-tint text-ink">
-                  <p className="font-serif text-[17px] sm:text-[19px] leading-snug">{message.text}</p>
+              <div key={message.id} className="space-y-1.5">
+                <div className="flex justify-end">
+                  <div className="max-w-[85%] sm:max-w-[70%] px-5 py-3.5 rounded-[20px] rounded-br-md bg-mint-tint text-ink">
+                    <p className="font-serif text-[17px] sm:text-[19px] leading-snug">{message.text}</p>
+                  </div>
                 </div>
+                {isFailed && (
+                  <div
+                    role="alert"
+                    className="flex items-center justify-end gap-3 text-xs text-coral-strong pr-1"
+                  >
+                    <span>{persona.name} couldn&apos;t reply. Check your connection.</span>
+                    {onRetryReply && (
+                      <button
+                        type="button"
+                        onClick={onRetryReply}
+                        disabled={isAiGenerating}
+                        className="font-semibold text-cobalt hover:text-cobalt-strong underline underline-offset-2 disabled:opacity-50"
+                      >
+                        Try again
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             );
           }
