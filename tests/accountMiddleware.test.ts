@@ -7,6 +7,7 @@ import {
   invalidateAccountCache
 } from '../src/server/accountMiddleware';
 import { InMemoryAccountStore, type AccountStore } from '../src/server/accountStore';
+import type { IdentityAdmin } from '../src/server/identityAdmin';
 
 describe('accountMiddleware', () => {
   let clock = Date.parse('2026-11-18T10:00:00.000Z');
@@ -19,7 +20,11 @@ describe('accountMiddleware', () => {
     invalidateAccountCache('anon-1');
   });
 
-  function createTestApp(storeToUse: AccountStore, nowFn = () => clock) {
+  function createTestApp(
+    storeToUse: AccountStore,
+    nowFn = () => clock,
+    identity?: IdentityAdmin
+  ) {
     const app = express();
     // Simulate auth middleware setting req.user
     app.use((req, _res, next) => {
@@ -36,7 +41,7 @@ describe('accountMiddleware', () => {
       next();
     });
 
-    app.use(attachAccount(storeToUse, { cacheMs: 60_000, now: nowFn }));
+    app.use(attachAccount(storeToUse, { cacheMs: 60_000, now: nowFn, identity }));
 
     app.get('/test', (req, res) => {
       res.json({ account: req.account });
@@ -121,5 +126,38 @@ describe('accountMiddleware', () => {
       error: 'Account service unavailable',
       code: 'ACCOUNT_UNAVAILABLE'
     });
+  });
+
+  it('returns 401 ACCOUNT_DELETED and does not recreate a deleted account', async () => {
+    const identity: IdentityAdmin = {
+      deleteUser: vi.fn(),
+      userExists: vi.fn().mockResolvedValue(false)
+    };
+    const app = createTestApp(store, () => clock, identity);
+
+    const res = await request(app)
+      .get('/test')
+      .set('x-test-user', 'u1:false:u1@example.com');
+
+    expect(res.status).toBe(401);
+    expect(res.body.code).toBe('ACCOUNT_DELETED');
+    expect(identity.userExists).toHaveBeenCalledWith('u1');
+    expect(await store.getAccount('u1')).toBeNull();
+  });
+
+  it('skips the identity lookup when the account record exists', async () => {
+    await store.upsertFromAuth({ userId: 'u1', email: 'u1@example.com', isAnonymous: false });
+    const identity: IdentityAdmin = {
+      deleteUser: vi.fn(),
+      userExists: vi.fn().mockResolvedValue(false)
+    };
+    const app = createTestApp(store, () => clock, identity);
+
+    const res = await request(app)
+      .get('/test')
+      .set('x-test-user', 'u1:false:u1@example.com');
+
+    expect(res.status).toBe(200);
+    expect(identity.userExists).not.toHaveBeenCalled();
   });
 });

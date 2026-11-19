@@ -112,9 +112,12 @@ describe('POST /api/billing/sync', () => {
       accounts
     });
 
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const res = await request(app).post('/api/billing/sync');
     expect(res.status).toBe(502);
     expect(res.body).toEqual({ code: 'BILLING_UPSTREAM_ERROR' });
+    expect(errorSpy).toHaveBeenCalledWith('[Billing] Subscription sync failed:', 'Network error');
+    errorSpy.mockRestore();
   });
 });
 
@@ -325,6 +328,7 @@ describe('POST /api/webhooks/revenuecat', () => {
 
     const { app } = createWebhookApp({ revenueCat: fakeClient, webhookAuth: validSecret });
 
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const res = await request(app)
       .post('/api/webhooks/revenuecat')
       .set('Authorization', `Bearer ${validSecret}`)
@@ -338,5 +342,10 @@ describe('POST /api/webhooks/revenuecat', () => {
 
     expect(res.status).toBe(500);
     expect(res.body).toEqual({ error: 'Webhook sync failed' });
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[RevenueCat] Webhook event RENEWAL failed for 1 of 1 user(s)'),
+      'RevenueCat timeout'
+    );
+    errorSpy.mockRestore();
   });
 });

@@ -110,7 +110,8 @@ the `/api/me` response.
    - RevenueCat failure: `502 { code: 'BILLING_UPSTREAM_ERROR' }`.
 
 5. ✅ **`POST /api/webhooks/revenuecat`** (not behind user auth; register it before the
-   authenticated block; it uses the global `express.json` parser and the IP rate limiter).
+   authenticated block; it uses the global `express.json` parser but not the per-IP rate
+   limiter, so a burst of RevenueCat events is never answered with 429).
    - Missing config → 503. Wrong or missing `Authorization` header → 401 (constant-time compare
      of equal-length buffers; unequal length is a mismatch).
    - Body: `{ event: { id, type, app_user_id, original_app_user_id, aliases, transferred_from, transferred_to } }`.

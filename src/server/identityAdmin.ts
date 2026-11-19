@@ -13,6 +13,17 @@ export interface IdentityAdmin {
    *   A promise that resolves when deleted or when user is not found.
    */
   deleteUser(userId: string): Promise<void>;
+
+  /**
+   * Check whether a user still exists in Firebase Authentication.
+   *
+   * Args:
+   *   userId: Firebase user UID to look up.
+   *
+   * Returns:
+   *   False once the user has been deleted, true otherwise.
+   */
+  userExists(userId: string): Promise<boolean>;
 }
 
 /**
@@ -33,6 +44,9 @@ export function createIdentityAdmin(env: NodeJS.ProcessEnv = process.env): Ident
     return {
       async deleteUser(): Promise<void> {
         // No-op outside cloud environments
+      },
+      async userExists(): Promise<boolean> {
+        return true;
       }
     };
   }
@@ -55,6 +69,19 @@ export function createIdentityAdmin(env: NodeJS.ProcessEnv = process.env): Ident
       } catch (err) {
         if ((err as { code?: string })?.code === 'auth/user-not-found') {
           return;
+        }
+        throw err;
+      }
+    },
+
+    async userExists(userId: string): Promise<boolean> {
+      ensureApp();
+      try {
+        await getAuth().getUser(userId);
+        return true;
+      } catch (err) {
+        if ((err as { code?: string })?.code === 'auth/user-not-found') {
+          return false;
         }
         throw err;
       }

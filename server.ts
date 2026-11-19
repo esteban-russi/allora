@@ -71,9 +71,10 @@ export function hasGenAiCredentials(): boolean {
 const TRUST_PROXY_HOPS = Number(process.env.TRUST_PROXY_HOPS) || 0;
 app.set('trust proxy', TRUST_PROXY_HOPS);
 
-// Outer perimeter rate limiting per IP
+// Outer perimeter rate limiting per IP. Webhooks are left out: RevenueCat can send
+// bursts of events from a few IPs, and its secret is checked before any work is done.
 const RATE_LIMIT_PER_MINUTE = Number(process.env.RATE_LIMIT_PER_MINUTE) || 60;
-app.use(['/api/chat', '/api/translate', '/api/tts', '/api/stt', '/api/session', '/api/me', '/api/account', '/api/billing', '/api/webhooks'], rateLimit({
+app.use(['/api/chat', '/api/translate', '/api/tts', '/api/stt', '/api/session', '/api/me', '/api/account', '/api/billing'], rateLimit({
   windowMs: 60_000,
   limit: RATE_LIMIT_PER_MINUTE,
   standardHeaders: 'draft-7',
