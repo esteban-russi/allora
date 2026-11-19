@@ -179,40 +179,81 @@ The script enables the APIs, creates the Artifact Registry repo, the deployer an
    - Use Stripe test card `4242 4242 4242 4242` (any valid future date, 3-digit CVC) in checkout to test successful subscriptions and trial activation.
    - Use card `4000 0000 0000 0002` to verify payment decline error handling.
 
+## Store compliance, legal pages and content reports
+
+### Legal pages and consent
+
+Static, self-contained HTML pages live in `public/privacy.html`, `public/terms.html`, and `public/delete-account.html` (viewable without sign-in). In production, `server.ts` serves them at `/privacy`, `/terms`, and `/delete-account` before the SPA wildcard; in dev, `legalUrl()` links to the `.html` files directly.
+
+- Footer links (**Privacy** and **Terms**, opening in a new tab) appear on `OnboardingPage`, `SignInScreen`, `PlansScreen`, and `AccountMenu`.
+- Learners must tick the 18+ and Terms/Privacy confirmation checkbox on onboarding (and restored users whose `me.consent?.termsVersion !== TERMS_VERSION` see a blocking `ConsentDialog`). Consent is persisted on `users/<uid>.consent` via `POST /api/account/consent` (and copied from guest to account on merge when the account has none).
+- Replace the draft legal text and every `[to confirm: …]` placeholder, then remove the `DRAFT – not yet reviewed` banners before launch.
+
+### Content reporting and model safety
+
+- Every AI tutor reply in text chat (`ChatInterface`) and live voice-call captions (`VoiceCallModal`) has a **Report** action opening `ReportDialog` (reporting during a call does not end the call).
+- `POST /api/report` validates the payload, stores `{ id, userId, sessionId, source, text, reason, comment, createdAt }` in the `reports` Firestore collection (or in-memory store in dev), and logs `[Report] New content report` with `{ reason, source }` only (never message text or user ID).
+- Guest reports are transferred to the signed-in account on merge (`POST /api/account/merge`), and all user reports are deleted on account deletion (`DELETE /api/account`).
+- Both `/api/chat` and `/api/live` pass explicit `safetySettings` (`BLOCK_MEDIUM_AND_ABOVE` for harassment, hate speech, sexually explicit, and dangerous content) and append safety instructions to the tutor system prompt. Blocked chat replies return HTTP 200 with a fixed Italian decline line (`BLOCKED_REPLY_TEXT`); real upstream failures still return 5xx.
+
+### Reviewing reports (owner setup)
+
+1. **Email alert:** In Cloud Logging, create a log-based alert matching `"[Report] New content report"` routed to your support email.
+2. **Review in Firestore:** Open Google Cloud Console → **Firestore → Data → `reports`** to inspect submitted reports.
+3. **Manual cleanup:** No TTL is configured on `reports`; delete each report document by hand once handled.
+
+### Google Play Console forms
+
+| Form | Answer |
+|---|---|
+| Privacy policy URL | `<APP_URL>/privacy` |
+| Account deletion URL | `<APP_URL>/delete-account` |
+| Data safety: collected | Name; email address; user IDs; messages (in-app messages / other user-generated content); voice or sound recordings (processed, not stored); purchase history; app interactions. Encrypted in transit: yes. Deletion can be requested: yes. Shared with third parties: no (service providers are processors). |
+| Target audience | 18 and over |
+| Content rating (IARC) | Answer honestly; note the app has AI-generated text and voice chat with an AI (not between users) |
+| Ads | No |
+| App access | "All features are available without credentials as a guest. To test Premium, sign in with any Google account and use a Play test card." Provide a demo account if the reviewer asks. |
+| AI-generated content | Yes; in-app reporting is available on every tutor reply |
+
 ## Project structure
 
 ```
-├── server.ts                  # Express server: chat, translate, TTS, STT, sessions, me, account, billing, health, metrics, Vite/static serving
-├── liveBridge.ts              # /api/live WebSocket bridge to Gemini Live: auth, call limits, heartbeat, resumption
-├── public/                    # Web manifest and placeholder app icons to replace (regenerate PNGs with `node scripts/generate-icons.mjs`)
+├── server.ts                  # Express server: chat, translate, TTS, STT, sessions, me, account, billing, report, health, metrics, Vite/static serving
+├── liveBridge.ts              # /api/live WebSocket bridge to Gemini Live: auth, call limits, safety settings, heartbeat, resumption
+├── public/                    # Web manifest, icons, and static legal pages (privacy.html, terms.html, delete-account.html)
 ├── src/
 │   ├── App.tsx                # App state, routing and dashboard layout
 │   ├── assets/emmanuele/      # Tutor portraits (resting and speaking)
 │   ├── components/
 │   │   ├── AccountMenu.tsx    # Account dialog: identity, plan, edit profile, sign out, delete account
+│   │   ├── ConsentCheckbox.tsx # Shared 18+ and Terms/Privacy checkbox
+│   │   ├── ConsentDialog.tsx  # Blocking consent modal for restored users
+│   │   ├── LegalLinks.tsx     # Footer Privacy & Terms links
+│   │   ├── ReportDialog.tsx   # Report-a-reply modal dialog
 │   │   ├── PlansScreen.tsx    # Full-screen paywall and subscription plan selection
 │   │   ├── UsageMeter.tsx     # Daily usage meter & upgrade call-to-action
 │   │   ├── SignInScreen.tsx   # Sign-in screen: Google popup and magic link email form
-│   │   ├── OnboardingPage.tsx # Learner name, CEFR level and tutor picker
+│   │   ├── OnboardingPage.tsx # Learner name, CEFR level, tutor picker and consent
 │   │   ├── IconRail.tsx       # Left navigation rail
 │   │   ├── TopHeader.tsx      # Brand, conversation title, Text/Voice switch
-│   │   ├── ChatInterface.tsx  # Chat bubbles, quick replies and composer
+│   │   ├── ChatInterface.tsx  # Chat bubbles, report action, quick replies and composer
 │   │   ├── UtilityPanel.tsx   # Tutor profile, notebook and talking share
-│   │   ├── VoiceCallModal.tsx # Hands-free voice call with captions
+│   │   ├── VoiceCallModal.tsx # Hands-free voice call with captions and report action
 │   │   ├── SettingsDialog.tsx # Learner settings: correction style, subtitles, auto-play, speaking speed
 │   │   ├── DevSettingsDrawer.tsx # Developer lab (dev mode or parliamo.devlab=1)
 │   │   ├── PersonaProfileModal.tsx
 │   │   ├── PersonaBadge.tsx
 │   │   └── UserBadge.tsx
-│   ├── data/personas.ts       # Emmanuele's persona and starter message
-│   ├── server/                # auth, accountStore, accountRoutes, billingRoutes, billingSync, identityAdmin, plans, revenueCat, usageStore, quota, sessionStore, rateLimiter, metrics
+│   ├── data/                  # brand.ts, legal.ts, personas.ts, personaPrompts.ts
+│   ├── server/                # auth, accountStore, accountRoutes, billingRoutes, billingSync, identityAdmin, modelSafety, plans, reportStore, reportRoutes, revenueCat, usageStore, quota, sessionStore, rateLimiter, metrics
 │   ├── utils/apiClient.ts     # Authenticated API calls (get, post, delete) and ID token source
 │   ├── utils/billing.ts       # Client billing interface and active adapter registry
 │   ├── utils/billingWeb.ts    # RevenueCat Web Billing adapter (@revenuecat/purchases-js)
 │   ├── utils/clientConfig.ts  # Client config loader (/api/auth-config)
 │   ├── utils/firebaseAuth.ts  # Client auth: anonymous, Google popup, email magic link, account merge
 │   ├── utils/learnerSession.ts # Remembers the learner session and links chat turns to it
-│   ├── utils/me.ts            # Client account /api/me fetching and typing
+│   ├── utils/legalUrl.ts      # Dev/prod URL helper for static legal pages
+│   ├── utils/me.ts            # Client account /api/me fetching, consent submission and typing
 │   ├── utils/speech.ts        # Gemini TTS playback, browser TTS fallback, speech recognition
 │   ├── utils/liveCall.ts      # Gemini Live call client: mic streaming, playback, heartbeat, reconnect
 │   └── types/index.ts

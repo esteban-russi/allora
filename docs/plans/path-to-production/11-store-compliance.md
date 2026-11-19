@@ -1,5 +1,24 @@
 # Plan 11: store compliance
 
+## Status
+
+- Branch: `feature/store-compliance`
+- Date: 2026-11-19
+- Summary: Implemented all 8 steps — public legal pages (`/privacy`, `/terms`, `/delete-account`), in-app footer links, 18+ and Terms/Privacy consent persistence with blocking dialog for restored users, AI tutor disclosures, content reporting (in-memory + Firestore store, `POST /api/report`, merge transfer, delete cleanup, client UI in chat and voice calls), explicit Gemini safety settings + prompt guardrails + blocked-reply handling, and README compliance docs.
+- After review:
+  - Reports are transferred to the signed-in user on guest merge (`ReportStore.transferUserReports`) rather than deleted, so harmful-content reports survive sign-in.
+  - Blocked chat replies return HTTP 200 with a fixed Italian decline line (`BLOCKED_REPLY_TEXT`) and empty translation, because plan 12 removed invented fallbacks on failures (real upstream failures still return 5xx).
+- Items needing attention:
+  - 🟠 Owner setup: Review and replace the draft legal text in `public/privacy.html`, `public/terms.html`, and `public/delete-account.html` (ideally with a lawyer) and remove the `"DRAFT – not yet reviewed"` banners.
+  - 🟠 Owner setup: Fill in every `[to confirm: …]` placeholder in the legal pages before launch:
+    - `[to confirm: developer legal name and postal address]` (`public/privacy.html`, `public/terms.html`, `public/delete-account.html`)
+    - `[to confirm: production app URL]` (`public/delete-account.html`)
+    - `[to confirm: refund policy beyond what stores and applicable law require]` (`public/terms.html`)
+    - `[to confirm: governing law and courts]` (`public/terms.html`)
+  - 🟠 Owner setup: In Cloud Logging, create a log-based alert on `"[Report] New content report"` → email.
+  - 🟠 Owner setup: Firestore TTL is intentionally not set on `reports`; review and delete handled reports manually in the Firestore console.
+  - 🟠 Owner setup: Complete the Google Play Console declarations (Privacy Policy URL, Account Deletion URL, Data safety, 18+ Target audience, IARC content rating, Ads, App access, and AI-generated content) using the table below.
+
 Branch: `feature/store-compliance`. Depends on: 03.
 
 Read first: `src/components/OnboardingPage.tsx`, `src/components/ChatInterface.tsx`
