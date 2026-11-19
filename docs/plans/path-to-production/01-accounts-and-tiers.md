@@ -156,11 +156,11 @@ export function tierFor(account: Account, nowMs: number): Tier
    - ✅ Tests with supertest and an in-memory store: record is created; second request
      within 60 s does not call the store (spy); anonymous→signed-in change bypasses the cache.
 
-7. **Wire it and add `GET /api/me`** (`server.ts`).
-   - Add `/api/me` to both path lists (the `rateLimit` one and the
+7. ✅ **Wire it and add `GET /api/me`** (`server.ts`).
+   - ✅ Add `/api/me` to both path lists (the `rateLimit` one and the
      `authenticateHttpUser()` one), and append `attachAccount(defaultAccountStore)` to
      the second `app.use([...])` call, after the user rate limiter.
-   - Route:
+   - ✅ Route:
      ```ts
      app.get('/api/me', (req, res) => {
        const { account, tier, limits } = req.account!;
@@ -175,7 +175,7 @@ export function tierFor(account: Account, nowMs: number): Tier
        });
      });
      ```
-   - `tests/server.test.ts`: `GET /api/me` with dev user `anon-1` returns tier `guest`
+   - ✅ `tests/server.test.ts`: `GET /api/me` with dev user `anon-1` returns tier `guest`
      and the guest limits; with dev user `u1` returns `free`.
 
 8. **Docs.** README: add `/api/me` to the endpoint list and `accountStore`, `plans`,
