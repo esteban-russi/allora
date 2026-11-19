@@ -184,6 +184,7 @@ The script enables the APIs, creates the Artifact Registry repo, the deployer an
 ```
 ├── server.ts                  # Express server: chat, translate, TTS, STT, sessions, me, account, billing, health, metrics, Vite/static serving
 ├── liveBridge.ts              # /api/live WebSocket bridge to Gemini Live: auth, call limits, heartbeat, resumption
+├── public/                    # Web manifest and placeholder app icons to replace (regenerate PNGs with `node scripts/generate-icons.mjs`)
 ├── src/
 │   ├── App.tsx                # App state, routing and dashboard layout
 │   ├── assets/emmanuele/      # Tutor portraits (resting and speaking)

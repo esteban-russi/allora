@@ -4,8 +4,8 @@
  * Brand values shown to learners and given to the tutor.
  *
  * Static files that cannot import this module and so carry the name themselves:
- * `index.html` (filled in at build time by the `brand-html` plugin in `vite.config.ts`)
- * and `metadata.json`.
+ * `index.html` (filled in at build time by the `brand-html` plugin in `vite.config.ts`),
+ * `metadata.json` and `public/manifest.webmanifest`.
  *
  * Attributes:
  *   name: Full product name, used in page titles, prompts and the store listing.
