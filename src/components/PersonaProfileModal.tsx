@@ -17,7 +17,7 @@ interface PersonaProfileModalProps {
   persona: Persona;
   isOpen: boolean;
   onClose: () => void;
-  onStartVideoCall: () => void;
+  onStartVideoCall?: () => void;
 }
 
 export const PersonaProfileModal: React.FC<PersonaProfileModalProps> = ({
@@ -166,19 +166,21 @@ export const PersonaProfileModal: React.FC<PersonaProfileModalProps> = ({
 
         </div>
 
-        {/* Modal Actions (Only Video Call button, standard audio call removed) */}
-        <div className="p-4 border-t border-line bg-canvas flex items-center justify-end gap-3">
-          <button
-            onClick={() => {
-              onClose();
-              onStartVideoCall();
-            }}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-cobalt hover:bg-cobalt-strong text-white font-bold text-xs transition-transform active:scale-95 "
-          >
-            <AudioLines className="w-4 h-4" />
-            <span>Start voice call</span>
-          </button>
-        </div>
+        {/* Modal Actions (shown when opened from an active conversation) */}
+        {onStartVideoCall && (
+          <div className="p-4 border-t border-line bg-canvas flex items-center justify-end gap-3">
+            <button
+              onClick={() => {
+                onClose();
+                onStartVideoCall();
+              }}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-cobalt hover:bg-cobalt-strong text-white font-bold text-xs transition-transform active:scale-95 "
+            >
+              <AudioLines className="w-4 h-4" />
+              <span>Start voice call</span>
+            </button>
+          </div>
+        )}
 
       </div>
     </div>

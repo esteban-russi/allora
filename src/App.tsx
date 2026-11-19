@@ -48,6 +48,9 @@ export default function App() {
   const [limitReached, setLimitReached] = useState<QuotaError | null>(null);
   const [failedReply, setFailedReply] = useState<{ messageId: string; text: string; reason: ChatReplyErrorReason } | null>(null);
   const [chatDraft, setChatDraft] = useState<string>('');
+  // Premium tutor tapped in onboarding before signing in / subscribing
+  const [pendingTutorId, setPendingTutorId] = useState<string | null>(null);
+  const [selectedOnboardingTutorId, setSelectedOnboardingTutorId] = useState<string | null>(null);
 
   const emailRef = useRef<string | null>(null);
   emailRef.current = me?.email ?? null;
@@ -142,6 +145,21 @@ export default function App() {
     const session = await loadLearnerSession();
     if (session) {
       applySession(session);
+    }
+    if (pendingTutorId) {
+      if (updatedMe?.tier === 'premium') {
+        setSelectedOnboardingTutorId(pendingTutorId);
+        setPendingTutorId(null);
+        setScreen('onboarding');
+      } else if (getBilling().isAvailable()) {
+        setScreen('plans');
+      } else {
+        setPendingTutorId(null);
+        setScreen('onboarding');
+      }
+      return;
+    }
+    if (session) {
       if (mode === 'after-onboarding' && getBilling().isAvailable() && updatedMe?.tier !== 'premium') {
         setScreen('plans');
       } else {
@@ -161,6 +179,27 @@ export default function App() {
     }
   };
 
+  const handleSeePlansForTutor = (tutorId: string) => {
+    setPendingTutorId(tutorId);
+    if (!me || me.isAnonymous) {
+      setScreen('signin-login');
+    } else {
+      setScreen('plans');
+    }
+  };
+
+  const handlePlansDone = (purchased = false) => {
+    if (pendingTutorId) {
+      if (purchased || me?.tier === 'premium') {
+        setSelectedOnboardingTutorId(pendingTutorId);
+      }
+      setPendingTutorId(null);
+      setScreen('onboarding');
+      return;
+    }
+    setScreen('app');
+  };
+
   // Start over as a new guest: blank profile, conversation and notebook, back to onboarding,
   // where the guest is offered sign-in again after finishing it
   const resetToGuest = () => {
@@ -174,6 +213,8 @@ export default function App() {
     setLimitReached(null);
     setFailedReply(null);
     setChatDraft('');
+    setPendingTutorId(null);
+    setSelectedOnboardingTutorId(null);
     void refreshAccount();
     setScreen('onboarding');
   };
@@ -308,6 +349,8 @@ export default function App() {
     const isFirstOnboarding = learnerProfile === null;
     if (consent) setConsent(consent);
     setLearnerProfile(profile);
+    setPendingTutorId(null);
+    setSelectedOnboardingTutorId(null);
     setMessages(createInitialMessages(selectedTutor, profile.name, profile.level));
     setFailedReply(null);
     // A new profile starts a new conversation; the notebook carries over
@@ -475,7 +518,10 @@ export default function App() {
       <SignInScreen
         mode="login"
         onSignedIn={() => handleSignedIn('login')}
-        onSkip={() => setScreen('onboarding')}
+        onSkip={() => {
+          setPendingTutorId(null);
+          setScreen('onboarding');
+        }}
       />
     );
   }
@@ -484,7 +530,7 @@ export default function App() {
     return (
       <PlansScreen
         me={me}
-        onDone={() => setScreen('app')}
+        onDone={handlePlansDone}
         onNeedSignIn={() => setScreen('signin-login')}
         refreshAccount={refreshAccount}
       />
@@ -495,7 +541,11 @@ export default function App() {
     return (
       <OnboardingPage
         initialProfile={learnerProfile}
+        initialTutorId={selectedOnboardingTutorId ?? undefined}
         initialConsentAccepted={hasCurrentConsent}
+        tier={me?.tier ?? 'guest'}
+        canUpgrade={getBilling().isAvailable()}
+        onSeePlans={handleSeePlansForTutor}
         onComplete={handleCompleteOnboarding}
         onLogin={me?.isAnonymous ? () => setScreen('signin-login') : undefined}
       />

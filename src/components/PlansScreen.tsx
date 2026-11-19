@@ -8,7 +8,7 @@ import { BRAND } from '../data/brand';
 
 export interface PlansScreenProps {
   me: Me;
-  onDone: () => void;
+  onDone: (purchased?: boolean) => void;
   onNeedSignIn: () => void;
   refreshAccount?: () => Promise<Me | null>;
 }
@@ -97,8 +97,8 @@ export const PlansScreen: React.FC<PlansScreenProps> = ({
     try {
       const restored = await getBilling().restore(me.userId);
       if (restored) {
-        if (refreshAccount) await refreshAccount();
-        onDone();
+        const fresh = refreshAccount ? await refreshAccount() : null;
+        onDone(fresh ? fresh.tier === 'premium' : true);
       } else {
         setPurchaseError('No active subscriptions found to restore.');
       }
@@ -134,7 +134,7 @@ export const PlansScreen: React.FC<PlansScreenProps> = ({
           <div className="pt-4">
             <button
               type="button"
-              onClick={onDone}
+              onClick={() => onDone(true)}
               className="w-full h-12 flex items-center justify-center rounded-2xl bg-cobalt hover:bg-cobalt-strong text-canvas font-semibold text-base transition-colors shadow-soft"
             >
               Start practising
@@ -208,7 +208,7 @@ export const PlansScreen: React.FC<PlansScreenProps> = ({
             </p>
             <button
               type="button"
-              onClick={onDone}
+              onClick={() => onDone(false)}
               className="h-11 px-5 rounded-xl border border-line text-sm font-semibold text-ink hover:bg-surface-tint"
             >
               Continue with the free plan
@@ -281,7 +281,7 @@ export const PlansScreen: React.FC<PlansScreenProps> = ({
                 <button
                   type="button"
                   disabled={isPurchasing || isRestoring}
-                  onClick={onDone}
+                  onClick={() => onDone(false)}
                   className="hover:text-ink transition-colors underline"
                 >
                   Continue with the free plan
