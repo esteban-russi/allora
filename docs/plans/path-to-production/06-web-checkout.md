@@ -44,7 +44,7 @@ A signed-in learner on the web can subscribe with a card, and becomes premium im
    - Test in `tests/server.test.ts`. Add the variable to `.env.example`, README, `deploy.yml`
      (`REVENUECAT_WEB_PUBLIC_KEY=${{ vars.REVENUECAT_WEB_PUBLIC_KEY }}`).
 
-2. **Client config** (`src/utils/clientConfig.ts`).
+2. ✅ **Client config** (`src/utils/clientConfig.ts`).
    Move the `fetch('/api/auth-config')` call out of `firebaseAuth.ts` into
    `loadClientConfig(): Promise<{ firebase: FirebaseClientConfig | null; revenueCatWebKey: string | null }>`
    that fetches once and caches the promise. `firebaseAuth.ts` uses it. Update its tests.

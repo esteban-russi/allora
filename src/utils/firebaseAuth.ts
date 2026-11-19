@@ -1,6 +1,7 @@
 /** Anonymous and federated Firebase sign-in for the browser client. */
 import { postJson, setAuthTokenProvider } from './apiClient';
 import { rememberLearnerSessionId } from './learnerSession';
+import { loadClientConfig } from './clientConfig';
 
 export const EMAIL_FOR_SIGN_IN_KEY = 'parliamo.emailForSignIn';
 
@@ -57,10 +58,8 @@ export function parseFirebaseClientConfig(value: unknown): FirebaseClientConfig 
 }
 
 async function fetchFirebaseConfig(): Promise<FirebaseClientConfig | null> {
-  const res = await fetch('/api/auth-config');
-  if (!res.ok) return null;
-  const body = await res.json();
-  return parseFirebaseClientConfig(body?.firebase);
+  const { firebase } = await loadClientConfig();
+  return firebase;
 }
 
 /** Loaded lazily so local development without Firebase never downloads the SDK. */
