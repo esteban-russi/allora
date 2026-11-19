@@ -61,9 +61,10 @@ Missing for a paid launch:
 Guest numbers are an assumption (not confirmed by the owner); they are constants in
 `src/server/plans.ts`.
 
-Prices: £8.99 / €9.99 / $9.99 per month; £59.99 / €69.99 / $69.99 per year with a
-7-day free trial on the annual plan. Product IDs: `parliamo_pro_monthly`,
-`parliamo_pro_annual`. RevenueCat entitlement ID: `premium`.
+Prices (web, GBP only for now): £3.99 per month; £29.99 per year with a 7-day free
+trial on the annual plan, both with a 3-day grace period for failed renewals. Product
+IDs: `allora_pro_monthly`, `allora_pro_annual`. RevenueCat entitlement ID: `premium`;
+offering `default` with packages `$rc_monthly` and `$rc_annual`.
 
 ## 4. Target architecture
 
