@@ -207,11 +207,13 @@ export default function App() {
 
   const handleCompleteOnboarding = (profile: LearnerProfile) => {
     const selectedTutor = TUTORS.find((t) => t.id === profile.personaId) ?? EMMANUELE;
+    // Only a guest's first onboarding offers sign-in; a profile edit goes back to the chat
+    const isFirstOnboarding = learnerProfile === null;
     setLearnerProfile(profile);
     setMessages(createInitialMessages(selectedTutor, profile.name, profile.level));
     // A new profile starts a new conversation; the notebook carries over
     void startLearnerSession({ profile, grammarStrictness: devSettings.grammarStrictness, savedPhrases });
-    if (me?.isAnonymous) {
+    if (me?.isAnonymous && isFirstOnboarding) {
       setScreen('signin-after-onboarding');
     } else {
       setScreen('app');
@@ -464,11 +466,15 @@ export default function App() {
         }}
         onSignedOut={() => {
           setIsAccountMenuOpen(false);
+          // The next guest starts from a blank profile and is offered sign-in again
+          setLearnerProfile(null);
           refreshAccount();
           setScreen('onboarding');
         }}
         onAccountDeleted={() => {
           setIsAccountMenuOpen(false);
+          // The next guest starts from a blank profile and is offered sign-in again
+          setLearnerProfile(null);
           refreshAccount();
           setScreen('onboarding');
         }}
