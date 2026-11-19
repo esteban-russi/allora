@@ -122,7 +122,7 @@ export function getBilling(): Billing
 
 7. ✅ **Billing interface** (`src/utils/billing.ts`) with `unavailableBilling`, plus tests.
 
-8. **`PlansScreen`** (`src/components/PlansScreen.tsx`).
+8. ✅ **`PlansScreen`** (`src/components/PlansScreen.tsx`).
    Props: `me: Me`, `onDone: () => void`, `onNeedSignIn: () => void`.
    - On mount `getBilling().getOffers(me.userId)`; loading and error states.
    - Layout: heading "Parliamo Premium"; a comparison list built from `me.limits` and the
