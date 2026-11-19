@@ -554,3 +554,15 @@ describe('POST /api/chat daily quotas enforcement', () => {
     expect(res6.body.tier).toBe('guest');
   });
 });
+
+describe('RevenueCat webhook rate limiting', () => {
+  it('does not apply the per-IP limit to the webhook endpoint', async () => {
+    const limit = Number(process.env.RATE_LIMIT_PER_MINUTE) || 60;
+    const statuses = new Set<number>();
+    for (let i = 0; i <= limit; i++) {
+      const res = await request(app).post('/api/webhooks/revenuecat').send({});
+      statuses.add(res.status);
+    }
+    expect(statuses.has(429)).toBe(false);
+  });
+});
