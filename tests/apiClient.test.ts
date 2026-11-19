@@ -1,9 +1,17 @@
 /** Tests for the client's authenticated API helper. */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getAuthToken, getWithAuth, postJson, setAuthTokenProvider } from '../src/utils/apiClient';
+import {
+  deleteWithAuth,
+  getAuthToken,
+  getWithAuth,
+  postJson,
+  setAccountDeletedHandler,
+  setAuthTokenProvider
+} from '../src/utils/apiClient';
 
 afterEach(() => {
   setAuthTokenProvider(async () => null);
+  setAccountDeletedHandler(null);
   vi.unstubAllGlobals();
 });
 
@@ -61,5 +69,61 @@ describe('getAuthToken', () => {
       throw new Error('network down');
     });
     expect(await getAuthToken()).toBeNull();
+  });
+});
+
+describe('account deleted handling', () => {
+  function stubFetchStatus(status: number, body: unknown) {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(body), { status }));
+    vi.stubGlobal('fetch', fetchMock);
+    return fetchMock;
+  }
+
+  it('calls the handler when the server answers 401 ACCOUNT_DELETED', async () => {
+    stubFetchStatus(401, { code: 'ACCOUNT_DELETED' });
+    setAuthTokenProvider(async () => 'old-token');
+    const handler = vi.fn();
+    setAccountDeletedHandler(handler);
+
+    const res = await getWithAuth('/api/me');
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    // The caller can still read the body
+    expect(await res.json()).toEqual({ code: 'ACCOUNT_DELETED' });
+  });
+
+  it('checks POST and DELETE responses too', async () => {
+    stubFetchStatus(401, { code: 'ACCOUNT_DELETED' });
+    setAuthTokenProvider(async () => 'old-token');
+    const handler = vi.fn();
+    setAccountDeletedHandler(handler);
+
+    await postJson('/api/chat', {});
+    await deleteWithAuth('/api/account');
+
+    expect(handler).toHaveBeenCalledTimes(2);
+  });
+
+  it('ignores other 401 responses', async () => {
+    stubFetchStatus(401, { code: 'AUTH_TOKEN_INVALID' });
+    setAuthTokenProvider(async () => 'old-token');
+    const handler = vi.fn();
+    setAccountDeletedHandler(handler);
+
+    await getWithAuth('/api/me');
+
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('ignores a late reply once this tab already switched to a new token', async () => {
+    stubFetchStatus(401, { code: 'ACCOUNT_DELETED' });
+    const tokens = ['old-token', 'new-guest-token'];
+    setAuthTokenProvider(async () => tokens.shift() ?? 'new-guest-token');
+    const handler = vi.fn();
+    setAccountDeletedHandler(handler);
+
+    await getWithAuth('/api/me');
+
+    expect(handler).not.toHaveBeenCalled();
   });
 });
