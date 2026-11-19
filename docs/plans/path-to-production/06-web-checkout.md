@@ -49,7 +49,7 @@ A signed-in learner on the web can subscribe with a card, and becomes premium im
    `loadClientConfig(): Promise<{ firebase: FirebaseClientConfig | null; revenueCatWebKey: string | null }>`
    that fetches once and caches the promise. `firebaseAuth.ts` uses it. Update its tests.
 
-3. **Web billing implementation** (`src/utils/billingWeb.ts`).
+3. ✅ **Web billing implementation** (`src/utils/billingWeb.ts`).
    ```ts
    export function createWebBilling(apiKey: string, deps?: { loadSdk?: () => Promise<PurchasesModule>; email?: () => string | null }): Billing
    ```
