@@ -66,10 +66,13 @@ export const PersonaProfileModal: React.FC<PersonaProfileModalProps> = ({
               speakingState={isPlayingAudio ? 'speaking' : 'idle'}
             />
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h3 id="persona-profile-title" className="font-serif text-2xl leading-tight">{persona.fullName}</h3>
                 <span className="text-xs bg-cobalt text-canvas px-2.5 py-0.5 rounded-full font-semibold">
                   {persona.cefrLevel}
+                </span>
+                <span className="text-[11px] bg-surface text-cobalt border border-cobalt/20 px-2 py-0.5 rounded-full font-semibold">
+                  AI tutor
                 </span>
               </div>
               <p className="text-sm text-ink-muted">{persona.role}</p>

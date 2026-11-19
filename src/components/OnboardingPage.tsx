@@ -105,6 +105,10 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
             <p className="text-base text-ink-muted">
               Tell us your name, choose your Italian level so the conversation vocabulary adapts to you, and pick your tutor.
             </p>
+            <p className="text-sm text-ink-soft">
+              {selectedTutor.name} is an AI character.{' '}
+              {selectedTutor.voiceGender === 'female' ? 'Her' : 'His'} replies can contain mistakes.
+            </p>
           </div>
 
           {/* Step 1: Name */}
@@ -259,9 +263,14 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                     <div className="flex-1 min-w-0 space-y-1.5">
                       <div className="flex items-center justify-between gap-2 flex-wrap">
                         <div>
-                          <h3 className="font-serif text-xl font-semibold text-ink">
-                            {tutor.fullName}
-                          </h3>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="font-serif text-xl font-semibold text-ink">
+                              {tutor.fullName}
+                            </h3>
+                            <span className="px-2 py-0.5 rounded-full bg-cobalt-tint border border-cobalt/20 text-cobalt text-[11px] font-semibold">
+                              AI tutor
+                            </span>
+                          </div>
                           <p className="text-xs text-ink-muted flex items-center gap-1 mt-0.5">
                             <MapPin className="w-3.5 h-3.5 text-coral shrink-0" aria-hidden="true" />
                             <span>
