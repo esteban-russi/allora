@@ -90,7 +90,7 @@ export const defaultIdentityAdmin: IdentityAdmin
 - ✅ Initialise lazily on first use: `initializeApp({ projectId: env.GCP_PROJECT })` (ADC).
 - ✅ `deleteUser` ignores the `auth/user-not-found` error and rethrows others.
 
-### Step 3: `POST /api/account/merge`
+### Step 3: ✅ `POST /api/account/merge`
 
 Add `/api/account` to both middleware path lists in `server.ts`. Put the handlers in a
 new file `src/server/accountRoutes.ts` exporting
@@ -99,16 +99,16 @@ and mount it with `app.use('/api/account', router)`; `server.ts` is already 870 
 
 Request body: `{ guestIdToken: string }`.
 
-1. `req.user.isAnonymous` must be false, else `403 { code: 'SIGN_IN_REQUIRED' }`.
-2. `const guest = await verifyIdToken(guestIdToken)`. If null, not anonymous, or
+1. ✅ `req.user.isAnonymous` must be false, else `403 { code: 'SIGN_IN_REQUIRED' }`.
+2. ✅ `const guest = await verifyIdToken(guestIdToken)`. If null, not anonymous, or
    `guest.userId === req.user.userId`: `400 { code: 'INVALID_GUEST_TOKEN' }`.
-3. `const outcome = await sessions.transferUserSessions(guest.userId, req.user.userId)`.
-4. Usage: `const day = usageDay(now()); const u = await usage.getUsage(guest.userId, day);`
+3. ✅ `const outcome = await sessions.transferUserSessions(guest.userId, req.user.userId)`.
+4. ✅ Usage: `const day = usageDay(now()); const u = await usage.getUsage(guest.userId, day);`
    for each counter with a value > 0 call `usage.add(req.user.userId, day, counter, value)`;
    then `usage.deleteAllUserUsage(guest.userId)`.
-5. `accounts.deleteAccount(guest.userId)`; `invalidateAccountCache(guest.userId)`.
-6. `identity.deleteUser(guest.userId)` inside try/catch (log, do not fail the request).
-7. Respond `{ sessions: outcome }`.
+5. ✅ `accounts.deleteAccount(guest.userId)`; `invalidateAccountCache(guest.userId)`.
+6. ✅ `identity.deleteUser(guest.userId)` inside try/catch (log, do not fail the request).
+7. ✅ Respond `{ sessions: outcome }`.
 
 Calling it twice is safe: the second call finds nothing to move and returns `none`.
 

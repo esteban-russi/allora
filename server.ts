@@ -33,6 +33,7 @@ import {
 import { defaultMetrics } from './src/server/metrics';
 import { scheduleMaintenance } from './src/server/maintenance';
 import type { FirebaseClientConfig } from './src/utils/firebaseAuth';
+import { createAccountRouter } from './src/server/accountRoutes';
 
 dotenv.config();
 
@@ -71,7 +72,7 @@ app.set('trust proxy', TRUST_PROXY_HOPS);
 
 // Outer perimeter rate limiting per IP
 const RATE_LIMIT_PER_MINUTE = Number(process.env.RATE_LIMIT_PER_MINUTE) || 60;
-app.use(['/api/chat', '/api/translate', '/api/tts', '/api/stt', '/api/session', '/api/me'], rateLimit({
+app.use(['/api/chat', '/api/translate', '/api/tts', '/api/stt', '/api/session', '/api/me', '/api/account'], rateLimit({
   windowMs: 60_000,
   limit: RATE_LIMIT_PER_MINUTE,
   standardHeaders: 'draft-7',
@@ -217,7 +218,7 @@ app.get('/api/auth-config', (_req, res) => {
 
 // Authentication and per-user rate limit middleware stack for billed routes
 app.use(
-  ['/api/chat', '/api/translate', '/api/tts', '/api/stt', '/api/session', '/api/me'],
+  ['/api/chat', '/api/translate', '/api/tts', '/api/stt', '/api/session', '/api/me', '/api/account'],
   authenticateHttpUser(),
   createUserRateLimitMiddleware(defaultUserLimiter),
   attachAccount(defaultAccountStore)
@@ -278,6 +279,9 @@ app.get('/api/me', async (req, res) => {
     res.status(500).json({ error: 'Error fetching account details' });
   }
 });
+
+// Account lifecycle routes (guest merge and account deletion)
+app.use('/api/account', createAccountRouter());
 
 // Learner Session Endpoints (Session Continuity, Checkpointing, and GDPR Deletion)
 app.get('/api/session', async (req, res) => {

@@ -1,0 +1,156 @@
+/** Tests for /api/account routes (merge and delete). */
+import express from 'express';
+import request from 'supertest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createAccountRouter } from '../src/server/accountRoutes';
+import { InMemorySessionStore, initializeLearnerSession } from '../src/server/sessionStore';
+import { InMemoryAccountStore } from '../src/server/accountStore';
+import { InMemoryUsageStore, usageDay } from '../src/server/usageStore';
+import { authenticateHttpUser, verifyIdToken } from '../src/server/auth';
+import type { IdentityAdmin } from '../src/server/identityAdmin';
+
+describe('POST /api/account/merge', () => {
+  let sessionStore: InMemorySessionStore;
+  let accountStore: InMemoryAccountStore;
+  let usageStore: InMemoryUsageStore;
+  let mockIdentity: IdentityAdmin;
+  let clock: number;
+  let app: express.Express;
+
+  beforeEach(() => {
+    clock = Date.parse('2026-11-18T10:00:00.000Z');
+    sessionStore = new InMemorySessionStore(undefined, () => clock);
+    accountStore = new InMemoryAccountStore(() => clock);
+    usageStore = new InMemoryUsageStore();
+    mockIdentity = {
+      deleteUser: vi.fn().mockResolvedValue(undefined)
+    };
+
+    app = express();
+    app.use(express.json());
+    app.use(authenticateHttpUser());
+    app.use(
+      '/api/account',
+      createAccountRouter({
+        sessions: sessionStore,
+        accounts: accountStore,
+        usage: usageStore,
+        identity: mockIdentity,
+        verifyToken: verifyIdToken,
+        now: () => clock
+      })
+    );
+  });
+
+  it('transfers sessions and returns moved when target account has no active session', async () => {
+    const guestSession = initializeLearnerSession({ userId: 'anon-g' });
+    await sessionStore.createOrUpdateSession(guestSession);
+
+    const res = await request(app)
+      .post('/api/account/merge')
+      .set('Authorization', 'Bearer dev-token:u1')
+      .send({ guestIdToken: 'dev-token:anon-g' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ sessions: 'moved' });
+
+    const transferred = await sessionStore.getSession(guestSession.sessionId, 'u1');
+    expect(transferred).not.toBeNull();
+    expect(transferred?.userId).toBe('u1');
+    expect(await sessionStore.getSession(guestSession.sessionId, 'anon-g')).toBeNull();
+  });
+
+  it('discards guest sessions when target account already has an active session', async () => {
+    const accountSession = initializeLearnerSession({ userId: 'u1' });
+    const guestSession = initializeLearnerSession({ userId: 'anon-g' });
+    await sessionStore.createOrUpdateSession(accountSession);
+    await sessionStore.createOrUpdateSession(guestSession);
+
+    const res = await request(app)
+      .post('/api/account/merge')
+      .set('Authorization', 'Bearer dev-token:u1')
+      .send({ guestIdToken: 'dev-token:anon-g' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ sessions: 'discarded' });
+
+    expect(await sessionStore.getSession(guestSession.sessionId, 'anon-g')).toBeNull();
+    expect(await sessionStore.getSession(guestSession.sessionId, 'u1')).toBeNull();
+    expect(await sessionStore.getSession(accountSession.sessionId, 'u1')).not.toBeNull();
+  });
+
+  it('adds guest usage to target user and deletes guest usage', async () => {
+    const day = usageDay(clock);
+    await usageStore.add('anon-g', day, 'chatMessages', 3);
+    await usageStore.add('anon-g', day, 'voiceSeconds', 10);
+    await usageStore.add('anon-g', day, 'helperRequests', 2);
+
+    await usageStore.add('u1', day, 'chatMessages', 2);
+
+    const res = await request(app)
+      .post('/api/account/merge')
+      .set('Authorization', 'Bearer dev-token:u1')
+      .send({ guestIdToken: 'dev-token:anon-g' });
+
+    expect(res.status).toBe(200);
+
+    const targetUsage = await usageStore.getUsage('u1', day);
+    expect(targetUsage.chatMessages).toBe(5);
+    expect(targetUsage.voiceSeconds).toBe(10);
+    expect(targetUsage.helperRequests).toBe(2);
+
+    const guestUsage = await usageStore.getUsage('anon-g', day);
+    expect(guestUsage.chatMessages).toBe(0);
+    expect(guestUsage.voiceSeconds).toBe(0);
+    expect(guestUsage.helperRequests).toBe(0);
+  });
+
+  it('deletes guest account record and calls identity.deleteUser', async () => {
+    await accountStore.upsertFromAuth({ userId: 'anon-g', isAnonymous: true });
+
+    const res = await request(app)
+      .post('/api/account/merge')
+      .set('Authorization', 'Bearer dev-token:u1')
+      .send({ guestIdToken: 'dev-token:anon-g' });
+
+    expect(res.status).toBe(200);
+    expect(await accountStore.getAccount('anon-g')).toBeNull();
+    expect(mockIdentity.deleteUser).toHaveBeenCalledWith('anon-g');
+  });
+
+  it('rejects guest token of a non-anonymous user with 400 INVALID_GUEST_TOKEN', async () => {
+    const res = await request(app)
+      .post('/api/account/merge')
+      .set('Authorization', 'Bearer dev-token:u1')
+      .send({ guestIdToken: 'dev-token:registered-user' });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ code: 'INVALID_GUEST_TOKEN' });
+  });
+
+  it('rejects when guest token belongs to the same user with 400 INVALID_GUEST_TOKEN', async () => {
+    const res = await request(app)
+      .post('/api/account/merge')
+      .set('Authorization', 'Bearer dev-token:anon-g')
+      .send({ guestIdToken: 'dev-token:anon-g' });
+    expect(res.status).toBe(403);
+
+    const resSame = await request(app)
+      .post('/api/account/merge')
+      .set('Authorization', 'Bearer dev-token:u1')
+      .send({ guestIdToken: 'dev-token:u1' });
+
+    expect(resSame.status).toBe(400);
+    expect(resSame.body).toEqual({ code: 'INVALID_GUEST_TOKEN' });
+  });
+
+  it('rejects anonymous caller with 403 SIGN_IN_REQUIRED', async () => {
+    const res = await request(app)
+      .post('/api/account/merge')
+      .set('Authorization', 'Bearer dev-token:anon-caller')
+      .send({ guestIdToken: 'dev-token:anon-g' });
+
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ code: 'SIGN_IN_REQUIRED' });
+  });
+});
