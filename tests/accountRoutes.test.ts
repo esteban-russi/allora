@@ -15,6 +15,7 @@ describe('POST /api/account/merge', () => {
   let accountStore: InMemoryAccountStore;
   let usageStore: InMemoryUsageStore;
   let mockIdentity: IdentityAdmin;
+  let mockRevenueCat: { getSubscriber: any; deleteSubscriber: any };
   let clock: number;
   let app: express.Express;
 
@@ -25,6 +26,10 @@ describe('POST /api/account/merge', () => {
     usageStore = new InMemoryUsageStore();
     mockIdentity = {
       deleteUser: vi.fn().mockResolvedValue(undefined)
+    };
+    mockRevenueCat = {
+      getSubscriber: vi.fn(),
+      deleteSubscriber: vi.fn().mockResolvedValue(undefined)
     };
 
     app = express();
@@ -38,6 +43,7 @@ describe('POST /api/account/merge', () => {
         accounts: accountStore,
         usage: usageStore,
         identity: mockIdentity,
+        revenueCat: mockRevenueCat,
         verifyToken: verifyIdToken,
         now: () => clock
       })
@@ -162,6 +168,7 @@ describe('DELETE /api/account', () => {
   let accountStore: InMemoryAccountStore;
   let usageStore: InMemoryUsageStore;
   let mockIdentity: IdentityAdmin;
+  let mockRevenueCat: { getSubscriber: any; deleteSubscriber: any };
   let clock: number;
   let app: express.Express;
 
@@ -172,6 +179,10 @@ describe('DELETE /api/account', () => {
     usageStore = new InMemoryUsageStore();
     mockIdentity = {
       deleteUser: vi.fn().mockResolvedValue(undefined)
+    };
+    mockRevenueCat = {
+      getSubscriber: vi.fn(),
+      deleteSubscriber: vi.fn().mockResolvedValue(undefined)
     };
 
     app = express();
@@ -185,6 +196,7 @@ describe('DELETE /api/account', () => {
         accounts: accountStore,
         usage: usageStore,
         identity: mockIdentity,
+        revenueCat: mockRevenueCat,
         verifyToken: verifyIdToken,
         now: () => clock
       })
@@ -210,6 +222,21 @@ describe('DELETE /api/account', () => {
     expect(usage.chatMessages).toBe(0);
     expect(await accountStore.getAccount('u1')).toBeNull();
     expect(mockIdentity.deleteUser).toHaveBeenCalledWith('u1');
+    expect(mockRevenueCat.deleteSubscriber).toHaveBeenCalledWith('u1');
+  });
+
+  it('completes account deletion even if deleteSubscriber throws', async () => {
+    mockRevenueCat.deleteSubscriber.mockRejectedValueOnce(new Error('RevenueCat unreachable'));
+    await accountStore.upsertFromAuth({ userId: 'u-rc-fail', isAnonymous: false });
+
+    const res = await request(app)
+      .delete('/api/account')
+      .set('Authorization', 'Bearer dev-token:u-rc-fail');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ status: 'deleted', hadActiveSubscription: false });
+    expect(await accountStore.getAccount('u-rc-fail')).toBeNull();
+    expect(mockRevenueCat.deleteSubscriber).toHaveBeenCalledWith('u-rc-fail');
   });
 
   it('returns hadActiveSubscription: true when deleting a premium account', async () => {

@@ -13,12 +13,14 @@ import { verifyIdToken } from './auth';
 import { usageDay } from './usageStore';
 import { invalidateAccountCache } from './accountMiddleware';
 import { summarizeError } from '../../vertexCooldown';
+import { createRevenueCatClient, type RevenueCatClient } from './revenueCat';
 
 export interface AccountRouterDeps {
   sessions?: SessionStore;
   accounts?: AccountStore;
   usage?: UsageStore;
   identity?: IdentityAdmin;
+  revenueCat?: RevenueCatClient | null;
   verifyToken?: (token: string) => Promise<AuthenticatedUser | null>;
   now?: () => number;
 }
@@ -113,6 +115,24 @@ export function createAccountRouter(deps: AccountRouterDeps = {}): Router {
         console.error('[Account] Failed to delete identity for user:', summarizeError(err));
         res.status(500).json({ error: 'Could not delete user identity' });
         return;
+      }
+
+      const getRevenueCat = (): RevenueCatClient | null => {
+        if (deps.revenueCat !== undefined) {
+          return deps.revenueCat;
+        }
+        const secretKey = process.env.REVENUECAT_SECRET_KEY;
+        if (!secretKey) return null;
+        return createRevenueCatClient(secretKey);
+      };
+
+      const rc = getRevenueCat();
+      if (rc) {
+        try {
+          await rc.deleteSubscriber(userId);
+        } catch (err) {
+          console.error('[Account] Failed to delete RevenueCat subscriber:', summarizeError(err));
+        }
       }
 
       res.json({ status: 'deleted', hadActiveSubscription });

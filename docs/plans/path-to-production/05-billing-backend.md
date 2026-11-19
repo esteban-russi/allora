@@ -124,7 +124,7 @@ the `/api/me` response.
    - Tests: auth cases; a purchase event sets the subscription; an expiration event sets
      `expired`; a transfer syncs both users; upstream failure gives 500; `TEST` gives 200.
 
-6. **Delete hook.** In `DELETE /api/account` (plan 03) call
+6. ✅ **Delete hook.** In `DELETE /api/account` (plan 03) call
    `revenueCat.deleteSubscriber(userId)` in try/catch after the stores are cleared (log on
    failure, do not fail the request). Skip when billing is not configured.
 
