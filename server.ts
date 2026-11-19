@@ -15,6 +15,8 @@ import { assertAuthConfig, authenticateHttpUser, isAuthEnforced } from './src/se
 import { defaultSessionStore } from './src/server/defaultSessionStore';
 import { attachAccount } from './src/server/accountMiddleware';
 import { defaultAccountStore } from './src/server/defaultAccountStore';
+import { defaultUsageStore } from './src/server/defaultUsageStore';
+import { nextResetAt, usageDay } from './src/server/usageStore';
 import { requireQuota } from './src/server/quota';
 import {
   initializeLearnerSession,
@@ -248,23 +250,33 @@ app.get('/api/metrics', authenticateHttpUser(), (req, res) => {
 });
 
 // Learner profile and account metadata
-app.get('/api/me', (req, res) => {
-  const { account, tier, limits } = req.account!;
-  res.json({
-    userId: account.userId,
-    email: account.email,
-    isAnonymous: account.isAnonymous,
-    tier,
-    limits,
-    subscription: account.subscription && {
-      status: account.subscription.status,
-      productId: account.subscription.productId,
-      store: account.subscription.store,
-      periodType: account.subscription.periodType,
-      expiresAt: account.subscription.expiresAt,
-      willRenew: account.subscription.willRenew
-    }
-  });
+app.get('/api/me', async (req, res) => {
+  try {
+    const { account, tier, limits } = req.account!;
+    const nowMs = Date.now();
+    const usage = await defaultUsageStore.getUsage(account.userId, usageDay(nowMs));
+    const resetsAt = nextResetAt(nowMs);
+    res.json({
+      userId: account.userId,
+      email: account.email,
+      isAnonymous: account.isAnonymous,
+      tier,
+      limits,
+      usage,
+      resetsAt,
+      subscription: account.subscription && {
+        status: account.subscription.status,
+        productId: account.subscription.productId,
+        store: account.subscription.store,
+        periodType: account.subscription.periodType,
+        expiresAt: account.subscription.expiresAt,
+        willRenew: account.subscription.willRenew
+      }
+    });
+  } catch (err: unknown) {
+    console.error('[Account] Error fetching usage for /api/me:', summarizeError(err));
+    res.status(500).json({ error: 'Error fetching account details' });
+  }
 });
 
 // Learner Session Endpoints (Session Continuity, Checkpointing, and GDPR Deletion)

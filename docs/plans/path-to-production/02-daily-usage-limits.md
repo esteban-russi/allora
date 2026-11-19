@@ -114,7 +114,7 @@ export function requireQuota(counter: 'chatMessages' | 'helperRequests', deps?: 
    - ✅ Tests: with `QUOTAS_MODE=enforce` and dev user `anon-q`, the 6th `/api/chat` call
      returns 429 `QUOTA_EXCEEDED` (mock Gemini with `tests/helpers/fakeGemini.ts`).
 
-6. **`/api/me` returns usage.** Add
+6. ✅ **`/api/me` returns usage.** Add
    `usage: await defaultUsageStore.getUsage(userId, usageDay(Date.now()))` and
    `resetsAt: nextResetAt(Date.now())`. Make the handler `async` with try/catch like the
    session routes.

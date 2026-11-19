@@ -468,6 +468,12 @@ describe('GET /api/me', () => {
       voiceSeconds: 120,
       helperRequests: 30
     });
+    expect(res.body.usage).toEqual({
+      chatMessages: 0,
+      voiceSeconds: 0,
+      helperRequests: 0
+    });
+    expect(typeof res.body.resetsAt).toBe('string');
     expect(res.body.subscription).toBeNull();
   });
 
@@ -485,6 +491,12 @@ describe('GET /api/me', () => {
       voiceSeconds: 300,
       helperRequests: 100
     });
+    expect(res.body.usage).toEqual({
+      chatMessages: 0,
+      voiceSeconds: 0,
+      helperRequests: 0
+    });
+    expect(typeof res.body.resetsAt).toBe('string');
     expect(res.body.subscription).toBeNull();
   });
 });
