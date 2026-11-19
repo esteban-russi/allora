@@ -202,13 +202,13 @@ Props: `mode: 'after-onboarding' | 'login'`, `onSignedIn: () => void`, `onSkip: 
   (ask with a small inline form when missing), call `completeMagicLink`, then
   `history.replaceState(null, '', '/')` and continue as "after a successful sign-in".
 
-### Step 9: account menu (`src/components/AccountMenu.tsx`)
+### Step 9: ✅ account menu (`src/components/AccountMenu.tsx`)
 
-- Dialog using `useDialog`. Opened by `UserBadge` in `IconRail` and `TopHeader`
+- ✅ Dialog using `useDialog`. Opened by `UserBadge` in `IconRail` and `TopHeader`
   (replace their `onEditProfile` wiring with `onOpenAccount`; "Edit profile" moves inside).
-- Content: email or "Guest"; plan label ("Guest", "Free", "Premium"); buttons as listed
+- ✅ Content: email or "Guest"; plan label ("Guest", "Free", "Premium"); buttons as listed
   under "User flow".
-- "Delete account": second confirmation step inside the dialog ("This permanently deletes
+- ✅ "Delete account": second confirmation step inside the dialog ("This permanently deletes
   your conversations, notebook and account. This cannot be undone." + "Delete" / "Cancel").
   On confirm: `DELETE /api/account` (add `deleteWithAuth(path)` to `apiClient.ts`), then
   `signOutToGuest()` and show onboarding. If `hadActiveSubscription`, show

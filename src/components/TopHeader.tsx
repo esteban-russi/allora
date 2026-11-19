@@ -10,7 +10,7 @@ interface TopHeaderProps {
   mode: 'text' | 'voice';
   onSelectVoice: () => void;
   onOpenNotebook: () => void;
-  onEditProfile?: () => void;
+  onOpenAccount?: () => void;
 }
 
 export const TopHeader: React.FC<TopHeaderProps> = ({
@@ -20,7 +20,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   mode,
   onSelectVoice,
   onOpenNotebook,
-  onEditProfile
+  onOpenAccount
 }) => (
   <header className="h-16 shrink-0 grid grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 md:px-6 bg-canvas">
     <span className="font-serif text-[26px] leading-none font-semibold tracking-tight text-cobalt">
@@ -77,8 +77,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
 
       <UserBadge
         initial={learnerInitial}
-        onClick={onEditProfile}
-        title="Change name, level, or tutor"
+        onClick={onOpenAccount}
+        title="Account menu"
       />
     </div>
   </header>

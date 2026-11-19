@@ -11,6 +11,7 @@ import { TopHeader } from './components/TopHeader';
 import { UtilityPanel } from './components/UtilityPanel';
 import { OnboardingPage } from './components/OnboardingPage';
 import { SignInScreen } from './components/SignInScreen';
+import { AccountMenu } from './components/AccountMenu';
 import { useDialog } from './hooks/useDialog';
 import { useAccount } from './hooks/useAccount';
 import { speechService } from './utils/speech';
@@ -44,6 +45,7 @@ export default function App() {
   const [isDevLabOpen, setIsDevLabOpen] = useState<boolean>(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
   const [isNotebookDrawerOpen, setIsNotebookDrawerOpen] = useState<boolean>(false);
+  const [isAccountMenuOpen, setIsAccountMenuOpen] = useState<boolean>(false);
 
   const notebookDrawerRef = useRef<HTMLDivElement>(null);
   const notebookHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -323,7 +325,7 @@ export default function App() {
         learnerInitial={learnerInitial}
         onOpenNotebook={openNotebook}
         onOpenVoiceLab={() => setIsDevLabOpen(true)}
-        onEditProfile={() => setScreen('onboarding')}
+        onOpenAccount={() => setIsAccountMenuOpen(true)}
       />
 
       <div className="flex-1 min-w-0 flex flex-col">
@@ -334,7 +336,7 @@ export default function App() {
           mode={isCallOpen ? 'voice' : 'text'}
           onSelectVoice={startCall}
           onOpenNotebook={openNotebook}
-          onEditProfile={() => setScreen('onboarding')}
+          onOpenAccount={() => setIsAccountMenuOpen(true)}
         />
 
         <div className="flex-1 min-h-0 flex gap-5 lg:pr-5 lg:pb-5">
@@ -402,6 +404,30 @@ export default function App() {
         isOpen={isProfileModalOpen}
         onClose={() => setIsProfileModalOpen(false)}
         onStartVideoCall={startCall}
+      />
+
+      <AccountMenu
+        isOpen={isAccountMenuOpen}
+        onClose={() => setIsAccountMenuOpen(false)}
+        me={me}
+        onEditProfile={() => {
+          setIsAccountMenuOpen(false);
+          setScreen('onboarding');
+        }}
+        onSignIn={() => {
+          setIsAccountMenuOpen(false);
+          setScreen('signin-login');
+        }}
+        onSignedOut={() => {
+          setIsAccountMenuOpen(false);
+          refreshAccount();
+          setScreen('onboarding');
+        }}
+        onAccountDeleted={() => {
+          setIsAccountMenuOpen(false);
+          refreshAccount();
+          setScreen('onboarding');
+        }}
       />
     </div>
   );
