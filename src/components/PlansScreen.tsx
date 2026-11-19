@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Check, ShieldCheck, Sparkles } from 'lucide-react';
 import type { Me } from '../utils/me';
 import { getBilling, type PlanId, type PlanOffer } from '../utils/billing';
+import { PLAN_LIMITS } from '../server/plans';
 
 export interface PlansScreenProps {
   me: Me;
@@ -110,6 +111,7 @@ export const PlansScreen: React.FC<PlansScreenProps> = ({
     : 'Subscribe';
 
   const callMins = Math.round(me.limits.voiceSeconds / 60);
+  const premiumCallMins = Math.round(PLAN_LIMITS.premium.voiceSeconds / 60);
 
   return (
     <div className="min-h-dvh w-full flex items-center justify-center p-4 sm:p-6 bg-canvas text-ink animate-in fade-in duration-200">
@@ -155,16 +157,10 @@ export const PlansScreen: React.FC<PlansScreenProps> = ({
               </strong>{' '}
               →{' '}
               <strong className="font-semibold text-cobalt">
-                60
+                {premiumCallMins}
               </strong>{' '}
               call minutes daily
             </span>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="w-5 h-5 rounded-full bg-cobalt-tint text-cobalt flex items-center justify-center shrink-0">
-              <Check className="w-3.5 h-3.5" aria-hidden="true" />
-            </span>
-            <span>Access to all Italian tutor personas &amp; styles</span>
           </div>
         </div>
 
