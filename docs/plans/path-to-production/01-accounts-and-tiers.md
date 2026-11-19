@@ -130,11 +130,11 @@ export function tierFor(account: Account, nowMs: number): Tier
      true then false.
    - ✅ `tests/accountStore.test.ts` runs the contract against the in-memory store.
 
-4. **`FirestoreAccountStore`** (`src/server/firestoreAccountStore.ts`).
-   - Constructor `(db: Firestore, options: { collectionName?: string; now?: () => number })`,
+4. ✅ **`FirestoreAccountStore`** (`src/server/firestoreAccountStore.ts`).
+   - ✅ Constructor `(db: Firestore, options: { collectionName?: string; now?: () => number })`,
      default collection `users`.
-   - `upsertFromAuth` runs in `db.runTransaction` (read, compare, write only if needed).
-   - `tests/firestoreAccountStore.test.ts`: run the contract only when `FIRESTORE_TEST=1`,
+   - ✅ `upsertFromAuth` runs in `db.runTransaction` (read, compare, write only if needed).
+   - ✅ `tests/firestoreAccountStore.test.ts`: run the contract only when `FIRESTORE_TEST=1`,
      in a throwaway collection, exactly like `tests/firestoreSessionStore.test.ts`.
 
 5. **Store selection** (`src/server/defaultAccountStore.ts`).
