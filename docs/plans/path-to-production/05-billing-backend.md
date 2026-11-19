@@ -3,7 +3,7 @@
 ## Status
 
 - Branch: `feature/billing-backend`
-- PR link: (pending opening)
+- PR link: https://github.com/esteban-russi/parliamo-italiano/pull/16
 - Date: 2026-11-19
 - Summary: Implemented RevenueCat billing backend, subscription skew tolerance, client launch sync, webhook handler, and Secret Manager configuration.
 - Items needing attention:
