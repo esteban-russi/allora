@@ -24,7 +24,7 @@ import { speechService } from './utils/speech';
 import { setAccountDeletedHandler } from './utils/apiClient';
 import { completeMagicLink, EMAIL_FOR_SIGN_IN_KEY, isMagicLink, signOutToGuest } from './utils/firebaseAuth';
 import { ACCOUNT_DELETED_NOTICE, MERGE_FAILED_NOTICE, showNotice } from './utils/notice';
-import { loadLearnerSession, requestChatReply, saveLearnerSettings, startLearnerSession, toChatMessages } from './utils/learnerSession';
+import { loadLearnerSession, requestChatReply, saveLearnerSettings, startLearnerSession, toChatMessages, type ChatReplyErrorReason } from './utils/learnerSession';
 import type { QuotaError } from './utils/quotaError';
 import type { ClientLearnerSession } from './server/sessionStore';
 
@@ -41,7 +41,7 @@ export default function App() {
 
   const { me, refresh: refreshAccount, setUsage } = useAccount();
   const [limitReached, setLimitReached] = useState<QuotaError | null>(null);
-  const [failedReply, setFailedReply] = useState<{ messageId: string; text: string } | null>(null);
+  const [failedReply, setFailedReply] = useState<{ messageId: string; text: string; reason: ChatReplyErrorReason } | null>(null);
   const [chatDraft, setChatDraft] = useState<string>('');
 
   const emailRef = useRef<string | null>(null);
@@ -348,7 +348,7 @@ export default function App() {
       return;
     }
 
-    setFailedReply({ messageId, text });
+    setFailedReply({ messageId, text, reason: result.reason });
     setIsAiGenerating(false);
   };
 

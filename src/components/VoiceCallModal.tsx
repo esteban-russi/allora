@@ -7,7 +7,7 @@ import { LiveCall } from '../utils/liveCall';
 import { ITALIAN_PRACTICE_PHRASES } from '../data/personas';
 import { useDialog } from '../hooks/useDialog';
 import { postJson } from '../utils/apiClient';
-import { getLearnerSessionId, rememberLearnerSessionId, requestChatReply } from '../utils/learnerSession';
+import { formatReplyError, getLearnerSessionId, rememberLearnerSessionId, requestChatReply } from '../utils/learnerSession';
 import { readQuotaError, QuotaLimitError } from '../utils/quotaError';
 
 interface VoiceCallModalProps {
@@ -243,7 +243,7 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
       return;
     }
 
-    setCallError(`${personaRef.current.name} couldn't reply. Check your connection.`);
+    setCallError(formatReplyError(personaRef.current.name, result.reason));
     isAiSpeakingRef.current = false;
     setSpeakingState('listening');
   }, []);

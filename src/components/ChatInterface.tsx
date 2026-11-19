@@ -7,6 +7,7 @@ import { ITALIAN_PRACTICE_PHRASES } from '../data/personas';
 import { speechService, createSpeechRecognizer, AudioRecorder, transcribeAudioBlob } from '../utils/speech';
 import { readQuotaError, QuotaLimitError, type QuotaError } from '../utils/quotaError';
 import { postJson } from '../utils/apiClient';
+import { formatReplyError, type ChatReplyErrorReason } from '../utils/learnerSession';
 
 interface ChatInterfaceProps {
   persona: Persona;
@@ -19,7 +20,7 @@ interface ChatInterfaceProps {
   isAiGenerating?: boolean;
   draft?: string;
   onDraftChange?: (draft: string) => void;
-  failedReply?: { messageId: string; text: string } | null;
+  failedReply?: { messageId: string; text: string; reason: ChatReplyErrorReason } | null;
   onRetryReply?: () => void;
   limitReached?: QuotaError | null;
   tier?: string;
@@ -290,7 +291,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     role="alert"
                     className="flex items-center justify-end gap-3 text-xs text-coral-strong pr-1"
                   >
-                    <span>{persona.name} couldn&apos;t reply. Check your connection.</span>
+                    <span>{formatReplyError(persona.name, failedReply.reason)}</span>
                     {onRetryReply && (
                       <button
                         type="button"

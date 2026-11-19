@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { requestChatReply, rememberLearnerSessionId } from '../src/utils/learnerSession';
+import { formatReplyError, requestChatReply, rememberLearnerSessionId } from '../src/utils/learnerSession';
 import { ChatInterface } from '../src/components/ChatInterface';
 import { EMMANUELE } from '../src/data/personas';
 import type { ChatMessage, DevSettings } from '../src/types';
@@ -68,7 +68,7 @@ describe('requestChatReply', () => {
     }
   });
 
-  it('returns error status on 500 server failure without inventing a reply', async () => {
+  it('returns server error status on 500 server failure without inventing a reply', async () => {
     fetchMock.mockResolvedValue(
       new Response(JSON.stringify({ error: 'Internal Server Error' }), {
         status: 500,
@@ -78,16 +78,16 @@ describe('requestChatReply', () => {
 
     const result = await requestChatReply({ personaId: 'emmanuele', userMessage: 'Ciao' });
 
-    expect(result).toEqual({ status: 'error' });
+    expect(result).toEqual({ status: 'error', reason: 'server' });
   });
 
-  it('returns error status when the network request rejects', async () => {
+  it('returns network error status when the network request rejects', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     fetchMock.mockRejectedValue(new TypeError('Failed to fetch'));
 
     const result = await requestChatReply({ personaId: 'emmanuele', userMessage: 'Ciao' });
 
-    expect(result).toEqual({ status: 'error' });
+    expect(result).toEqual({ status: 'error', reason: 'network' });
   });
 
   it('returns ok status with reply data and quota usage on 200', async () => {
@@ -125,7 +125,16 @@ describe('ChatInterface failed reply row', () => {
     timestamp: '10:00',
   };
 
-  it('keeps the learner message and shows an inline error with Try again on failure', () => {
+  it('formats network vs server reply errors accurately', () => {
+    expect(formatReplyError('Emmanuele', 'network')).toBe(
+      "Emmanuele couldn't reply. Check your connection."
+    );
+    expect(formatReplyError('Emmanuele', 'server')).toBe(
+      "Emmanuele couldn't reply. Something went wrong on our side."
+    );
+  });
+
+  it('shows connection copy and Try again on network failure', () => {
     const html = renderToStaticMarkup(
       React.createElement(ChatInterface, {
         persona: EMMANUELE,
@@ -134,13 +143,33 @@ describe('ChatInterface failed reply row', () => {
         savedPhraseIds: [],
         onSendMessage: vi.fn(),
         onSavePhrase: vi.fn(),
-        failedReply: { messageId: userMessage.id, text: userMessage.text },
+        failedReply: { messageId: userMessage.id, text: userMessage.text, reason: 'network' },
         onRetryReply: vi.fn(),
       })
     );
 
     expect(html).toContain('Ciao Emmanuele!');
     expect(html).toContain('Emmanuele couldn&#x27;t reply. Check your connection.');
+    expect(html).toContain('Try again');
+  });
+
+  it('shows server error copy without blaming the connection on server failure', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatInterface, {
+        persona: EMMANUELE,
+        messages: [userMessage],
+        devSettings: baseSettings,
+        savedPhraseIds: [],
+        onSendMessage: vi.fn(),
+        onSavePhrase: vi.fn(),
+        failedReply: { messageId: userMessage.id, text: userMessage.text, reason: 'server' },
+        onRetryReply: vi.fn(),
+      })
+    );
+
+    expect(html).toContain('Ciao Emmanuele!');
+    expect(html).toContain('Emmanuele couldn&#x27;t reply. Something went wrong on our side.');
+    expect(html).not.toContain('Check your connection.');
     expect(html).toContain('Try again');
   });
 

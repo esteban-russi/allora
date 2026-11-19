@@ -216,6 +216,8 @@ export async function postChat(request: ChatRequest): Promise<Response> {
   return res;
 }
 
+export type ChatReplyErrorReason = 'network' | 'server';
+
 export type ChatTurnResult =
   | {
       status: 'ok';
@@ -225,7 +227,23 @@ export type ChatTurnResult =
       quotaUsed?: number;
     }
   | { status: 'quota'; quota: QuotaError }
-  | { status: 'error' };
+  | { status: 'error'; reason: ChatReplyErrorReason };
+
+/**
+ * Build the learner-facing error message for a failed tutor reply.
+ *
+ * Args:
+ *   personaName: Display name of the tutor.
+ *   reason: Whether the network request failed or the server returned an error.
+ *
+ * Returns:
+ *   A short message blaming the connection only on network failures.
+ */
+export function formatReplyError(personaName: string, reason: ChatReplyErrorReason): string {
+  return reason === 'network'
+    ? `${personaName} couldn't reply. Check your connection.`
+    : `${personaName} couldn't reply. Something went wrong on our side.`;
+}
 
 /**
  * Send a chat turn and classify the response as a tutor reply, quota limit, or failure.
@@ -234,11 +252,18 @@ export type ChatTurnResult =
  *   request: The chat body, without a sessionId.
  *
  * Returns:
- *   The parsed reply, quota error, or an error marker when the server cannot reply.
+ *   The parsed reply, quota error, or an error marker distinguishing network vs server failures.
  */
 export async function requestChatReply(request: ChatRequest): Promise<ChatTurnResult> {
+  let res: Response;
   try {
-    const res = await postChat(request);
+    res = await postChat(request);
+  } catch (err) {
+    console.warn('Chat reply request failed:', err);
+    return { status: 'error', reason: 'network' };
+  }
+
+  try {
     const quota = await readQuotaError(res);
     if (quota) return { status: 'quota', quota };
 
@@ -255,7 +280,7 @@ export async function requestChatReply(request: ChatRequest): Promise<ChatTurnRe
       }
     }
   } catch (err) {
-    console.warn('Chat reply request failed:', err);
+    console.warn('Chat reply response invalid:', err);
   }
-  return { status: 'error' };
+  return { status: 'error', reason: 'server' };
 }
