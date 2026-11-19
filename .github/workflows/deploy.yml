@@ -70,6 +70,7 @@ jobs:
             NODE_ENV=production
             GCP_PROJECT=${{ vars.GCP_PROJECT_ID }}
             SESSION_STORE=firestore
+            QUOTAS_MODE=monitor
             FIREBASE_API_KEY=${{ vars.FIREBASE_API_KEY }}
             FIREBASE_APP_ID=${{ vars.FIREBASE_APP_ID }}
             GCP_REGION=eu

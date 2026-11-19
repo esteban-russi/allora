@@ -5,9 +5,13 @@
 - Branch: `feature/daily-usage-limits`
 - PR link: (pending opening)
 - Date: 2026-11-19
-- Summary: In progress; implementing UsageStore, quota middleware, HTTP routes, voice metering.
+- Summary: All steps completed and verified with passing unit and integration tests.
+- Cloud changes made:
+  - Command: `gcloud firestore fields ttls update expiresAtTs --collection-group=usage --enable-ttl --project=corso-di-italiano-496920 --account=estebangr2711@gmail.com`
+  - Before: No TTL policy on `usage`.
+  - After: TTL on `expiresAtTs` in state `ACTIVE`.
 - Items needing attention:
-  - `tests/helpers/fakeGemini.ts` only implements the WebSocket `live.connect` interface for Gemini Live; the turn-based chat endpoint tests mock `primaryAi.models.generateContent` directly with Vitest.
+  - 🟠 `tests/helpers/fakeGemini.ts` only implements the WebSocket `live.connect` interface for Gemini Live; the turn-based chat endpoint tests mock `primaryAi.models.generateContent` directly with Vitest.
 
 Branch: `feature/daily-usage-limits`. Depends on: 01.
 
@@ -142,12 +146,25 @@ export function requireQuota(counter: 'chatMessages' | 'helperRequests', deps?: 
      `quota_exceeded` and close code 4008; closing after 45 s records 45 seconds in total;
      `off` mode records nothing.
 
-8. **Config and docs.** `QUOTAS_MODE` in `.env.example`, README and `deploy.yml`
+8. ✅ **Config and docs.** `QUOTAS_MODE` in `.env.example`, README and `deploy.yml`
    (`QUOTAS_MODE=monitor`). Update the README "limits" paragraph.
 
 ## GCP setup
 
-`gcloud firestore fields ttls update expiresAtTs --collection-group=usage --enable-ttl --project=<project>`
+✅ Enabled Firestore TTL policy on `usage` collection group `expiresAtTs`:
+- Command: `gcloud firestore fields ttls update expiresAtTs --collection-group=usage --enable-ttl --project=corso-di-italiano-496920 --account=estebangr2711@gmail.com`
+- Before state: No TTL configuration on collection group `usage`.
+- After state: Verified with `gcloud firestore fields ttls list --project=corso-di-italiano-496920 --account=estebangr2711@gmail.com`:
+  ```json
+  [
+    {
+      "field": "projects/corso-di-italiano-496920/databases/(default)/collectionGroups/usage/fields/expiresAtTs",
+      "ttlConfig": {
+        "state": "ACTIVE"
+      }
+    }
+  ]
+  ```
 
 No composite index is needed (`userId ==` only).
 
