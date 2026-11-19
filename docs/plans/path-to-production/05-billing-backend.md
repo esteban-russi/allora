@@ -89,7 +89,7 @@ the `/api/me` response.
      (`willRenew` false), billing issue in grace, expired, no entitlement, lifetime, unknown
      store; `getSubscriber` with a fake `fetch` for 200, 404 and 500.
 
-3. **Sync function** (`src/server/billingSync.ts`).
+3. ✅ **Sync function** (`src/server/billingSync.ts`).
    ```ts
    export async function syncSubscription(userId: string, deps: {
      revenueCat: RevenueCatClient; accounts: AccountStore; now: () => number;
