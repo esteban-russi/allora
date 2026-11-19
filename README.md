@@ -103,6 +103,18 @@ On load the client signs the learner in anonymously with Firebase (`src/utils/fi
 
 **Daily usage limits.** Daily quotas are tracked per user in Firestore (`usage` collection) or memory: chat messages, helper requests (TTS, STT, translation), and voice seconds. `QUOTAS_MODE` controls enforcement: `off` disables tracking, `monitor` (default in production) meters usage and logs over-limit events, and `enforce` rejects requests with HTTP 429 (`QUOTA_EXCEEDED`) or cuts off live voice calls when daily limits are reached. Usage documents expire after 2 days via Firestore TTL on `expiresAtTs`.
 
+**Plans and limits.** The app provides three subscription tiers:
+- **Guest**: For unauthenticated learners exploring the app. Includes 5 chat messages, 2 minutes of voice calls, and 5 helper requests (TTS, STT, translation) per day.
+- **Free**: For registered accounts with email/magic link or Google sign-in. Includes 15 chat messages, 5 minutes of voice calls, and 100 helper requests per day.
+- **Premium**: For subscribers. Includes unlimited chat messages (fair use cap of 300), 60 minutes of voice calls, and unlimited helper requests per day.
+
+When daily quotas are reached:
+- In chat, a status card explains the limit, preserves unsent draft text in the composer, and prompts guests to sign in or free users to view plans (when billing is available).
+- In voice calls, calls gracefully cut off with an explanatory modal when time expires, or prevent connecting if zero time remains today.
+- In helper tools (Listen and Translate), transient inline alerts ("Daily limit reached") are shown for 4 seconds.
+- The drawer utility panel displays a real-time daily usage meter showing progress towards message and call limits and the local reset time.
+- The plans screen (`PlansScreen`) compares allowances between free and premium tiers, with monthly and annual options.
+
 **Learner sessions.** A session holds the learner's level, saved phrases and the last 50 conversation turns. The server assigns its ID, the client remembers it on the device, and both chat and Live turns are checkpointed to it. `GET /api/session` returns the latest session, `POST` creates or updates one, `DELETE /api/session/:id` deletes one and `DELETE /api/session` deletes all of a user's data. Sessions expire after 30 days without activity.
 
 `SESSION_STORE` picks where sessions live. `memory` (the default, for local development) loses them on restart. `firestore` keeps one document per session in the `learnerSessions` collection, shared by all instances; a TTL policy on `expiresAtTs` deletes expired ones. Production uses Firestore. Per-user rate limits stay in each instance's memory.

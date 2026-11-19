@@ -5,9 +5,9 @@
 - Branch: `feature/limits-and-paywall-ui`
 - PR link: (pending opening)
 - Date: 2026-11-19
-- Summary: In progress.
+- Summary: Completed limits and paywall UI with usage meters, quota cut-offs, PlansScreen, and entry points.
 - Items needing attention:
-  - 🟠 Owner setup: `QUOTAS_MODE=enforce` should be enabled in `deploy.yml` after merging this PR to enforce limits in production.
+  - 🟠 Owner setup: `QUOTAS_MODE=enforce` should be set in `deploy.yml` after merging this PR to enforce limits in production.
 
 Branch: `feature/limits-and-paywall-ui`. Depends on: 02, 03.
 
@@ -144,7 +144,7 @@ export function getBilling(): Billing
      "Manage subscription" (premium, opens `manageUrl` in a new tab when not null).
    - All three are hidden while `isAvailable()` is false.
 
-10. **Docs**: README section "Plans and limits" describing the three tiers and the UI states.
+10. ✅ **Docs**: README section "Plans and limits" describing the three tiers and the UI states.
 
 ## Manual test script
 
