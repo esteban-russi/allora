@@ -3,9 +3,9 @@
 ## Status
 
 - Branch: `feature/sign-in-web`
-- PR link: (pending opening)
+- PR link: https://github.com/esteban-russi/parliamo-italiano/pull/14
 - Date: 2026-11-19
-- Summary: Complete. Ready for PR against `feature/daily-usage-limits`.
+- Summary: Complete. PR #14 open against `feature/daily-usage-limits`.
 - Cloud changes made:
   - ✅ Granted `roles/firebaseauth.admin` to `parliamo-italiano-runtime@corso-di-italiano-496920.iam.gserviceaccount.com`:
     Command: `gcloud projects add-iam-policy-binding corso-di-italiano-496920 --member="serviceAccount:parliamo-italiano-runtime@corso-di-italiano-496920.iam.gserviceaccount.com" --role="roles/firebaseauth.admin" --condition=None --project=corso-di-italiano-496920 --account=estebangr2711@gmail.com`
