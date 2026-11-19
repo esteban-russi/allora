@@ -91,6 +91,11 @@ describe('GET /api/metrics', () => {
     expect(res.body.gcp).not.toHaveProperty('project');
     expect(res.body.privacy.mode).toBe('vertex_only');
     expect(res.body.metrics).toHaveProperty('ttfa');
+    expect(res.body.metrics.appCheck).toEqual({
+      ok: expect.any(Number),
+      failed: expect.any(Number),
+      missing: expect.any(Number),
+    });
   });
 
   it('restricts metrics to listed operators when auth is enforced', () => {
