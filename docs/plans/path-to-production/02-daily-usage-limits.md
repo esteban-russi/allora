@@ -103,7 +103,7 @@ export function requireQuota(counter: 'chatMessages' | 'helperRequests', deps?: 
 
 3. ✅ **Store selection.** `src/server/defaultUsageStore.ts`, same pattern as plan 01 step 5.
 
-4. **`quota.ts` with `requireQuota`**, tested with supertest on a tiny Express app:
+4. ✅ **`quota.ts` with `requireQuota`**, tested with supertest on a tiny Express app:
    each mode; the 429 body; the refund on a 500; fail-open when the store rejects.
 
 5. **Apply to HTTP routes** (`server.ts`).
