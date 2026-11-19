@@ -52,25 +52,39 @@ describe('cloudSttEncodingFor', () => {
 });
 
 describe('GET /api/health', () => {
-  it('reports status without leaking the GCP project ID, metrics, or privacy config', async () => {
+  it('returns only status ok without exposing models, credentials, metrics, or privacy config', async () => {
     const res = await request(app).get('/api/health');
 
     expect(res.status).toBe(200);
-    expect(res.body.status).toBe('ok');
-    expect(res.body).toHaveProperty('billing');
-    expect(res.body.gcp).not.toHaveProperty('project');
-    expect(res.body).not.toHaveProperty('metrics');
-    expect(res.body).not.toHaveProperty('privacy');
+    expect(res.body).toEqual({ status: 'ok' });
   });
 });
 
 describe('GET /api/metrics', () => {
   afterEach(() => vi.unstubAllEnvs());
 
-  it('serves metrics and privacy mode in local development', async () => {
+  it('serves runtime config, privacy mode, and metrics in local development', async () => {
     const res = await request(app).get('/api/metrics').set('x-dev-user-id', 'local-dev');
 
     expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('billing');
+    expect(res.body.models).toEqual({
+      chat: expect.any(String),
+      tts: expect.any(String),
+      live: expect.any(String),
+    });
+    expect(res.body.gcp).toMatchObject({
+      region: expect.any(String),
+      hasGeminiKey: expect.any(Boolean),
+      hasGcpProject: expect.any(Boolean),
+      clients: {
+        vertexAi: expect.any(Boolean),
+        aiStudio: expect.any(Boolean),
+        cloudTts: expect.any(Boolean),
+        cloudSpeech: expect.any(Boolean),
+      },
+    });
+    expect(res.body.gcp).not.toHaveProperty('project');
     expect(res.body.privacy.mode).toBe('vertex_only');
     expect(res.body.metrics).toHaveProperty('ttfa');
   });

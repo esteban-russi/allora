@@ -135,7 +135,7 @@ When daily quotas are reached:
 
 **Privacy.** Learner audio and text go only to Vertex AI by default (`vertex_only`). Failover to Google AI Studio, whose terms allow prompts to be logged and reviewed, happens only with `ALLOW_AI_STUDIO_FALLBACK=true`, and is logged as an audit warning. Raw audio and transcripts are never logged.
 
-**Metrics.** `GET /api/metrics` reports p50/p90/p95 time to first audio and barge-in stop latency (measured on the device from speech detection), reconnect outcomes, Live lessons with audio minutes, and estimated chat and Live costs. When auth is enforced, only user IDs in `METRICS_ADMIN_USER_IDS` can read it. `/api/health` stays public and reports only status and configuration.
+**Metrics.** `GET /api/metrics` reports runtime configuration (models, billing, GCP region and client availability), privacy mode, p50/p90/p95 time to first audio and barge-in stop latency (measured on the device from speech detection), reconnect outcomes, Live lessons with audio minutes, and estimated chat and Live costs. When auth is enforced, only user IDs in `METRICS_ADMIN_USER_IDS` can read it. `/api/health` stays public and returns only `{ "status": "ok" }`.
 
 ## Deployment
 

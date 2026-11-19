@@ -172,28 +172,9 @@ async function generateContentWithFallback(requestConfig: any, isLearnerData = t
   }
 }
 
-// Health check endpoint with GCP, Model, Privacy, and Operational Metrics metadata
+// Public liveness check; operational details live on /api/metrics (operators only)
 app.get('/api/health', (_req, res) => {
-  res.json({
-    status: 'ok',
-    billing: Boolean(process.env.REVENUECAT_SECRET_KEY),
-    models: {
-      chat: CHAT_MODEL,
-      tts: TTS_MODEL,
-      live: LIVE_MODEL,
-    },
-    gcp: {
-      region: GCP_REGION,
-      hasGeminiKey: Boolean(process.env.GEMINI_API_KEY),
-      hasGcpProject: Boolean(GCP_PROJECT),
-      clients: {
-        vertexAi: Boolean(GCP_PROJECT),
-        aiStudio: Boolean(process.env.GEMINI_API_KEY),
-        cloudTts: Boolean(cloudTtsClient),
-        cloudSpeech: Boolean(cloudSpeechClient),
-      }
-    },
-  });
+  res.json({ status: 'ok' });
 });
 
 /**
@@ -255,12 +236,32 @@ export function canReadMetrics(userId: string): boolean {
   return admins.includes(userId);
 }
 
-// Operational metrics and privacy configuration: operators only, unlike /api/health
+// Operational metrics, runtime configuration, and privacy mode: operators only, unlike /api/health
 app.get('/api/metrics', authenticateHttpUser(), (req, res) => {
   if (!canReadMetrics(req.user!.userId)) {
     return res.status(403).json({ error: 'Metrics are restricted to operators' });
   }
-  res.json({ privacy: getPrivacyPolicyConfig(), metrics: defaultMetrics.getSummary() });
+  res.json({
+    billing: Boolean(process.env.REVENUECAT_SECRET_KEY),
+    models: {
+      chat: CHAT_MODEL,
+      tts: TTS_MODEL,
+      live: LIVE_MODEL,
+    },
+    gcp: {
+      region: GCP_REGION,
+      hasGeminiKey: Boolean(process.env.GEMINI_API_KEY),
+      hasGcpProject: Boolean(GCP_PROJECT),
+      clients: {
+        vertexAi: Boolean(GCP_PROJECT),
+        aiStudio: Boolean(process.env.GEMINI_API_KEY),
+        cloudTts: Boolean(cloudTtsClient),
+        cloudSpeech: Boolean(cloudSpeechClient),
+      }
+    },
+    privacy: getPrivacyPolicyConfig(),
+    metrics: defaultMetrics.getSummary()
+  });
 });
 
 // Learner profile and account metadata
