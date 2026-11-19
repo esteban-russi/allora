@@ -43,6 +43,16 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+app.disable('x-powered-by');
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('X-Frame-Options', 'DENY');
+  if (process.env.NODE_ENV === 'production') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000');
+  }
+  next();
+});
 const PORT = process.env.PORT || 3000;
 
 // Configuration
@@ -811,9 +821,9 @@ Return ONLY a valid JSON object matching this schema:
   }
 });
 
-// 404 handler for unknown API routes
-app.all('/api/*', (req, res) => {
-  res.status(404).json({ error: `API route not found: ${req.method} ${req.path}` });
+// 404 handler for unknown API routes (registered before the SPA fallback)
+app.use('/api', (_req, res) => {
+  res.status(404).json({ error: 'Not found' });
 });
 
 const CHAT_HISTORY_TURNS = 6;
@@ -897,6 +907,27 @@ export function buildLiveClientOptions(
   };
 }
 
+/** Mount production static asset and SPA routes with immutable caching for /assets and no-cache for index.html. */
+export function registerStaticRoutes(targetApp: express.Express, distDir: string): void {
+  targetApp.use(
+    '/assets',
+    express.static(path.join(distDir, 'assets'), { maxAge: '1y', immutable: true })
+  );
+  targetApp.use(
+    express.static(distDir, {
+      setHeaders: (res, filePath) => {
+        if (path.basename(filePath) === 'index.html') {
+          res.setHeader('Cache-Control', 'no-cache');
+        }
+      },
+    })
+  );
+  targetApp.get('*', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache');
+    res.sendFile(path.join(distDir, 'index.html'));
+  });
+}
+
 // Setup Vite middleware in dev or static serving in production
 async function startServer() {
   assertAuthConfig();
@@ -912,10 +943,7 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    app.use(express.static(path.join(__dirname, 'dist')));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.join(__dirname, 'dist', 'index.html'));
-    });
+    registerStaticRoutes(app, path.join(__dirname, 'dist'));
   }
 
   const server = app.listen(PORT, () => {

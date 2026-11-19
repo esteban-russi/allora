@@ -1,8 +1,12 @@
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import express from 'express';
 import request from 'supertest';
 import type { GoogleGenAI } from '@google/genai';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { VertexCooldown } from '../vertexCooldown';
-import { app, primaryAi, buildChatContents, buildFirebaseClientConfig, canReadMetrics, buildLiveClientOptions, cloudSttEncodingFor, parseModelJsonResponse, stripBase64DataUrlPrefix } from '../server';
+import { app, primaryAi, buildChatContents, buildFirebaseClientConfig, canReadMetrics, buildLiveClientOptions, cloudSttEncodingFor, parseModelJsonResponse, registerStaticRoutes, stripBase64DataUrlPrefix } from '../server';
 import { buildSystemInstruction, buildVoiceCallInstruction, LEVEL_PROMPTS, sanitizeLearnerName } from '../src/data/personaPrompts';
 
 describe('parseModelJsonResponse', () => {
@@ -220,12 +224,64 @@ describe('request body limits', () => {
   });
 });
 
+describe('HTTP hardening', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('sets security headers and omits X-Powered-By and HSTS outside production', async () => {
+    vi.stubEnv('NODE_ENV', 'test');
+    const res = await request(app).get('/api/health');
+
+    expect(res.headers['x-powered-by']).toBeUndefined();
+    expect(res.headers['x-content-type-options']).toBe('nosniff');
+    expect(res.headers['referrer-policy']).toBe('strict-origin-when-cross-origin');
+    expect(res.headers['x-frame-options']).toBe('DENY');
+    expect(res.headers['strict-transport-security']).toBeUndefined();
+  });
+
+  it('sets Strict-Transport-Security in production', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    const res = await request(app).get('/api/health');
+
+    expect(res.headers['strict-transport-security']).toBe('max-age=31536000');
+  });
+
+  it('caches hashed /assets immutably and serves index.html with no-cache', async () => {
+    const tmpDist = fs.mkdtempSync(path.join(os.tmpdir(), 'allora-dist-'));
+    try {
+      fs.mkdirSync(path.join(tmpDist, 'assets'));
+      fs.writeFileSync(path.join(tmpDist, 'assets', 'app-123.js'), 'console.log(1);');
+      fs.writeFileSync(path.join(tmpDist, 'index.html'), '<!doctype html><html></html>');
+
+      const staticApp = express();
+      registerStaticRoutes(staticApp, tmpDist);
+
+      const assetRes = await request(staticApp).get('/assets/app-123.js');
+      expect(assetRes.status).toBe(200);
+      expect(assetRes.headers['cache-control']).toBe('public, max-age=31536000, immutable');
+
+      const rootRes = await request(staticApp).get('/');
+      expect(rootRes.status).toBe(200);
+      expect(rootRes.headers['cache-control']).toBe('no-cache');
+
+      const spaRes = await request(staticApp).get('/some/client/route');
+      expect(spaRes.status).toBe(200);
+      expect(spaRes.headers['cache-control']).toBe('no-cache');
+    } finally {
+      fs.rmSync(tmpDist, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('API 404 fallback', () => {
   it('returns structured JSON 404 for unknown /api routes', async () => {
-    const res = await request(app).get('/api/nonexistent-route');
-    expect(res.status).toBe(404);
-    expect(res.body).toHaveProperty('error');
-    expect(res.body.error).toMatch(/API route not found/);
+    const getRes = await request(app).get('/api/typo');
+    expect(getRes.status).toBe(404);
+    expect(getRes.headers['content-type']).toMatch(/application\/json/);
+    expect(getRes.body).toEqual({ error: 'Not found' });
+
+    const postRes = await request(app).post('/api/nonexistent-route');
+    expect(postRes.status).toBe(404);
+    expect(postRes.body).toEqual({ error: 'Not found' });
   });
 });
 
