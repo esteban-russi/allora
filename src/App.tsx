@@ -5,6 +5,7 @@ import { ChatMessage, DevSettings, GrammarNote, LearnerProfile, Persona, SavedPh
 import { ChatInterface } from './components/ChatInterface';
 import { VoiceCallModal } from './components/VoiceCallModal';
 import { DevSettingsDrawer } from './components/DevSettingsDrawer';
+import { SettingsDialog, isDevLabEnabled } from './components/SettingsDialog';
 import { PersonaProfileModal } from './components/PersonaProfileModal';
 import { IconRail } from './components/IconRail';
 import { TopHeader } from './components/TopHeader';
@@ -71,6 +72,7 @@ export default function App() {
   const [isCallOpen, setIsCallOpen] = useState<boolean>(false);
 
   // Modals & drawers
+  const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [isDevLabOpen, setIsDevLabOpen] = useState<boolean>(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
   const [isNotebookDrawerOpen, setIsNotebookDrawerOpen] = useState<boolean>(false);
@@ -479,12 +481,21 @@ export default function App() {
     );
   }
 
+  const devLabEnabled = isDevLabEnabled();
+
+  const handleSaveSettings = (updated: DevSettings) => {
+    setDevSettings(updated);
+    if (learnerProfile && updated.grammarStrictness !== devSettings.grammarStrictness) {
+      void saveLearnerSettings({ profile: learnerProfile, grammarStrictness: updated.grammarStrictness, savedPhrases });
+    }
+  };
+
   return (
     <div className="h-dvh w-full flex overflow-hidden bg-canvas text-ink">
       <IconRail
         learnerInitial={learnerInitial}
         onOpenNotebook={openNotebook}
-        onOpenVoiceLab={() => setIsDevLabOpen(true)}
+        onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenAccount={() => setIsAccountMenuOpen(true)}
       />
 
@@ -604,18 +615,30 @@ export default function App() {
         </div>
       )}
 
-      <DevSettingsDrawer
-        isOpen={isDevLabOpen}
-        onClose={() => setIsDevLabOpen(false)}
+      <SettingsDialog
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
         settings={devSettings}
-        onSaveSettings={(updated) => {
-          setDevSettings(updated);
-          if (learnerProfile && updated.grammarStrictness !== devSettings.grammarStrictness) {
-            void saveLearnerSettings({ profile: learnerProfile, grammarStrictness: updated.grammarStrictness, savedPhrases });
-          }
-        }}
-        activePersonaName={persona.fullName}
+        onSaveSettings={handleSaveSettings}
+        onOpenDevLab={
+          devLabEnabled
+            ? () => {
+                setIsSettingsOpen(false);
+                setIsDevLabOpen(true);
+              }
+            : undefined
+        }
       />
+
+      {devLabEnabled && (
+        <DevSettingsDrawer
+          isOpen={isDevLabOpen}
+          onClose={() => setIsDevLabOpen(false)}
+          settings={devSettings}
+          onSaveSettings={handleSaveSettings}
+          activePersonaName={persona.fullName}
+        />
+      )}
 
       <PersonaProfileModal
         persona={persona}

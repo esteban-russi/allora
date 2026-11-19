@@ -5,7 +5,7 @@ import { UserBadge } from './UserBadge';
 interface IconRailProps {
   learnerInitial: string;
   onOpenNotebook: () => void;
-  onOpenVoiceLab: () => void;
+  onOpenSettings: () => void;
   onOpenAccount?: () => void;
 }
 
@@ -16,7 +16,7 @@ const railButton =
 export const IconRail: React.FC<IconRailProps> = ({
   learnerInitial,
   onOpenNotebook,
-  onOpenVoiceLab,
+  onOpenSettings,
   onOpenAccount
 }) => (
   <nav
@@ -35,7 +35,7 @@ export const IconRail: React.FC<IconRailProps> = ({
     <button type="button" onClick={onOpenNotebook} className={railButton} aria-label="Notebook" title="Notebook">
       <NotebookText className="w-5 h-5" />
     </button>
-    <button type="button" onClick={onOpenVoiceLab} className={railButton} aria-label="Voice Lab settings" title="Voice Lab settings">
+    <button type="button" onClick={onOpenSettings} className={railButton} aria-label="Settings" title="Settings">
       <Settings className="w-5 h-5" />
     </button>
 

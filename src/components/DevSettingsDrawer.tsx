@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { 
   X, 
   Sliders, 
@@ -34,6 +34,9 @@ export const DevSettingsDrawer: React.FC<DevSettingsDrawerProps> = ({
   activePersonaName
 }) => {
   const [localSettings, setLocalSettings] = useState<DevSettings>(settings);
+  useEffect(() => {
+    setLocalSettings(settings);
+  }, [settings]);
   const [copiedPayload, setCopiedPayload] = useState<boolean>(false);
   const [isTestingVoice, setIsTestingVoice] = useState<boolean>(false);
   const [testStatusMessage, setTestStatusMessage] = useState<string>('');
