@@ -1,9 +1,10 @@
 import React, { useRef, useState } from 'react';
-import { X, User, LogIn, LogOut, Trash2, Edit3, ShieldAlert } from 'lucide-react';
+import { X, User, LogIn, LogOut, Trash2, Edit3, ShieldAlert, Sparkles, ExternalLink } from 'lucide-react';
 import type { Me } from '../utils/me';
 import { useDialog } from '../hooks/useDialog';
 import { signOutToGuest } from '../utils/firebaseAuth';
 import { deleteWithAuth } from '../utils/apiClient';
+import { getBilling } from '../utils/billing';
 
 export interface AccountMenuProps {
   isOpen: boolean;
@@ -13,6 +14,7 @@ export interface AccountMenuProps {
   onSignIn: () => void;
   onSignedOut: () => void;
   onAccountDeleted: () => void;
+  onUpgrade?: () => void;
 }
 
 export const AccountMenu: React.FC<AccountMenuProps> = ({
@@ -22,7 +24,8 @@ export const AccountMenu: React.FC<AccountMenuProps> = ({
   onEditProfile,
   onSignIn,
   onSignedOut,
-  onAccountDeleted
+  onAccountDeleted,
+  onUpgrade
 }) => {
   const dialogRef = useRef<HTMLDivElement>(null);
   useDialog(dialogRef, isOpen, onClose);
@@ -34,6 +37,7 @@ export const AccountMenu: React.FC<AccountMenuProps> = ({
 
   if (!isOpen) return null;
 
+  const isBillingAvailable = getBilling().isAvailable();
   const isGuest = !me || me.isAnonymous;
   const userLabel = isGuest ? 'Guest' : (me.email || 'Signed in');
   const planName = me?.tier
@@ -208,6 +212,36 @@ export const AccountMenu: React.FC<AccountMenuProps> = ({
                   </button>
                 ) : (
                   <>
+                    {me?.tier === 'free' && isBillingAvailable && onUpgrade && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          onUpgrade();
+                        }}
+                        className="w-full h-11 flex items-center gap-3 px-4 rounded-2xl bg-cobalt-tint text-cobalt hover:bg-cobalt/15 text-sm font-semibold transition-colors"
+                      >
+                        <Sparkles className="w-4 h-4" aria-hidden="true" />
+                        <span>Upgrade</span>
+                      </button>
+                    )}
+
+                    {me?.tier === 'premium' && isBillingAvailable && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const url = await getBilling().manageUrl(me.userId);
+                          if (url) {
+                            window.open(url, '_blank', 'noopener,noreferrer');
+                          }
+                        }}
+                        className="w-full h-11 flex items-center gap-3 px-4 rounded-2xl hover:bg-surface-tint text-sm font-semibold text-ink transition-colors"
+                      >
+                        <ExternalLink className="w-4 h-4 text-ink-muted" aria-hidden="true" />
+                        <span>Manage subscription</span>
+                      </button>
+                    )}
+
                     <button
                       type="button"
                       onClick={handleSignOut}

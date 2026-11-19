@@ -137,7 +137,7 @@ export function getBilling(): Billing
      up to 5 times, 2 s apart), then `onDone()`; `cancelled` → stay; `failed` → show message.
    - Prices are never hard-coded; they come from `getOffers`.
 
-9. **Entry points.**
+9. ✅ **Entry points.**
    - Onboarding flow: after a successful sign-in in `signin-after-onboarding`, if
      `getBilling().isAvailable()` and tier is not premium, show `PlansScreen` before the app.
    - `LimitReachedCard` "See plans"; `AccountMenu` "Upgrade" (free) or

@@ -1,12 +1,17 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { AccountMenu } from '../src/components/AccountMenu';
 import type { Me } from '../src/utils/me';
 import type { PlanLimits } from '../src/server/plans';
 import type { DailyUsage } from '../src/server/usageStore';
+import { setBilling, unavailableBilling, type Billing } from '../src/utils/billing';
 
 describe('AccountMenu component', () => {
+  beforeEach(() => {
+    setBilling(unavailableBilling);
+  });
+
   const dummyLimits: PlanLimits = {
     chatMessages: 15,
     voiceSeconds: 300,
@@ -127,5 +132,55 @@ describe('AccountMenu component', () => {
     expect(html).toContain('Premium');
     expect(html).toContain('Sign out');
     expect(html).toContain('Delete account');
+  });
+
+  it('renders Upgrade button for free user when billing is available', () => {
+    const fakeBilling: Billing = {
+      isAvailable: () => true,
+      getOffers: async () => [],
+      purchase: async () => ({ status: 'failed', message: 'noop' }),
+      restore: async () => false,
+      manageUrl: async () => 'https://example.com/manage',
+    };
+    setBilling(fakeBilling);
+
+    const html = renderToStaticMarkup(
+      React.createElement(AccountMenu, {
+        isOpen: true,
+        onClose: vi.fn(),
+        me: signedInMe,
+        onEditProfile: vi.fn(),
+        onSignIn: vi.fn(),
+        onSignedOut: vi.fn(),
+        onAccountDeleted: vi.fn(),
+        onUpgrade: vi.fn(),
+      })
+    );
+    expect(html).toContain('Upgrade');
+  });
+
+  it('renders Manage subscription button for premium user when billing is available', () => {
+    const fakeBilling: Billing = {
+      isAvailable: () => true,
+      getOffers: async () => [],
+      purchase: async () => ({ status: 'failed', message: 'noop' }),
+      restore: async () => false,
+      manageUrl: async () => 'https://example.com/manage',
+    };
+    setBilling(fakeBilling);
+
+    const html = renderToStaticMarkup(
+      React.createElement(AccountMenu, {
+        isOpen: true,
+        onClose: vi.fn(),
+        me: premiumMe,
+        onEditProfile: vi.fn(),
+        onSignIn: vi.fn(),
+        onSignedOut: vi.fn(),
+        onAccountDeleted: vi.fn(),
+        onUpgrade: vi.fn(),
+      })
+    );
+    expect(html).toContain('Manage subscription');
   });
 });

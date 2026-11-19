@@ -13,6 +13,8 @@ import { OnboardingPage } from './components/OnboardingPage';
 import { SignInScreen } from './components/SignInScreen';
 import { AccountMenu } from './components/AccountMenu';
 import { LimitReachedCard } from './components/LimitReachedCard';
+import { PlansScreen } from './components/PlansScreen';
+import { getBilling } from './utils/billing';
 import { useDialog } from './hooks/useDialog';
 import { useAccount } from './hooks/useAccount';
 import { speechService } from './utils/speech';
@@ -26,7 +28,7 @@ const GRAMMAR_STRICTNESS: DevSettings['grammarStrictness'][] = ['conversational'
 
 export default function App() {
   const [learnerProfile, setLearnerProfile] = useState<LearnerProfile | null>(null);
-  const [screen, setScreen] = useState<'onboarding' | 'signin-after-onboarding' | 'signin-login' | 'app'>('onboarding');
+  const [screen, setScreen] = useState<'onboarding' | 'signin-after-onboarding' | 'signin-login' | 'plans' | 'app'>('onboarding');
   // True until the saved session (if any) has been loaded, so onboarding does not flash
   const [isRestoring, setIsRestoring] = useState<boolean>(true);
 
@@ -105,18 +107,26 @@ export default function App() {
   };
 
   const handleSignedIn = async (mode: 'login' | 'after-onboarding') => {
-    await refreshAccount();
+    const updatedMe = await refreshAccount();
     const session = await loadLearnerSession();
     if (session) {
       applySession(session);
-      setScreen('app');
+      if (mode === 'after-onboarding' && getBilling().isAvailable() && updatedMe?.tier !== 'premium') {
+        setScreen('plans');
+      } else {
+        setScreen('app');
+      }
     } else if (mode === 'login') {
       setScreen('onboarding');
     } else {
       if (learnerProfile) {
         void startLearnerSession({ profile: learnerProfile, grammarStrictness: devSettings.grammarStrictness, savedPhrases });
       }
-      setScreen('app');
+      if (getBilling().isAvailable() && updatedMe?.tier !== 'premium') {
+        setScreen('plans');
+      } else {
+        setScreen('app');
+      }
     }
   };
 
@@ -355,6 +365,17 @@ export default function App() {
     );
   }
 
+  if (screen === 'plans' && me) {
+    return (
+      <PlansScreen
+        me={me}
+        onDone={() => setScreen('app')}
+        onNeedSignIn={() => setScreen('signin-login')}
+        refreshAccount={refreshAccount}
+      />
+    );
+  }
+
   if (screen === 'onboarding' || !learnerProfile) {
     return (
       <OnboardingPage
@@ -399,8 +420,9 @@ export default function App() {
               onDraftChange={setChatDraft}
               limitReached={limitReached}
               tier={me?.tier ?? 'guest'}
-              canUpgrade={Boolean(me && me.tier === 'free')}
+              canUpgrade={getBilling().isAvailable() && me?.tier === 'free'}
               onSignIn={() => setScreen('signin-login')}
+              onSeePlans={() => setScreen('plans')}
             />
           </div>
 
@@ -465,13 +487,14 @@ export default function App() {
             <LimitReachedCard
               quota={limitReached}
               tier={me?.tier ?? 'guest'}
-              canUpgrade={Boolean(me && me.tier === 'free')}
+              canUpgrade={getBilling().isAvailable() && me?.tier === 'free'}
               onSignIn={() => {
                 setLimitReached(null);
                 setScreen('signin-login');
               }}
               onSeePlans={() => {
                 setLimitReached(null);
+                setScreen('plans');
               }}
               onDismiss={() => setLimitReached(null)}
             />
@@ -519,6 +542,10 @@ export default function App() {
         onSignIn={() => {
           setIsAccountMenuOpen(false);
           setScreen('signin-login');
+        }}
+        onUpgrade={() => {
+          setIsAccountMenuOpen(false);
+          setScreen('plans');
         }}
         onSignedOut={() => {
           setIsAccountMenuOpen(false);
