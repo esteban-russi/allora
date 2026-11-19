@@ -120,7 +120,7 @@ export function getBilling(): Billing
      `QuotaLimitError` instead of falling back to another provider.
    - The Listen and Translate buttons show "Daily limit reached" as inline text for 4 s.
 
-7. **Billing interface** (`src/utils/billing.ts`) with `unavailableBilling`, plus tests.
+7. ✅ **Billing interface** (`src/utils/billing.ts`) with `unavailableBilling`, plus tests.
 
 8. **`PlansScreen`** (`src/components/PlansScreen.tsx`).
    Props: `me: Me`, `onDone: () => void`, `onNeedSignIn: () => void`.
