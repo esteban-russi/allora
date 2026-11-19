@@ -1,6 +1,7 @@
 /** Billing routes for synchronizing subscription state with RevenueCat. */
 import crypto from 'crypto';
 import { Router, type Request, type Response } from 'express';
+import { summarizeError } from '../../vertexCooldown';
 import type { AccountStore } from './accountStore';
 import { defaultAccountStore } from './defaultAccountStore';
 import { tierFor } from './plans';
@@ -95,7 +96,8 @@ export function createBillingRouter(deps: BillingRouterDeps = {}): Router {
       const tier = updatedAccount ? tierFor(updatedAccount, nowMs) : 'free';
 
       res.json({ tier, subscription: sub });
-    } catch (_err) {
+    } catch (err: unknown) {
+      console.error('[Billing] Subscription sync failed:', summarizeError(err));
       res.status(502).json({ code: 'BILLING_UPSTREAM_ERROR' });
     }
   });
@@ -182,8 +184,12 @@ export function createRevenueCatWebhookRouter(deps: BillingWebhookDeps = {}): Ro
       )
     );
 
-    const anyFailed = results.some((r) => r.status === 'rejected');
-    if (anyFailed) {
+    const failures = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+    if (failures.length > 0) {
+      console.error(
+        `[RevenueCat] Webhook event ${eventType} failed for ${failures.length} of ${userIds.length} user(s):`,
+        summarizeError(failures[0].reason)
+      );
       res.status(500).json({ error: 'Webhook sync failed' });
       return;
     }
