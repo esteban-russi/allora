@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Sparkles, Mail, ArrowLeft } from 'lucide-react';
 import { sendMagicLink, signInWithGoogle } from '../utils/firebaseAuth';
 import { MERGE_FAILED_NOTICE, showNotice } from '../utils/notice';
+import { LegalLinks } from './LegalLinks';
 import { BRAND } from '../data/brand';
 
 export interface SignInScreenProps {
@@ -196,6 +197,10 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({
           </div>
         </div>
       </main>
+
+      <footer className="py-4 px-5 border-t border-line bg-canvas">
+        <LegalLinks />
+      </footer>
     </div>
   );
 };

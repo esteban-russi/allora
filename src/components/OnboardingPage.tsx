@@ -3,6 +3,7 @@ import { ArrowRight, Check, MapPin, Sparkles } from 'lucide-react';
 import { CefrLevel, LearnerProfile, Persona } from '../types';
 import { CEFR_LEVEL_OPTIONS, TUTORS } from '../data/personas';
 import { UserBadge } from './UserBadge';
+import { LegalLinks } from './LegalLinks';
 import { BRAND } from '../data/brand';
 
 interface OnboardingPageProps {
@@ -282,6 +283,10 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
           </div>
         </form>
       </main>
+
+      <footer className="py-4 px-5 border-t border-line bg-canvas">
+        <LegalLinks />
+      </footer>
     </div>
   );
 };

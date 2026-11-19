@@ -3,6 +3,7 @@ import { Check, ShieldCheck, Sparkles } from 'lucide-react';
 import type { Me } from '../utils/me';
 import { getBilling, type PlanId, type PlanOffer } from '../utils/billing';
 import { PLAN_LIMITS } from '../server/plans';
+import { LegalLinks } from './LegalLinks';
 import { BRAND } from '../data/brand';
 
 export interface PlansScreenProps {
@@ -295,20 +296,19 @@ export const PlansScreen: React.FC<PlansScreenProps> = ({
                 </button>
               </div>
 
-              <div className="pt-2 text-center space-y-1">
+              <div className="pt-2 text-center">
                 <p className="text-[11px] text-ink-faint flex items-center justify-center gap-1">
                   <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
                   <span>Renews automatically. Cancel any time.</span>
-                </p>
-                <p className="text-[11px] text-ink-faint space-x-2">
-                  <a href="/terms" className="underline hover:text-ink">Terms of Service</a>
-                  <span>·</span>
-                  <a href="/privacy" className="underline hover:text-ink">Privacy Policy</a>
                 </p>
               </div>
             </div>
           </div>
         )}
+
+        <footer className="pt-4 border-t border-line">
+          <LegalLinks />
+        </footer>
       </div>
     </div>
   );

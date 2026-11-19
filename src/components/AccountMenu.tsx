@@ -5,6 +5,7 @@ import { useDialog } from '../hooks/useDialog';
 import { signOutToGuest } from '../utils/firebaseAuth';
 import { deleteWithAuth } from '../utils/apiClient';
 import { getBilling } from '../utils/billing';
+import { LegalLinks } from './LegalLinks';
 
 export interface AccountMenuProps {
   isOpen: boolean;
@@ -265,6 +266,10 @@ export const AccountMenu: React.FC<AccountMenuProps> = ({
             </div>
           )}
         </div>
+
+        <footer className="px-6 py-3 border-t border-line bg-canvas/60">
+          <LegalLinks />
+        </footer>
       </div>
     </div>
   );
