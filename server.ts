@@ -822,7 +822,9 @@ const CHAT_HISTORY_TURNS = 6;
  *
  * The client's own recent history wins. When it has none, e.g. after the app was
  * restarted or a Live call fell back to turn-based, the session's saved checkpoint
- * turns are used so the tutor keeps the thread of the conversation.
+ * turns are used so the tutor keeps the thread of the conversation. If the last
+ * history turn duplicates the new user message, it is dropped so the model sees it
+ * only once.
  *
  * Args:
  *   history: Untrusted client history items (`{sender, text}`), possibly absent.
@@ -844,9 +846,14 @@ export function buildChatContents(
       )
     : [];
   const turns = clientTurns.length > 0 ? clientTurns : checkpointTurns;
+  const lastTurn = turns[turns.length - 1];
+  const priorTurns =
+    lastTurn?.sender === 'user' && lastTurn.text.trim() === userMessage.trim()
+      ? turns.slice(0, -1)
+      : turns;
 
   return [
-    ...turns.slice(-CHAT_HISTORY_TURNS).map((turn) => ({
+    ...priorTurns.slice(-CHAT_HISTORY_TURNS).map((turn) => ({
       role: turn.sender === 'user' ? ('user' as const) : ('model' as const),
       parts: [{ text: turn.text }]
     })),

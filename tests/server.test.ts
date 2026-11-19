@@ -420,6 +420,31 @@ describe('buildChatContents', () => {
     expect(contents).toHaveLength(7);
     expect(contents[0].parts[0].text).toBe('m2');
   });
+
+  it('drops a trailing user turn that duplicates the new userMessage', () => {
+    const history = [
+      { sender: 'persona', text: 'Ciao! Come stai?' },
+      { sender: 'user', text: '  Bene, grazie!  ' }
+    ];
+    const contents = buildChatContents(history, [], 'Bene, grazie!');
+    expect(contents).toEqual([
+      { role: 'model', parts: [{ text: 'Ciao! Come stai?' }] },
+      { role: 'user', parts: [{ text: 'Bene, grazie!' }] }
+    ]);
+  });
+
+  it('keeps a trailing user turn when its text differs from userMessage', () => {
+    const history = [
+      { sender: 'persona', text: 'Ciao! Come stai?' },
+      { sender: 'user', text: 'Bene, grazie!' }
+    ];
+    const contents = buildChatContents(history, [], 'E tu?');
+    expect(contents).toEqual([
+      { role: 'model', parts: [{ text: 'Ciao! Come stai?' }] },
+      { role: 'user', parts: [{ text: 'Bene, grazie!' }] },
+      { role: 'user', parts: [{ text: 'E tu?' }] }
+    ]);
+  });
 });
 
 describe('buildFirebaseClientConfig', () => {

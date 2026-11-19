@@ -312,14 +312,13 @@ export default function App() {
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
-    const updated = [...messages, userMsg];
-    setMessages(updated);
+    setMessages([...messages, userMsg]);
     setIsAiGenerating(true);
 
     try {
       const res = await postChat({
         personaId: persona.id,
-        history: updated.slice(-6),
+        history: messages.slice(-6),
         userMessage: text,
         temperature: devSettings.temperature,
         grammarStrictness: devSettings.grammarStrictness,
