@@ -20,6 +20,11 @@ import { defaultUsageStore } from './src/server/defaultUsageStore';
 import { nextResetAt, usageDay } from './src/server/usageStore';
 import { requireQuota } from './src/server/quota';
 import {
+  canUsePersona,
+  PREMIUM_REQUIRED_BODY,
+  requirePersonaAccess
+} from './src/server/personaAccess';
+import {
   initializeLearnerSession,
   parseSavedPhrases,
   toClientSession,
@@ -387,6 +392,9 @@ app.post('/api/session', async (req, res) => {
     if (typeof personaId !== 'string' || !Object.hasOwn(PERSONA_PROMPTS, personaId)) {
       return res.status(400).json({ error: `Unknown personaId: ${String(personaId)}` });
     }
+    if (!canUsePersona(req.account!.tier, personaId)) {
+      return res.status(403).json(PREMIUM_REQUIRED_BODY);
+    }
     if (typeof learnerLevel !== 'string' || !Object.hasOwn(LEVEL_PROMPTS, learnerLevel)) {
       return res.status(400).json({ error: `learnerLevel must be one of ${Object.keys(LEVEL_PROMPTS).join(', ')}` });
     }
@@ -455,7 +463,7 @@ app.delete('/api/session', async (req, res) => {
 });
 
 // Gemini Conversational Chat API with Italian pedagogical grammar analysis and session checkpointing
-app.post('/api/chat', requireQuota('chatMessages'), async (req, res) => {
+app.post('/api/chat', requirePersonaAccess(), requireQuota('chatMessages'), async (req, res) => {
 
   const startTime = Date.now();
   try {

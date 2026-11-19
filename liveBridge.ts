@@ -9,7 +9,8 @@ import {
   LEVEL_PROMPTS,
   PERSONA_PROMPTS,
   PERSONA_VOICES,
-  buildVoiceCallInstruction
+  buildVoiceCallInstruction,
+  isPremiumPersona
 } from './src/data/personaPrompts';
 import type { CefrLevel } from './src/types';
 import { authenticateWebSocketRequest, type AuthenticatedUser, type AuthOptions } from './src/server/auth';
@@ -25,8 +26,9 @@ import { defaultAccountStore } from './src/server/defaultAccountStore';
 import { defaultUsageStore } from './src/server/defaultUsageStore';
 import { quotasMode, type QuotasMode } from './src/server/quota';
 import { usageDay, type UsageStore } from './src/server/usageStore';
-import type { AccountStore } from './src/server/accountStore';
+import type { AccountStore, Tier } from './src/server/accountStore';
 import { PLAN_LIMITS, tierFor } from './src/server/plans';
+import { canUsePersona } from './src/server/personaAccess';
 import { summarizeError } from './vertexCooldown';
 import {
   initializeLearnerSession,
@@ -102,6 +104,8 @@ export interface LiveBridgeOptions {
   userLimiter?: UserRateLimiter;
   /** Optional metrics collector. */
   metrics?: MetricsCollector;
+  /** Override list of premium persona IDs (defaults to PREMIUM_PERSONA_IDS). */
+  premiumPersonaIds?: readonly string[];
   /** Return true to skip a client for this call (e.g. Vertex AI while it is cooling down). */
   skipClient?: (ai: GoogleGenAI) => boolean;
   /** How often to ping each call socket; one missed pong terminates it. Defaults to 10 s. */
@@ -673,23 +677,47 @@ export function attachLiveBridge(server: Server, options: LiveBridgeOptions): vo
     const usageStore = options.usageStore ?? defaultUsageStore;
     const qMode = options.quotasMode ?? quotasMode();
     const now = options.now ?? Date.now;
+    const premiumIds = options.premiumPersonaIds;
+    const personaIsPremium = isPremiumPersona(parsed.params.personaId, premiumIds);
 
     let remainingSec = Infinity;
-    if (qMode !== 'off') {
+    if (qMode !== 'off' || personaIsPremium) {
+      const nowMs = now();
+      let tier: Tier | null = null;
       try {
         const account = await accountStore.upsertFromAuth(user);
-        const nowMs = now();
-        const tier = tierFor(account, nowMs);
-        const limits = PLAN_LIMITS[tier];
-        const day = usageDay(nowMs);
-        const usage = await usageStore.getUsage(user.userId, day);
-        remainingSec = limits.voiceSeconds - usage.voiceSeconds;
-        if (qMode === 'enforce' && remainingSec <= 0) {
-          rejectUpgrade(socket, 429, 'QUOTA_EXCEEDED');
+        if (socket.destroyed) return;
+        tier = tierFor(account, nowMs);
+      } catch (err) {
+        if (personaIsPremium) {
+          console.error('[Gemini Live] Account lookup failed for premium tutor:', summarizeError(err));
+          rejectUpgrade(socket, 503, 'Account service unavailable');
           return;
         }
-      } catch (err) {
         console.error('[Gemini Live] Quota check failed, failing open:', summarizeError(err));
+      }
+
+      if (tier !== null) {
+        if (!canUsePersona(tier, parsed.params.personaId, premiumIds)) {
+          rejectUpgrade(socket, 403, 'PREMIUM_REQUIRED');
+          return;
+        }
+
+        if (qMode !== 'off') {
+          try {
+            const limits = PLAN_LIMITS[tier];
+            const day = usageDay(nowMs);
+            const usage = await usageStore.getUsage(user.userId, day);
+            if (socket.destroyed) return;
+            remainingSec = limits.voiceSeconds - usage.voiceSeconds;
+            if (qMode === 'enforce' && remainingSec <= 0) {
+              rejectUpgrade(socket, 429, 'QUOTA_EXCEEDED');
+              return;
+            }
+          } catch (err) {
+            console.error('[Gemini Live] Quota check failed, failing open:', summarizeError(err));
+          }
+        }
       }
     }
 
