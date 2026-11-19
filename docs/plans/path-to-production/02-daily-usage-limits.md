@@ -3,7 +3,7 @@
 ## Status
 
 - Branch: `feature/daily-usage-limits`
-- PR link: (pending opening)
+- PR link: https://github.com/esteban-russi/parliamo-italiano/pull/13
 - Date: 2026-11-19
 - Summary: All steps completed and verified with passing unit and integration tests.
 - Cloud changes made:
