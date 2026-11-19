@@ -164,6 +164,7 @@ The script enables the APIs, creates the Artifact Registry repo, the deployer an
    gcloud secrets add-iam-policy-binding revenuecat-webhook-auth --member=serviceAccount:<runtime-sa> --role=roles/secretmanager.secretAccessor --project=<project>
    ```
 3. **Webhook configuration:** In RevenueCat → Integrations → Webhooks, set endpoint URL to `<APP_URL>/api/webhooks/revenuecat` with `Authorization: Bearer <the-webhook-secret>`. Check that "Send test event" returns 200.
+4. **Web Billing public key:** In RevenueCat → Project Settings → Apps → Web Billing app, copy the Public API key (sandbox or production) and store it in the GitHub repository variable `REVENUECAT_WEB_PUBLIC_KEY`. The server exposes it safely to the browser client via `GET /api/auth-config`.
 
 ## Project structure
 

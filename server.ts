@@ -215,7 +215,13 @@ export function buildFirebaseClientConfig(env: NodeJS.ProcessEnv = process.env):
 
 // Firebase web config is public by design; serving it at runtime keeps it out of the image build
 app.get('/api/auth-config', (_req, res) => {
-  res.json({ firebase: buildFirebaseClientConfig() });
+  const rcKey = process.env.REVENUECAT_WEB_PUBLIC_KEY?.trim() || null;
+  res.json({
+    firebase: buildFirebaseClientConfig(),
+    billing: {
+      revenueCatWebKey: rcKey
+    }
+  });
 });
 
 // Webhook endpoints (not behind user authentication)

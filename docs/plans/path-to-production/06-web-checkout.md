@@ -1,5 +1,16 @@
 # Plan 06: web checkout
 
+## Status
+
+- Branch: `feature/web-checkout`
+- PR link: (pending opening)
+- Date: 2026-11-19
+- Summary: In progress.
+- Items needing attention:
+  - 🟠 Owner setup: Connect Stripe account to RevenueCat Web Billing and configure tax settings.
+  - 🟠 Owner setup: Create Web Billing products (\`parliamo_pro_monthly\` and \`parliamo_pro_annual\`) attached to \`premium\` entitlement and offering \`default\` as \`$rc_monthly\` and \`$rc_annual\`.
+  - 🟠 Owner setup: Set \`REVENUECAT_WEB_PUBLIC_KEY\` in GitHub repository variables with the RevenueCat Web Billing public key (sandbox key initially).
+
 Branch: `feature/web-checkout`. Depends on: 04, 05.
 
 Read first: plan 04 (the `Billing` interface and `PlansScreen`), plan 05,
@@ -27,7 +38,7 @@ A signed-in learner on the web can subscribe with a card, and becomes premium im
 
 ## Steps (one commit each)
 
-1. **Serve the key** (`server.ts`).
+1. ✅ **Serve the key** (`server.ts`).
    - `/api/auth-config` responds `{ firebase: …, billing: { revenueCatWebKey: string | null } }`.
    - `revenueCatWebKey` = trimmed `REVENUECAT_WEB_PUBLIC_KEY` or null.
    - Test in `tests/server.test.ts`. Add the variable to `.env.example`, README, `deploy.yml`

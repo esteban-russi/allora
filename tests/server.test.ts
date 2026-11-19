@@ -446,11 +446,19 @@ describe('buildFirebaseClientConfig', () => {
 describe('GET /api/auth-config', () => {
   afterEach(() => vi.unstubAllEnvs());
 
-  it('serves null when Firebase is not configured', async () => {
+  it('serves null when Firebase and RevenueCat are not configured', async () => {
     vi.stubEnv('FIREBASE_API_KEY', '');
+    vi.stubEnv('REVENUECAT_WEB_PUBLIC_KEY', '');
     const res = await request(app).get('/api/auth-config');
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ firebase: null });
+    expect(res.body).toEqual({ firebase: null, billing: { revenueCatWebKey: null } });
+  });
+
+  it('serves trimmed revenueCatWebKey when configured', async () => {
+    vi.stubEnv('REVENUECAT_WEB_PUBLIC_KEY', '  rc_pub_test123  ');
+    const res = await request(app).get('/api/auth-config');
+    expect(res.status).toBe(200);
+    expect(res.body.billing).toEqual({ revenueCatWebKey: 'rc_pub_test123' });
   });
 });
 
