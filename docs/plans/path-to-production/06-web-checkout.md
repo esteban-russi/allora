@@ -7,9 +7,9 @@
 - Date: 2026-11-19
 - Summary: Fully implemented; web billing adapter with Purchases JS, dynamic config, checkout/success states, tests, and documentation.
 - Items needing attention:
-  - 🟠 Owner setup: Connect Stripe account to RevenueCat Web Billing and configure tax settings.
-  - 🟠 Owner setup: Create Web Billing products (`parliamo_pro_monthly` and `parliamo_pro_annual`) attached to `premium` entitlement and offering `default` as `$rc_monthly` and `$rc_annual`.
-  - 🟠 Owner setup: Set `REVENUECAT_WEB_PUBLIC_KEY` in GitHub repository variables with the RevenueCat Web Billing public key (sandbox key initially).
+  - ✅ Owner setup: Stripe account `allora` connected to RevenueCat Billing (web config "Allora (RevenueCat Billing)", GBP). 🟠 Stripe Tax is off and business verification is still needed before live payments.
+  - ✅ Owner setup: Web Billing products `allora_pro_monthly` (£3.99) and `allora_pro_annual` (£29.99, 7-day trial) attached to entitlement `premium` and to the current offering `default` as `$rc_monthly` and `$rc_annual`.
+  - ✅ Owner setup: `REVENUECAT_WEB_PUBLIC_KEY` GitHub variable set to the sandbox key. 🟠 Switch to the production key at launch.
   - 🟠 Could not verify: End-to-end checkout modal with real Stripe processing; verified via comprehensive unit tests with fake SDK.
 
 Branch: `feature/web-checkout`. Depends on: 04, 05.
@@ -93,8 +93,8 @@ A signed-in learner on the web can subscribe with a card, and becomes premium im
    how VAT on digital services (UK, EU) is handled. Ask an accountant if unsure.
 2. RevenueCat → add a **Web Billing** app to the project and connect Stripe.
 3. Create two Web Billing products:
-   - `parliamo_pro_monthly`: monthly, £8.99 / €9.99 / $9.99, no trial.
-   - `parliamo_pro_annual`: yearly, £59.99 / €69.99 / $69.99, 7-day free trial.
+   - `allora_pro_monthly`: monthly, £3.99, no trial.
+   - `allora_pro_annual`: yearly, £29.99, 7-day free trial.
 4. Attach both to entitlement `premium`, and to offering `default` as `$rc_monthly` and `$rc_annual`.
 5. Copy the Web Billing **sandbox** public key into the GitHub variable
    `REVENUECAT_WEB_PUBLIC_KEY` first; switch to the production key at launch.

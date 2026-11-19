@@ -167,7 +167,7 @@ The script enables the APIs, creates the Artifact Registry repo, the deployer an
 4. **Web Billing public key:** In RevenueCat → Project Settings → Apps → Web Billing app, copy the Public API key (sandbox or production) and store it in the GitHub repository variable `REVENUECAT_WEB_PUBLIC_KEY`. The server exposes it safely to the browser client via `GET /api/auth-config`.
 5. **Stripe & Web Billing products:**
    - In RevenueCat → Project Settings → Apps, create a Web Billing app and connect a verified Stripe account.
-   - Create products `parliamo_pro_monthly` (£8.99/mo) and `parliamo_pro_annual` (£59.99/yr with a 7-day free trial).
+   - Create products `allora_pro_monthly` (£3.99/mo) and `allora_pro_annual` (£29.99/yr with a 7-day free trial), each with a 3-day grace period.
    - Attach both to entitlement `premium`, and to offering `default` as `$rc_monthly` and `$rc_annual`.
 6. **Sandbox testing:**
    - Set `REVENUECAT_WEB_PUBLIC_KEY` to the sandbox Web Billing public key in the environment or GitHub repository variables.
