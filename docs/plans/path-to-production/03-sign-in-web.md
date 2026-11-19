@@ -77,7 +77,7 @@ transferUserSessions(fromUserId: string, toUserId: string): Promise<'moved' | 'd
 - ✅ Firestore: query by `userId == fromUserId`, update or delete in batches of 500.
 - ✅ Add the three outcomes to `tests/helpers/sessionStoreContract.ts`.
 
-### Step 2: identity admin (`src/server/identityAdmin.ts`)
+### Step 2: ✅ identity admin (`src/server/identityAdmin.ts`)
 
 ```ts
 export interface IdentityAdmin { deleteUser(userId: string): Promise<void>; }
@@ -86,9 +86,9 @@ export function createIdentityAdmin(env?: NodeJS.ProcessEnv): IdentityAdmin
 export const defaultIdentityAdmin: IdentityAdmin
 ```
 
-- `npm install firebase-admin`. Import only `firebase-admin/app` and `firebase-admin/auth`.
-- Initialise lazily on first use: `initializeApp({ projectId: env.GCP_PROJECT })` (ADC).
-- `deleteUser` ignores the `auth/user-not-found` error and rethrows others.
+- ✅ `npm install firebase-admin`. Import only `firebase-admin/app` and `firebase-admin/auth`.
+- ✅ Initialise lazily on first use: `initializeApp({ projectId: env.GCP_PROJECT })` (ADC).
+- ✅ `deleteUser` ignores the `auth/user-not-found` error and rethrows others.
 
 ### Step 3: `POST /api/account/merge`
 
