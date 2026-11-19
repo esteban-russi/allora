@@ -22,6 +22,7 @@ export const PlansScreen: React.FC<PlansScreenProps> = ({
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isPurchasing, setIsPurchasing] = useState<boolean>(false);
   const [isRestoring, setIsRestoring] = useState<boolean>(false);
+  const [isSuccess, setIsSuccess] = useState<boolean>(false);
   const [purchaseError, setPurchaseError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -72,7 +73,7 @@ export const PlansScreen: React.FC<PlansScreenProps> = ({
             await new Promise((r) => setTimeout(r, 2000));
           }
         }
-        onDone();
+        setIsSuccess(true);
       } else if (res.status === 'failed') {
         setPurchaseError(res.message);
       }
@@ -110,6 +111,35 @@ export const PlansScreen: React.FC<PlansScreenProps> = ({
     : 'Subscribe';
 
   const callMins = Math.round(me.limits.voiceSeconds / 60);
+
+  if (isSuccess) {
+    return (
+      <div className="min-h-dvh w-full flex items-center justify-center p-4 sm:p-6 bg-canvas text-ink animate-in fade-in duration-200">
+        <div className="w-full max-w-lg bg-surface border border-line rounded-[28px] p-6 sm:p-8 shadow-2xl text-center space-y-6">
+          <div className="w-12 h-12 rounded-full bg-mint/20 text-mint flex items-center justify-center mx-auto">
+            <Check className="w-6 h-6 text-cobalt" aria-hidden="true" />
+          </div>
+          <div className="space-y-2">
+            <h1 className="font-serif text-2xl sm:text-3xl font-semibold text-ink">
+              Welcome to Premium
+            </h1>
+            <p className="text-sm text-ink-muted">
+              Your subscription is active. Enjoy unlimited daily conversation practice with personalized Italian tutors.
+            </p>
+          </div>
+          <div className="pt-4">
+            <button
+              type="button"
+              onClick={onDone}
+              className="w-full h-12 flex items-center justify-center rounded-2xl bg-cobalt hover:bg-cobalt-strong text-canvas font-semibold text-base transition-colors shadow-soft"
+            >
+              Start practising
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-dvh w-full flex items-center justify-center p-4 sm:p-6 bg-canvas text-ink animate-in fade-in duration-200">
@@ -201,6 +231,7 @@ export const PlansScreen: React.FC<PlansScreenProps> = ({
                     key={offer.id}
                     type="button"
                     role="radio"
+                    disabled={isPurchasing || isRestoring}
                     aria-checked={isSelected}
                     onClick={() => setSelectedPlan(offer.id)}
                     className={`relative p-4 rounded-2xl border text-left transition-all ${
@@ -245,7 +276,7 @@ export const PlansScreen: React.FC<PlansScreenProps> = ({
                 onClick={handlePurchase}
                 className="w-full h-12 flex items-center justify-center rounded-2xl bg-cobalt hover:bg-cobalt-strong text-canvas font-semibold text-base transition-colors shadow-soft disabled:opacity-50"
               >
-                {isPurchasing ? 'Processing…' : primaryBtnText}
+                {isPurchasing ? 'Opening secure checkout…' : primaryBtnText}
               </button>
 
               <div className="flex items-center justify-between text-xs text-ink-muted px-1">

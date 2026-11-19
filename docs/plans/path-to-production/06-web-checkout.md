@@ -79,7 +79,7 @@ A signed-in learner on the web can subscribe with a card, and becomes premium im
    ```
    With no key the app behaves as after plan 04 (no plans screen).
 
-5. **Purchase states in `PlansScreen`.** While `purchase` runs, disable the buttons and
+5. ✅ **Purchase states in `PlansScreen`.** While `purchase` runs, disable the buttons and
    show "Opening secure checkout…". After `purchased`, show "Welcome to Premium" and a
    "Start practising" button. Cover these with a component test if the project has a
    component test setup by then; otherwise list them in the PR's manual test notes.
