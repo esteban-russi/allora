@@ -5,12 +5,15 @@ import { getBilling, type PlanId, type PlanOffer } from '../utils/billing';
 import { PLAN_LIMITS } from '../server/plans';
 import { LegalLinks } from './LegalLinks';
 import { BRAND } from '../data/brand';
+import { TUTORS } from '../data/personas';
+import type { Persona } from '../types';
 
 export interface PlansScreenProps {
   me: Me;
   onDone: (purchased?: boolean) => void;
   onNeedSignIn: () => void;
   refreshAccount?: () => Promise<Me | null>;
+  tutors?: readonly Persona[];
 }
 
 /** Full-screen paywall and subscription plan selection. */
@@ -18,7 +21,8 @@ export const PlansScreen: React.FC<PlansScreenProps> = ({
   me,
   onDone,
   onNeedSignIn,
-  refreshAccount
+  refreshAccount,
+  tutors = TUTORS
 }) => {
   const [offers, setOffers] = useState<PlanOffer[]>([]);
   const [selectedPlan, setSelectedPlan] = useState<PlanId>('annual');
@@ -115,6 +119,7 @@ export const PlansScreen: React.FC<PlansScreenProps> = ({
 
   const callMins = Math.round(me.limits.voiceSeconds / 60);
   const premiumCallMins = Math.round(PLAN_LIMITS.premium.voiceSeconds / 60);
+  const premiumTutors = tutors.filter((t) => t.isPremium);
 
   if (isSuccess) {
     return (
@@ -194,6 +199,31 @@ export const PlansScreen: React.FC<PlansScreenProps> = ({
               call minutes daily
             </span>
           </div>
+          {premiumTutors.length > 0 && (
+            <div className="flex items-start gap-3">
+              <span className="w-5 h-5 mt-0.5 rounded-full bg-cobalt-tint text-cobalt flex items-center justify-center shrink-0">
+                <Check className="w-3.5 h-3.5" aria-hidden="true" />
+              </span>
+              <div className="space-y-1.5">
+                <span className="font-semibold text-ink">All tutors</span>
+                <div className="flex flex-wrap items-center gap-2">
+                  {premiumTutors.map((tutor) => (
+                    <span
+                      key={tutor.id}
+                      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-surface border border-line text-xs text-ink"
+                    >
+                      <img
+                        src={tutor.avatar.idle}
+                        alt=""
+                        className="w-5 h-5 rounded-full object-cover object-top bg-[#fbf3e6] shrink-0"
+                      />
+                      <span>{tutor.name}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Loading / Error / Plans */}

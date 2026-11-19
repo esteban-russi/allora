@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { PlansScreen } from '../src/components/PlansScreen';
+import { EMMANUELE } from '../src/data/personas';
+import type { Persona } from '../src/types';
 import { setBilling, type Billing, type PlanOffer } from '../src/utils/billing';
 import type { Me } from '../src/utils/me';
 
@@ -87,5 +89,51 @@ describe('PlansScreen', () => {
       })
     );
     expect(html).toContain('Allora Premium');
+  });
+
+  it('omits All tutors benefit when no premium tutors exist', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(PlansScreen, {
+        me: freeMe,
+        onDone: vi.fn(),
+        onNeedSignIn: vi.fn()
+      })
+    );
+    expect(html).not.toContain('All tutors');
+  });
+
+  it('lists All tutors with premium tutors names and portraits when premium tutors exist', () => {
+    const premiumOne: Persona = {
+      ...EMMANUELE,
+      id: 'test-premium-1',
+      name: 'Chiara',
+      fullName: 'Chiara da Milano',
+      avatar: { idle: '/fixtures/chiara-idle.webp', speaking: '/fixtures/chiara-speak.webp' },
+      isPremium: true
+    };
+    const premiumTwo: Persona = {
+      ...EMMANUELE,
+      id: 'test-premium-2',
+      name: 'Gennaro',
+      fullName: 'Gennaro da Napoli',
+      avatar: { idle: '/fixtures/gennaro-idle.webp', speaking: '/fixtures/gennaro-speak.webp' },
+      isPremium: true
+    };
+
+    const html = renderToStaticMarkup(
+      React.createElement(PlansScreen, {
+        me: freeMe,
+        tutors: [EMMANUELE, premiumOne, premiumTwo],
+        onDone: vi.fn(),
+        onNeedSignIn: vi.fn()
+      })
+    );
+
+    expect(html).toContain('All tutors');
+    expect(html).toContain('Chiara');
+    expect(html).toContain('src="/fixtures/chiara-idle.webp"');
+    expect(html).toContain('Gennaro');
+    expect(html).toContain('src="/fixtures/gennaro-idle.webp"');
+    expect(html).not.toContain(EMMANUELE.name);
   });
 });
