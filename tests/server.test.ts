@@ -270,6 +270,37 @@ describe('HTTP hardening', () => {
       fs.rmSync(tmpDist, { recursive: true, force: true });
     }
   });
+
+  it('serves /privacy, /terms, and /delete-account from their static HTML files', async () => {
+    const tmpDist = fs.mkdtempSync(path.join(os.tmpdir(), 'allora-legal-'));
+    try {
+      fs.writeFileSync(path.join(tmpDist, 'index.html'), '<!doctype html><html><body>SPA</body></html>');
+      fs.writeFileSync(path.join(tmpDist, 'privacy.html'), '<!doctype html><html><body>Privacy</body></html>');
+      fs.writeFileSync(path.join(tmpDist, 'terms.html'), '<!doctype html><html><body>Terms</body></html>');
+      fs.writeFileSync(
+        path.join(tmpDist, 'delete-account.html'),
+        '<!doctype html><html><body>Delete Account</body></html>'
+      );
+
+      const staticApp = express();
+      registerStaticRoutes(staticApp, tmpDist);
+
+      for (const [route, marker] of [
+        ['/privacy', 'Privacy'],
+        ['/privacy/', 'Privacy'],
+        ['/terms', 'Terms'],
+        ['/delete-account', 'Delete Account'],
+      ] as const) {
+        const res = await request(staticApp).get(route);
+        expect(res.status).toBe(200);
+        expect(res.headers['cache-control']).toBe('no-cache');
+        expect(res.text).toContain(marker);
+        expect(res.text).not.toContain('SPA');
+      }
+    } finally {
+      fs.rmSync(tmpDist, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('canonical host redirect', () => {

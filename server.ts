@@ -952,6 +952,11 @@ export function registerStaticRoutes(targetApp: express.Express, distDir: string
       },
     })
   );
+  targetApp.get(['/privacy', '/terms', '/delete-account'], (req, res) => {
+    const page = req.path.replace(/^\/+|\/+$/g, '').toLowerCase();
+    res.setHeader('Cache-Control', 'no-cache');
+    res.sendFile(path.join(distDir, `${page}.html`));
+  });
   targetApp.get('*', (_req, res) => {
     res.setHeader('Cache-Control', 'no-cache');
     res.sendFile(path.join(distDir, 'index.html'));
