@@ -62,8 +62,8 @@ describe('PlansScreen', () => {
     expect(html).toContain('Parliamo Premium');
     expect(html).toContain('Unlimited');
     expect(html).toContain('chat messages daily');
-    expect(html).toContain('60');
-    expect(html).toContain('call minutes daily');
+    expect(html).toContain('5</strong> → <strong class="font-semibold text-cobalt">30</strong> call minutes daily');
+    expect(html).not.toContain('tutor personas');
   });
 
   it('renders loading state initially during server rendering', () => {

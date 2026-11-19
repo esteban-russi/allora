@@ -53,7 +53,7 @@ Missing for a paid launch:
 | | Guest | Free | Premium |
 |---|---|---|---|
 | Chat messages per day | 5 | 15 | 300 (shown as "unlimited") |
-| Voice call minutes per day | 2 | 5 | 60 |
+| Voice call minutes per day | 2 | 5 | 30 |
 | Helper requests per day (listen, translate, speech-to-text) | 30 | 100 | 1000 |
 | Saved conversation across devices | no | yes | yes |
 | Tutors | Emmanuele | Emmanuele | All tutors (plan 13) |
@@ -61,9 +61,10 @@ Missing for a paid launch:
 Guest numbers are an assumption (not confirmed by the owner); they are constants in
 `src/server/plans.ts`.
 
-Prices: £8.99 / €9.99 / $9.99 per month; £59.99 / €69.99 / $69.99 per year with a
-7-day free trial on the annual plan. Product IDs: `parliamo_pro_monthly`,
-`parliamo_pro_annual`. RevenueCat entitlement ID: `premium`.
+Prices (web, GBP only for now): £3.99 per month; £29.99 per year with a 7-day free
+trial on the annual plan, both with a 3-day grace period for failed renewals. Product
+IDs: `allora_pro_monthly`, `allora_pro_annual`. RevenueCat entitlement ID: `premium`;
+offering `default` with packages `$rc_monthly` and `$rc_annual`.
 
 ## 4. Target architecture
 
