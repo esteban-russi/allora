@@ -7,6 +7,7 @@ import {
   getWithAuth,
   postJson,
   setAccountDeletedHandler,
+  setAppCheckFailedHandler,
   setAuthTokenProvider
 } from '../src/utils/apiClient';
 import {
@@ -18,6 +19,7 @@ import {
 afterEach(() => {
   setAuthTokenProvider(async () => null);
   setAccountDeletedHandler(null);
+  setAppCheckFailedHandler(null);
   resetAppCheckForTesting();
   vi.unstubAllGlobals();
 });
@@ -165,6 +167,40 @@ describe('account deleted handling', () => {
     const handler = vi.fn();
     setAccountDeletedHandler(handler);
 
+    await getWithAuth('/api/me');
+
+    expect(handler).not.toHaveBeenCalled();
+  });
+});
+
+describe('App Check required handling', () => {
+  function stubFetchStatus(status: number, body: unknown) {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(body), { status }));
+    vi.stubGlobal('fetch', fetchMock);
+    return fetchMock;
+  }
+
+  it('calls the handler on 401 APP_CHECK_REQUIRED across GET, POST, and DELETE even without an auth token', async () => {
+    stubFetchStatus(401, { error: 'App verification failed', code: 'APP_CHECK_REQUIRED' });
+    const handler = vi.fn();
+    setAppCheckFailedHandler(handler);
+
+    const res = await getWithAuth('/api/me');
+    await postJson('/api/chat', {});
+    await deleteWithAuth('/api/account');
+
+    expect(handler).toHaveBeenCalledTimes(3);
+    expect(await res.json()).toEqual({ error: 'App verification failed', code: 'APP_CHECK_REQUIRED' });
+  });
+
+  it('ignores other 401 codes and non-401 responses', async () => {
+    const handler = vi.fn();
+    setAppCheckFailedHandler(handler);
+
+    stubFetchStatus(401, { code: 'AUTH_TOKEN_INVALID' });
+    await getWithAuth('/api/me');
+
+    stubFetchStatus(403, { code: 'APP_CHECK_REQUIRED' });
     await getWithAuth('/api/me');
 
     expect(handler).not.toHaveBeenCalled();

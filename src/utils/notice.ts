@@ -10,6 +10,8 @@ export const MERGE_FAILED_NOTICE =
 export const ACCOUNT_DELETED_NOTICE =
   'This account was deleted, so you have been signed out. You can start again as a guest.';
 
+export const APP_CHECK_FAILED_NOTICE = 'Please update or reload the app.';
+
 /**
  * Show a short notice to the learner.
  *

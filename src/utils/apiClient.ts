@@ -9,7 +9,11 @@ let tokenProvider: AuthTokenProvider = async () => null;
 /** Error code the server sends once the account behind a still-valid token was deleted. */
 export const ACCOUNT_DELETED_CODE = 'ACCOUNT_DELETED';
 
+/** Error code the server sends when App Check verification fails or is missing. */
+export const APP_CHECK_REQUIRED_CODE = 'APP_CHECK_REQUIRED';
+
 let accountDeletedHandler: (() => void) | null = null;
+let appCheckFailedHandler: (() => void) | null = null;
 
 /**
  * Register what happens when the server reports this account as deleted.
@@ -22,17 +26,33 @@ export function setAccountDeletedHandler(handler: (() => void) | null): void {
 }
 
 /**
- * Call the account-deleted handler when a response says the account is gone.
+ * Register what happens when the server rejects a request with `APP_CHECK_REQUIRED`.
  *
- * A reply for a token this tab has already replaced (for example after it signed
- * out to a guest itself) is ignored, so it does not sign the new guest out.
+ * Args:
+ *   handler: Called once per rejected response; null stops listening.
  */
-async function notifyIfAccountDeleted(res: Response, token: string | null): Promise<void> {
-  if (res.status !== 401 || !token || !accountDeletedHandler) return;
+export function setAppCheckFailedHandler(handler: (() => void) | null): void {
+  appCheckFailedHandler = handler;
+}
+
+/**
+ * Inspect a 401 response for `APP_CHECK_REQUIRED` or `ACCOUNT_DELETED` and notify handlers.
+ *
+ * For `ACCOUNT_DELETED`, a reply for a token this tab has already replaced (for example
+ * after it signed out to a guest itself) is ignored so it does not sign the new guest out.
+ */
+async function handleAuthError(res: Response, token: string | null): Promise<void> {
+  if (res.status !== 401) return;
+  if (!appCheckFailedHandler && (!token || !accountDeletedHandler)) return;
   const body = await res.clone().json().catch(() => null);
-  if (body?.code !== ACCOUNT_DELETED_CODE) return;
-  if ((await getAuthToken()) !== token) return;
-  accountDeletedHandler?.();
+  if (body?.code === APP_CHECK_REQUIRED_CODE) {
+    appCheckFailedHandler?.();
+    return;
+  }
+  if (body?.code === ACCOUNT_DELETED_CODE && token && accountDeletedHandler) {
+    if ((await getAuthToken()) !== token) return;
+    accountDeletedHandler?.();
+  }
 }
 
 /**
@@ -94,7 +114,7 @@ async function authHeaders(
 export async function getWithAuth(path: string): Promise<Response> {
   const { token, headers } = await authHeaders();
   const res = await fetch(path, Object.keys(headers).length > 0 ? { headers } : {});
-  await notifyIfAccountDeleted(res, token);
+  await handleAuthError(res, token);
   return res;
 }
 
@@ -111,7 +131,7 @@ export async function getWithAuth(path: string): Promise<Response> {
 export async function postJson(path: string, body: unknown): Promise<Response> {
   const { token, headers } = await authHeaders({ 'Content-Type': 'application/json' });
   const res = await fetch(path, { method: 'POST', headers, body: JSON.stringify(body) });
-  await notifyIfAccountDeleted(res, token);
+  await handleAuthError(res, token);
   return res;
 }
 
@@ -127,6 +147,6 @@ export async function postJson(path: string, body: unknown): Promise<Response> {
 export async function deleteWithAuth(path: string): Promise<Response> {
   const { token, headers } = await authHeaders();
   const res = await fetch(path, { method: 'DELETE', headers });
-  await notifyIfAccountDeleted(res, token);
+  await handleAuthError(res, token);
   return res;
 }

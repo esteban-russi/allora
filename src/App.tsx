@@ -24,9 +24,9 @@ import { createWebBilling } from './utils/billingWeb';
 import { useDialog } from './hooks/useDialog';
 import { useAccount } from './hooks/useAccount';
 import { speechService } from './utils/speech';
-import { setAccountDeletedHandler } from './utils/apiClient';
+import { setAccountDeletedHandler, setAppCheckFailedHandler } from './utils/apiClient';
 import { completeMagicLink, EMAIL_FOR_SIGN_IN_KEY, isMagicLink, signOutToGuest } from './utils/firebaseAuth';
-import { ACCOUNT_DELETED_NOTICE, MERGE_FAILED_NOTICE, showNotice } from './utils/notice';
+import { ACCOUNT_DELETED_NOTICE, APP_CHECK_FAILED_NOTICE, MERGE_FAILED_NOTICE, showNotice } from './utils/notice';
 import { loadLearnerSession, requestChatReply, saveLearnerSettings, startLearnerSession, toChatMessages, type ChatReplyErrorReason } from './utils/learnerSession';
 import type { QuotaError } from './utils/quotaError';
 import type { ClientLearnerSession } from './server/sessionStore';
@@ -178,7 +178,8 @@ export default function App() {
     setScreen('onboarding');
   };
 
-  // The account was deleted in another tab or on another device: sign this tab out too
+  // The account was deleted in another tab or on another device: sign this tab out too.
+  // Also surface a notice if App Check rejects a request.
   useEffect(() => {
     setAccountDeletedHandler(() => {
       signOutToGuest()
@@ -188,7 +189,13 @@ export default function App() {
           showNotice(ACCOUNT_DELETED_NOTICE);
         });
     });
-    return () => setAccountDeletedHandler(null);
+    setAppCheckFailedHandler(() => {
+      showNotice(APP_CHECK_FAILED_NOTICE);
+    });
+    return () => {
+      setAccountDeletedHandler(null);
+      setAppCheckFailedHandler(null);
+    };
   }, []);
 
   // Leave the sign-in link's URL, so a reload does not try to use the one-time code again
