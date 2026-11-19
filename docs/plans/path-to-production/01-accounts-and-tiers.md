@@ -118,17 +118,17 @@ export function tierFor(account: Account, nowMs: number): Tier
    Test every branch: no subscription, active, grace, expired status, active but past
    `expiresAt`, anonymous with an active subscription (premium wins).
 
-3. **`AccountStore` interface, `InMemoryAccountStore`, contract tests.**
-   - Put the interface, types and the in-memory class in `src/server/accountStore.ts`.
+3. ✅ **`AccountStore` interface, `InMemoryAccountStore`, contract tests.**
+   - ✅ Put the interface, types and the in-memory class in `src/server/accountStore.ts`.
      Inject `now: () => number` in the constructor, as `InMemorySessionStore` does.
-   - Add `tests/helpers/accountStoreContract.ts` exporting
+   - ✅ Add `tests/helpers/accountStoreContract.ts` exporting
      `runAccountStoreContract(name, makeStore)`, modelled on `sessionStoreContract.ts`.
      Cases: create on first upsert; second upsert with the same data does not change
      `createdAt`; changing `isAnonymous` from true to false updates the record and keeps
      `subscription`; `setSubscription` then `getAccount` returns it; `setSubscription`
      for an unknown user creates nothing and does not throw; `deleteAccount` returns
      true then false.
-   - `tests/accountStore.test.ts` runs the contract against the in-memory store.
+   - ✅ `tests/accountStore.test.ts` runs the contract against the in-memory store.
 
 4. **`FirestoreAccountStore`** (`src/server/firestoreAccountStore.ts`).
    - Constructor `(db: Firestore, options: { collectionName?: string; now?: () => number })`,
