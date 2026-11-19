@@ -240,5 +240,43 @@ export function describeSessionStoreContract(name: string, makeStore: SessionSto
       expect(await store.getSession(a.sessionId, 'forget-me')).toBeNull();
       expect(await store.getSession(keep.sessionId, 'keep-me')).not.toBeNull();
     });
+
+    it('transfers user sessions to an account without active sessions', async () => {
+      const store = setup();
+      const guestSession = initializeLearnerSession({ userId: 'guest-1' });
+      await store.createOrUpdateSession(guestSession);
+      await store.updateUpstreamHandle(guestSession.sessionId, 'guest-1', 'handle-123', 'model-123');
+
+      const outcome = await store.transferUserSessions('guest-1', 'account-1');
+      expect(outcome).toBe('moved');
+
+      const transferred = await store.getSession(guestSession.sessionId, 'account-1');
+      expect(transferred).not.toBeNull();
+      expect(transferred?.userId).toBe('account-1');
+      expect(transferred?.upstreamResumptionHandle).toBeNull();
+      expect(transferred?.upstreamModel).toBeNull();
+      expect(await store.getSession(guestSession.sessionId, 'guest-1')).toBeNull();
+    });
+
+    it('discards guest sessions when the target account already has an active session', async () => {
+      const store = setup();
+      const guestSession = initializeLearnerSession({ userId: 'guest-2' });
+      const accountSession = initializeLearnerSession({ userId: 'account-2' });
+      await store.createOrUpdateSession(guestSession);
+      await store.createOrUpdateSession(accountSession);
+
+      const outcome = await store.transferUserSessions('guest-2', 'account-2');
+      expect(outcome).toBe('discarded');
+
+      expect(await store.getSession(guestSession.sessionId, 'guest-2')).toBeNull();
+      expect(await store.getSession(guestSession.sessionId, 'account-2')).toBeNull();
+      expect(await store.getSession(accountSession.sessionId, 'account-2')).not.toBeNull();
+    });
+
+    it('returns none when the source user has no sessions to transfer', async () => {
+      const store = setup();
+      const outcome = await store.transferUserSessions('empty-guest', 'account-3');
+      expect(outcome).toBe('none');
+    });
   });
 }

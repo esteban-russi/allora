@@ -269,6 +269,43 @@ export class FirestoreSessionStore implements SessionStore {
   }
 
   /**
+   * Give a guest's sessions to an account.
+   *
+   * Args:
+   *   fromUserId: Source user identifier (guest).
+   *   toUserId: Destination user identifier (registered account).
+   *
+   * Returns:
+   *   'moved' when reassigned, 'discarded' when target already has an active session,
+   *   'none' when source user had no sessions.
+   */
+  async transferUserSessions(fromUserId: string, toUserId: string): Promise<'moved' | 'discarded' | 'none'> {
+    const firstCheck = await this.collection.where('userId', '==', fromUserId).limit(1).get();
+    if (firstCheck.empty) return 'none';
+
+    const targetActive = await this.getActiveUserSession(toUserId);
+    if (targetActive) {
+      await this.deleteAllUserData(fromUserId);
+      return 'discarded';
+    }
+
+    for (;;) {
+      const snapshot = await this.collection.where('userId', '==', fromUserId).limit(DELETE_BATCH_SIZE).get();
+      if (snapshot.empty) break;
+      const batch = this.db.batch();
+      snapshot.docs.forEach((doc) => {
+        batch.update(doc.ref, {
+          userId: toUserId,
+          upstreamResumptionHandle: null,
+          upstreamModel: null
+        });
+      });
+      await batch.commit();
+    }
+    return 'moved';
+  }
+
+  /**
    * No-op: the Firestore TTL policy on `expiresAtTs` deletes expired sessions.
    *
    * Returns:

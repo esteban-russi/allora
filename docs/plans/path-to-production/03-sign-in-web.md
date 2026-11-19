@@ -1,5 +1,25 @@
 # Plan 03: sign-in on the web
 
+## Status
+
+- Branch: `feature/sign-in-web`
+- PR link: (pending opening)
+- Date: 2026-11-19
+- Summary: In progress.
+- Cloud changes made:
+  - ✅ Granted `roles/firebaseauth.admin` to `parliamo-italiano-runtime@corso-di-italiano-496920.iam.gserviceaccount.com`:
+    Command: `gcloud projects add-iam-policy-binding corso-di-italiano-496920 --member="serviceAccount:parliamo-italiano-runtime@corso-di-italiano-496920.iam.gserviceaccount.com" --role="roles/firebaseauth.admin" --condition=None --project=corso-di-italiano-496920 --account=estebangr2711@gmail.com`
+    Before: runtime SA had `roles/aiplatform.user`, `roles/datastore.user`, `roles/serviceusage.serviceUsageConsumer`.
+    After: `roles/firebaseauth.admin` present in policy bindings.
+  - ✅ Added authorized domain `parliamo-italiano-562781327825.europe-west1.run.app` and enabled email sign-in via Identity Toolkit API patch.
+    Before: authorizedDomains `["localhost", "corso-di-italiano-496920.firebaseapp.com", "corso-di-italiano-496920.web.app"]`.
+    After: authorizedDomains includes `parliamo-italiano-562781327825.europe-west1.run.app`; `signIn.email.enabled` is `true`.
+- Items needing attention:
+  - 🟠 Owner console setup: In Firebase Console -> Authentication -> Sign-in method, enable **Google** provider (requires OAuth client ID / secret).
+  - 🟠 Owner console setup: In Firebase Console -> Authentication -> Sign-in method -> Email/Password, verify **Email link (passwordless sign-in)** is checked.
+  - 🟠 Owner console setup: In Firebase Console -> Authentication -> Templates -> Edit template -> Customize action URL, set to `https://parliamo-italiano-562781327825.europe-west1.run.app/auth/action`. (API rejected template patch with `EMAIL_TEMPLATE_UPDATE_NOT_ALLOWED`).
+  - 🟠 Live verification: Real Google sign-in popup and real email link delivery could not be executed unattended in test environments; auth flows are verified via unit tests with fakes and mocked Firebase Auth.
+
 Branch: `feature/sign-in-web`. Depends on: 01, 02.
 
 Read first: `src/utils/firebaseAuth.ts`, `src/utils/apiClient.ts`,
@@ -39,7 +59,7 @@ started as a guest, can sign out, and can delete their account and data.
 
 ## Server
 
-### Step 1: `transferUserSessions` on `SessionStore`
+### Step 1: ✅ `transferUserSessions` on `SessionStore`
 
 Add to the interface in `src/server/sessionStore.ts` and implement in both stores:
 
@@ -52,10 +72,10 @@ Add to the interface in `src/server/sessionStore.ts` and implement in both store
 transferUserSessions(fromUserId: string, toUserId: string): Promise<'moved' | 'discarded' | 'none'>;
 ```
 
-- "Active session" = `getActiveUserSession(toUserId)` is not null.
-- Moving = set `userId` to `toUserId` and clear `upstreamResumptionHandle` and `upstreamModel`.
-- Firestore: query by `userId == fromUserId`, update or delete in batches of 500.
-- Add the three outcomes to `tests/helpers/sessionStoreContract.ts`.
+- ✅ "Active session" = `getActiveUserSession(toUserId)` is not null.
+- ✅ Moving = set `userId` to `toUserId` and clear `upstreamResumptionHandle` and `upstreamModel`.
+- ✅ Firestore: query by `userId == fromUserId`, update or delete in batches of 500.
+- ✅ Add the three outcomes to `tests/helpers/sessionStoreContract.ts`.
 
 ### Step 2: identity admin (`src/server/identityAdmin.ts`)
 
