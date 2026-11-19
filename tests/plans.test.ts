@@ -81,6 +81,6 @@ describe('PLAN_LIMITS', () => {
   it('defines expected limits for all tiers', () => {
     expect(PLAN_LIMITS.guest).toEqual({ chatMessages: 5, voiceSeconds: 120, helperRequests: 30 });
     expect(PLAN_LIMITS.free).toEqual({ chatMessages: 15, voiceSeconds: 300, helperRequests: 100 });
-    expect(PLAN_LIMITS.premium).toEqual({ chatMessages: 300, voiceSeconds: 3600, helperRequests: 1000 });
+    expect(PLAN_LIMITS.premium).toEqual({ chatMessages: 300, voiceSeconds: 1800, helperRequests: 1000 });
   });
 });
