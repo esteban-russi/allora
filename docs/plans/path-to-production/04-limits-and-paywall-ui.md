@@ -3,7 +3,7 @@
 ## Status
 
 - Branch: `feature/limits-and-paywall-ui`
-- PR link: (pending opening)
+- PR link: https://github.com/esteban-russi/parliamo-italiano/pull/15
 - Date: 2026-11-19
 - Summary: Completed limits and paywall UI with usage meters, quota cut-offs, PlansScreen, and entry points.
 - Items needing attention:
