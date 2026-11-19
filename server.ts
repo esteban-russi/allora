@@ -13,6 +13,8 @@ import { attachLiveBridge, type LiveBridgeOptions } from './liveBridge';
 import { VertexCooldown, isPersistentVertexError, summarizeError } from './vertexCooldown';
 import { assertAuthConfig, authenticateHttpUser, isAuthEnforced } from './src/server/auth';
 import { defaultSessionStore } from './src/server/defaultSessionStore';
+import { attachAccount } from './src/server/accountMiddleware';
+import { defaultAccountStore } from './src/server/defaultAccountStore';
 import {
   initializeLearnerSession,
   parseSavedPhrases,
@@ -64,7 +66,7 @@ app.set('trust proxy', TRUST_PROXY_HOPS);
 
 // Outer perimeter rate limiting per IP
 const RATE_LIMIT_PER_MINUTE = Number(process.env.RATE_LIMIT_PER_MINUTE) || 60;
-app.use(['/api/chat', '/api/translate', '/api/tts', '/api/stt', '/api/session'], rateLimit({
+app.use(['/api/chat', '/api/translate', '/api/tts', '/api/stt', '/api/session', '/api/me'], rateLimit({
   windowMs: 60_000,
   limit: RATE_LIMIT_PER_MINUTE,
   standardHeaders: 'draft-7',
@@ -210,9 +212,10 @@ app.get('/api/auth-config', (_req, res) => {
 
 // Authentication and per-user rate limit middleware stack for billed routes
 app.use(
-  ['/api/chat', '/api/translate', '/api/tts', '/api/stt', '/api/session'],
+  ['/api/chat', '/api/translate', '/api/tts', '/api/stt', '/api/session', '/api/me'],
   authenticateHttpUser(),
-  createUserRateLimitMiddleware(defaultUserLimiter)
+  createUserRateLimitMiddleware(defaultUserLimiter),
+  attachAccount(defaultAccountStore)
 );
 
 /**
@@ -239,6 +242,26 @@ app.get('/api/metrics', authenticateHttpUser(), (req, res) => {
     return res.status(403).json({ error: 'Metrics are restricted to operators' });
   }
   res.json({ privacy: getPrivacyPolicyConfig(), metrics: defaultMetrics.getSummary() });
+});
+
+// Learner profile and account metadata
+app.get('/api/me', (req, res) => {
+  const { account, tier, limits } = req.account!;
+  res.json({
+    userId: account.userId,
+    email: account.email,
+    isAnonymous: account.isAnonymous,
+    tier,
+    limits,
+    subscription: account.subscription && {
+      status: account.subscription.status,
+      productId: account.subscription.productId,
+      store: account.subscription.store,
+      periodType: account.subscription.periodType,
+      expiresAt: account.subscription.expiresAt,
+      willRenew: account.subscription.willRenew
+    }
+  });
 });
 
 // Learner Session Endpoints (Session Continuity, Checkpointing, and GDPR Deletion)

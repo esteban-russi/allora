@@ -452,3 +452,39 @@ describe('GET /api/auth-config', () => {
     expect(res.body).toEqual({ firebase: null });
   });
 });
+
+describe('GET /api/me', () => {
+  it('returns guest tier and guest limits for anon-1', async () => {
+    const res = await request(app)
+      .get('/api/me')
+      .set('x-dev-user-id', 'anon-1');
+
+    expect(res.status).toBe(200);
+    expect(res.body.userId).toBe('anon-1');
+    expect(res.body.isAnonymous).toBe(true);
+    expect(res.body.tier).toBe('guest');
+    expect(res.body.limits).toEqual({
+      chatMessages: 5,
+      voiceSeconds: 120,
+      helperRequests: 30
+    });
+    expect(res.body.subscription).toBeNull();
+  });
+
+  it('returns free tier and free limits for non-anonymous user u1', async () => {
+    const res = await request(app)
+      .get('/api/me')
+      .set('x-dev-user-id', 'u1');
+
+    expect(res.status).toBe(200);
+    expect(res.body.userId).toBe('u1');
+    expect(res.body.isAnonymous).toBe(false);
+    expect(res.body.tier).toBe('free');
+    expect(res.body.limits).toEqual({
+      chatMessages: 15,
+      voiceSeconds: 300,
+      helperRequests: 100
+    });
+    expect(res.body.subscription).toBeNull();
+  });
+});

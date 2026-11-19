@@ -39,9 +39,16 @@ describe('verifyIdToken with dev tokens', () => {
     expect(user).toEqual({
       userId: 'marco',
       email: 'marco@roma.it',
+      isAnonymous: false,
       authProvider: 'dev',
       claims: { dev: true }
     });
+  });
+
+  it('marks dev users with anon- prefix as anonymous', async () => {
+    const user = await verifyIdToken('dev-token:anon-1', { enforceAuth: false });
+    expect(user?.isAnonymous).toBe(true);
+    expect(user?.userId).toBe('anon-1');
   });
 
   it('defaults email when omitted in dev token', async () => {
@@ -116,6 +123,36 @@ describe('verifyIdToken with RSA signature verification', () => {
     expect(user).not.toBeNull();
     expect(user?.userId).toBe('firebase-user-99');
     expect(user?.email).toBe('student@parliamo.it');
+  });
+
+  it('marks Firebase tokens with anonymous sign_in_provider as isAnonymous: true', async () => {
+    const token = createSignedJwt({
+      ...firebaseClaims('test-project'),
+      firebase: { sign_in_provider: 'anonymous' }
+    });
+
+    const user = await verifyIdToken(token, {
+      projectId: 'test-project',
+      certResolver: async (kid) => (kid === 'test-kid' ? publicKey : null)
+    });
+
+    expect(user).not.toBeNull();
+    expect(user?.isAnonymous).toBe(true);
+  });
+
+  it('marks Firebase tokens with google.com sign_in_provider as isAnonymous: false', async () => {
+    const token = createSignedJwt({
+      ...firebaseClaims('test-project'),
+      firebase: { sign_in_provider: 'google.com' }
+    });
+
+    const user = await verifyIdToken(token, {
+      projectId: 'test-project',
+      certResolver: async (kid) => (kid === 'test-kid' ? publicKey : null)
+    });
+
+    expect(user).not.toBeNull();
+    expect(user?.isAnonymous).toBe(false);
   });
 
   it('rejects an expired token', async () => {
