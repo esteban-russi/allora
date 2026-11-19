@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Bookmark, BookmarkCheck, Headphones, HelpCircle, Languages, Mic, Square, X } from 'lucide-react';
+import { Bookmark, BookmarkCheck, Flag, Headphones, HelpCircle, Languages, Mic, Square, X } from 'lucide-react';
 import { Persona, ChatMessage, DevSettings } from '../types';
 import { PersonaBadge } from './PersonaBadge';
 import { LimitReachedCard } from './LimitReachedCard';
+import { ReportDialog } from './ReportDialog';
 import { ITALIAN_PRACTICE_PHRASES } from '../data/personas';
 import { speechService, createSpeechRecognizer, AudioRecorder, transcribeAudioBlob } from '../utils/speech';
 import { readQuotaError, QuotaLimitError, type QuotaError } from '../utils/quotaError';
@@ -57,6 +58,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [isHelpOpen, setIsHelpOpen] = useState<boolean>(false);
   const [listenLimitMsgId, setListenLimitMsgId] = useState<string | null>(null);
   const [translateLimitMsgId, setTranslateLimitMsgId] = useState<string | null>(null);
+  const [reportedText, setReportedText] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -361,6 +363,18 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     {isSaved ? <BookmarkCheck className="w-4 h-4" aria-hidden="true" /> : <Bookmark className="w-4 h-4" aria-hidden="true" />}
                     {isSaved ? 'Saved' : 'Save'}
                   </button>
+                  <span className="w-px h-4 bg-cobalt/25 mx-1" aria-hidden="true" />
+                  <button
+                    type="button"
+                    onClick={() => setReportedText(message.text)}
+                    aria-label="Report this reply"
+                    className="group flex items-center gap-1.5 px-2 py-1 rounded-full text-ink-muted hover:text-coral-strong hover:bg-coral/10 focus-visible:text-coral-strong transition-colors"
+                  >
+                    <Flag className="w-4 h-4" aria-hidden="true" />
+                    <span className="max-w-0 overflow-hidden opacity-0 group-hover:max-w-16 group-hover:opacity-100 group-focus-visible:max-w-16 group-focus-visible:opacity-100 transition-all duration-150">
+                      Report
+                    </span>
+                  </button>
                 </div>
               </div>
             </div>
@@ -527,6 +541,13 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
           </div>
         </div>
       </div>
+
+      <ReportDialog
+        isOpen={reportedText !== null}
+        reportedText={reportedText ?? ''}
+        source="chat"
+        onClose={() => setReportedText(null)}
+      />
     </main>
   );
 };
