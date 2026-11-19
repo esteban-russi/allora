@@ -14,6 +14,13 @@ import {
 import type { CefrLevel } from './src/types';
 import { authenticateWebSocketRequest, type AuthenticatedUser, type AuthOptions } from './src/server/auth';
 import { defaultSessionStore } from './src/server/defaultSessionStore';
+import { defaultAccountStore } from './src/server/defaultAccountStore';
+import { defaultUsageStore } from './src/server/defaultUsageStore';
+import { quotasMode, type QuotasMode } from './src/server/quota';
+import { usageDay, type UsageStore } from './src/server/usageStore';
+import type { AccountStore } from './src/server/accountStore';
+import { PLAN_LIMITS, tierFor } from './src/server/plans';
+import { summarizeError } from './vertexCooldown';
 import {
   initializeLearnerSession,
   parseConversationTurn,
@@ -57,6 +64,7 @@ export type LiveClientEvent =
   | { type: 'resumption_failed'; fallback: 'turn_based'; message: string }
   | { type: 'go_away'; timeToDisconnectSec?: number }
   | { type: 'pong'; timestamp: number }
+  | { type: 'quota_exceeded' }
   | { type: 'error'; message: string };
 
 export interface LiveBridgeOptions {
@@ -69,6 +77,14 @@ export interface LiveBridgeOptions {
   auth?: AuthOptions;
   /** Optional custom session store. */
   sessionStore?: SessionStore;
+  /** Optional custom account store. */
+  accountStore?: AccountStore;
+  /** Optional custom usage store. */
+  usageStore?: UsageStore;
+  /** Quotas mode override ('off' | 'monitor' | 'enforce'). */
+  quotasMode?: QuotasMode;
+  /** Injectable clock for tests. */
+  now?: () => number;
   /** Optional custom user rate limiter. */
   userLimiter?: UserRateLimiter;
   /** Optional metrics collector. */
@@ -286,10 +302,31 @@ async function runLiveCall(
   params: LiveCallParams,
   user: AuthenticatedUser,
   sessionRecord: LearnerSession,
-  options: LiveBridgeOptions
+  options: LiveBridgeOptions,
+  remainingSec: number = Infinity
 ): Promise<void> {
   const sessionStore = options.sessionStore ?? defaultSessionStore;
+  const usageStore = options.usageStore ?? defaultUsageStore;
   const metrics = options.metrics ?? defaultMetrics;
+  const now = options.now ?? Date.now;
+  const qMode = options.quotasMode ?? quotasMode();
+
+  const startedAt = now();
+  let recordedSec = 0;
+
+  const flush = () => {
+    if (qMode === 'off') return;
+    const total = Math.floor((now() - startedAt) / 1000);
+    const delta = total - recordedSec;
+    if (delta <= 0) return;
+    usageStore.add(user.userId, usageDay(now()), 'voiceSeconds', delta).catch((err) => {
+      console.error('[Gemini Live] Error recording voice usage:', summarizeError(err));
+    });
+    recordedSec = total;
+  };
+
+  const flushInterval = setInterval(flush, 30_000);
+  if (flushInterval.unref) flushInterval.unref();
 
   // Counted for the lesson metrics: audio streamed each way and finished exchanges
   let inputAudioBytes = 0;
@@ -302,6 +339,15 @@ async function runLiveCall(
     else if (frame.type === 'turn_complete') completedExchanges++;
     ws.send(Buffer.isBuffer(frame) ? frame : JSON.stringify(frame));
   };
+
+  let quotaTimeout: NodeJS.Timeout | null = null;
+  if (Number.isFinite(remainingSec) && remainingSec >= 0) {
+    quotaTimeout = setTimeout(() => {
+      send({ type: 'quota_exceeded' });
+      ws.close(4008, 'Daily voice limit reached');
+    }, remainingSec * 1000);
+    if (quotaTimeout.unref) quotaTimeout.unref();
+  }
 
   const closeWithError = (message: string) => {
     send({ type: 'error', message });
@@ -331,6 +377,9 @@ async function runLiveCall(
   let liveSession: Session | null = null;
   // Disconnecting the mobile socket closes upstream liveSession, but leaves LearnerSession intact in store
   ws.on('close', () => {
+    clearInterval(flushInterval);
+    if (quotaTimeout) clearTimeout(quotaTimeout);
+    flush();
     liveSession?.close();
     // 16-bit mono PCM: 2 bytes per sample
     const audioSec = inputAudioBytes / (2 * params.sampleRate) + outputAudioBytes / (2 * MODEL_SAMPLE_RATE);
@@ -573,6 +622,30 @@ export function attachLiveBridge(server: Server, options: LiveBridgeOptions): vo
       return;
     }
 
+    const accountStore = options.accountStore ?? defaultAccountStore;
+    const usageStore = options.usageStore ?? defaultUsageStore;
+    const qMode = options.quotasMode ?? quotasMode();
+    const now = options.now ?? Date.now;
+
+    let remainingSec = Infinity;
+    if (qMode !== 'off') {
+      try {
+        const account = await accountStore.upsertFromAuth(user);
+        const nowMs = now();
+        const tier = tierFor(account, nowMs);
+        const limits = PLAN_LIMITS[tier];
+        const day = usageDay(nowMs);
+        const usage = await usageStore.getUsage(user.userId, day);
+        remainingSec = limits.voiceSeconds - usage.voiceSeconds;
+        if (qMode === 'enforce' && remainingSec <= 0) {
+          rejectUpgrade(socket, 429, 'QUOTA_EXCEEDED');
+          return;
+        }
+      } catch (err) {
+        console.error('[Gemini Live] Quota check failed, failing open:', summarizeError(err));
+      }
+    }
+
     evictStaleCall(user.userId, parsed.params.sessionId);
     const release = reserveSlots(user.userId, clientIp(req, options.trustProxyHops));
     if (typeof release === 'string') {
@@ -619,7 +692,14 @@ export function attachLiveBridge(server: Server, options: LiveBridgeOptions): vo
         // Any frame from the client, including its own JSON pings, proves the link is up
         ws.on('pong', () => unanswered.delete(ws));
         ws.on('message', () => unanswered.delete(ws));
-        runLiveCall(ws, parsed.params, user, record, options).catch((err) => {
+        runLiveCall(
+          ws,
+          parsed.params,
+          user,
+          record,
+          options,
+          qMode === 'enforce' ? remainingSec : Infinity
+        ).catch((err) => {
           console.error('[Gemini Live] Bridge error:', err);
           ws.close(1011, 'Internal error');
         });

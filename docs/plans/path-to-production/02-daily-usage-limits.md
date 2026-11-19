@@ -119,14 +119,14 @@ export function requireQuota(counter: 'chatMessages' | 'helperRequests', deps?: 
    `resetsAt: nextResetAt(Date.now())`. Make the handler `async` with try/catch like the
    session routes.
 
-7. **Voice metering** (`liveBridge.ts`).
-   - Add to `LiveBridgeOptions`: `accountStore?`, `usageStore?`, `quotasMode?`, `now?`.
-   - In `handleLiveUpgrade`, after authentication and before `reserveSlots`:
+7. ✅ **Voice metering** (`liveBridge.ts`).
+   - ✅ Add to `LiveBridgeOptions`: `accountStore?`, `usageStore?`, `quotasMode?`, `now?`.
+   - ✅ In `handleLiveUpgrade`, after authentication and before `reserveSlots`:
      load the account (`accountStore.upsertFromAuth(user)`), compute `limits`, read
      today's usage, `remainingSec = limits.voiceSeconds - usage.voiceSeconds`. In
      `enforce` mode, if `remainingSec <= 0`, `rejectUpgrade(socket, 429, 'QUOTA_EXCEEDED')`.
-   - Pass `remainingSec` (or `Infinity` when mode is not `enforce`) into `runLiveCall`.
-   - In `runLiveCall`:
+   - ✅ Pass `remainingSec` (or `Infinity` when mode is not `enforce`) into `runLiveCall`.
+   - ✅ In `runLiveCall`:
      - `const startedAt = now(); let recordedSec = 0;`
      - `flush()`: `const total = Math.floor((now() - startedAt) / 1000);` then
        `usageStore.add(userId, usageDay(now()), 'voiceSeconds', total - recordedSec)` and
@@ -136,8 +136,8 @@ export function requireQuota(counter: 'chatMessages' | 'helperRequests', deps?: 
      - `setTimeout` for `remainingSec * 1000` (only when finite): send
        `{ type: 'quota_exceeded' }` and `ws.close(4008, 'Daily voice limit reached')`.
        Clear it on close.
-   - Add `{ type: 'quota_exceeded' }` to the `LiveClientEvent` union.
-   - Tests in `tests/liveBridge.test.ts` with fake timers and an in-memory usage store:
+   - ✅ Add `{ type: 'quota_exceeded' }` to the `LiveClientEvent` union.
+   - ✅ Tests in `tests/liveBridge.test.ts` with fake timers and an in-memory usage store:
      upgrade is rejected with 429 when no seconds remain; a call with 10 s remaining gets
      `quota_exceeded` and close code 4008; closing after 45 s records 45 seconds in total;
      `off` mode records nothing.
