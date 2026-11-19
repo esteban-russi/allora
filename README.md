@@ -1,8 +1,13 @@
-# Parliamo Italiano
+# Allora
 
 Learn conversational Italian by talking to people, not flashcards.
 
-Parliamo Italiano is a web app where you practise Italian with an AI tutor. For now there is one: **Emmanuele the Roman**, a retired legionary who chats about daily life in Rome. You can write to him or switch to a hands-free voice call: speak into your microphone, and he answers out loud in natural Italian, with captions, translations and short grammar notes to help you learn from every reply.
+The name, short name, premium plan name and support email live in `src/data/brand.ts`;
+`index.html` gets the name at build time and `metadata.json` carries it by hand. The
+repository, Cloud Run service, GCP project and the `parliamo.*` browser storage keys
+keep the old name on purpose: renaming them would risk the deployment and sign learners out.
+
+Allora is a web app where you practise Italian with an AI tutor. For now there is one: **Emmanuele the Roman**, a retired legionary who chats about daily life in Rome. You can write to him or switch to a hands-free voice call: speak into your microphone, and he answers out loud in natural Italian, with captions, translations and short grammar notes to help you learn from every reply.
 
 ## Meet your tutor
 
