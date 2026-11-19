@@ -156,7 +156,7 @@ Today `signInWithFirebase` hides the `auth` object. Change it so the module keep
   and `signIn` arguments; extend `tests/firebaseAuth.test.ts` with fakes: merge is called
   with the guest token; not called when there was no guest; cancelled popup maps to `cancelled`.
 
-### Step 6: account state (`src/utils/me.ts`, `src/hooks/useAccount.ts`)
+### Step 6: ✅ account state (`src/utils/me.ts`, `src/hooks/useAccount.ts`)
 
 ```ts
 export interface Me { userId: string; email: string | null; isAnonymous: boolean;
@@ -166,7 +166,7 @@ export async function fetchMe(): Promise<Me | null>      // GET /api/me, validat
 export function useAccount(): { me: Me | null; refresh: () => Promise<Me | null> }
 ```
 
-`useAccount` fetches once on mount. `App.tsx` calls `refresh()` after sign-in, sign-out
+✅ `useAccount` fetches once on mount. `App.tsx` calls `refresh()` after sign-in, sign-out
 and merge.
 
 ### Step 7: `SignInScreen` (`src/components/SignInScreen.tsx`)
