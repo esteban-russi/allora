@@ -5,11 +5,12 @@
 - Branch: `feature/web-checkout`
 - PR link: (pending opening)
 - Date: 2026-11-19
-- Summary: In progress.
+- Summary: Fully implemented; web billing adapter with Purchases JS, dynamic config, checkout/success states, tests, and documentation.
 - Items needing attention:
   - 🟠 Owner setup: Connect Stripe account to RevenueCat Web Billing and configure tax settings.
-  - 🟠 Owner setup: Create Web Billing products (\`parliamo_pro_monthly\` and \`parliamo_pro_annual\`) attached to \`premium\` entitlement and offering \`default\` as \`$rc_monthly\` and \`$rc_annual\`.
-  - 🟠 Owner setup: Set \`REVENUECAT_WEB_PUBLIC_KEY\` in GitHub repository variables with the RevenueCat Web Billing public key (sandbox key initially).
+  - 🟠 Owner setup: Create Web Billing products (`parliamo_pro_monthly` and `parliamo_pro_annual`) attached to `premium` entitlement and offering `default` as `$rc_monthly` and `$rc_annual`.
+  - 🟠 Owner setup: Set `REVENUECAT_WEB_PUBLIC_KEY` in GitHub repository variables with the RevenueCat Web Billing public key (sandbox key initially).
+  - 🟠 Could not verify: End-to-end checkout modal with real Stripe processing; verified via comprehensive unit tests with fake SDK.
 
 Branch: `feature/web-checkout`. Depends on: 04, 05.
 
@@ -84,7 +85,7 @@ A signed-in learner on the web can subscribe with a card, and becomes premium im
    "Start practising" button. Cover these with a component test if the project has a
    component test setup by then; otherwise list them in the PR's manual test notes.
 
-6. **Docs.** README: web checkout setup and how to test in sandbox.
+6. ✅ **Docs.** README: web checkout setup and how to test in sandbox.
 
 ## Setup (owner)
 

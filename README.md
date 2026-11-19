@@ -165,17 +165,27 @@ The script enables the APIs, creates the Artifact Registry repo, the deployer an
    ```
 3. **Webhook configuration:** In RevenueCat → Integrations → Webhooks, set endpoint URL to `<APP_URL>/api/webhooks/revenuecat` with `Authorization: Bearer <the-webhook-secret>`. Check that "Send test event" returns 200.
 4. **Web Billing public key:** In RevenueCat → Project Settings → Apps → Web Billing app, copy the Public API key (sandbox or production) and store it in the GitHub repository variable `REVENUECAT_WEB_PUBLIC_KEY`. The server exposes it safely to the browser client via `GET /api/auth-config`.
+5. **Stripe & Web Billing products:**
+   - In RevenueCat → Project Settings → Apps, create a Web Billing app and connect a verified Stripe account.
+   - Create products `parliamo_pro_monthly` (£8.99/mo) and `parliamo_pro_annual` (£59.99/yr with a 7-day free trial).
+   - Attach both to entitlement `premium`, and to offering `default` as `$rc_monthly` and `$rc_annual`.
+6. **Sandbox testing:**
+   - Set `REVENUECAT_WEB_PUBLIC_KEY` to the sandbox Web Billing public key in the environment or GitHub repository variables.
+   - Use Stripe test card `4242 4242 4242 4242` (any valid future date, 3-digit CVC) in checkout to test successful subscriptions and trial activation.
+   - Use card `4000 0000 0000 0002` to verify payment decline error handling.
 
 ## Project structure
 
 ```
-├── server.ts                  # Express server: chat, translate, TTS, STT, sessions, me, account, health, metrics, Vite/static serving
+├── server.ts                  # Express server: chat, translate, TTS, STT, sessions, me, account, billing, health, metrics, Vite/static serving
 ├── liveBridge.ts              # /api/live WebSocket bridge to Gemini Live: auth, call limits, heartbeat, resumption
 ├── src/
 │   ├── App.tsx                # App state, routing and dashboard layout
 │   ├── assets/emmanuele/      # Tutor portraits (resting and speaking)
 │   ├── components/
 │   │   ├── AccountMenu.tsx    # Account dialog: identity, plan, edit profile, sign out, delete account
+│   │   ├── PlansScreen.tsx    # Full-screen paywall and subscription plan selection
+│   │   ├── UsageMeter.tsx     # Daily usage meter & upgrade call-to-action
 │   │   ├── SignInScreen.tsx   # Sign-in screen: Google popup and magic link email form
 │   │   ├── OnboardingPage.tsx # Learner name, CEFR level and tutor picker
 │   │   ├── IconRail.tsx       # Left navigation rail
@@ -188,8 +198,11 @@ The script enables the APIs, creates the Artifact Registry repo, the deployer an
 │   │   ├── PersonaBadge.tsx
 │   │   └── UserBadge.tsx
 │   ├── data/personas.ts       # Emmanuele's persona, starter message and saved phrases
-│   ├── server/                # auth, accountStore, accountRoutes, identityAdmin, plans, usageStore, quota, sessionStore, rateLimiter, metrics
+│   ├── server/                # auth, accountStore, accountRoutes, billingRoutes, billingSync, identityAdmin, plans, revenueCat, usageStore, quota, sessionStore, rateLimiter, metrics
 │   ├── utils/apiClient.ts     # Authenticated API calls (get, post, delete) and ID token source
+│   ├── utils/billing.ts       # Client billing interface and active adapter registry
+│   ├── utils/billingWeb.ts    # RevenueCat Web Billing adapter (@revenuecat/purchases-js)
+│   ├── utils/clientConfig.ts  # Client config loader (/api/auth-config)
 │   ├── utils/firebaseAuth.ts  # Client auth: anonymous, Google popup, email magic link, account merge
 │   ├── utils/learnerSession.ts # Remembers the learner session and links chat turns to it
 │   ├── utils/me.ts            # Client account /api/me fetching and typing
