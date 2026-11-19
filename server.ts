@@ -36,6 +36,11 @@ import type { FirebaseClientConfig } from './src/utils/firebaseAuth';
 import { createAccountRouter } from './src/server/accountRoutes';
 import { createBillingRouter, createRevenueCatWebhookRouter } from './src/server/billingRoutes';
 import { createReportRouter } from './src/server/reportRoutes';
+import {
+  BLOCKED_REPLY_TEXT,
+  isBlockedGeminiResponse,
+  MODEL_SAFETY_SETTINGS
+} from './src/server/modelSafety';
 import { BRAND } from './src/data/brand';
 
 dotenv.config();
@@ -504,6 +509,7 @@ app.post('/api/chat', requireQuota('chatMessages'), async (req, res) => {
       contents,
       config: {
         systemInstruction,
+        safetySettings: MODEL_SAFETY_SETTINGS,
         temperature: Math.min(Math.max(Number(temperature) || 0.7, 0.1), 1.2),
         responseMimeType: 'application/json',
         responseSchema: {
@@ -530,6 +536,21 @@ app.post('/api/chat', requireQuota('chatMessages'), async (req, res) => {
       }
     });
 
+    const usage = response.usageMetadata;
+    if (usage?.promptTokenCount !== undefined && usage.candidatesTokenCount !== undefined) {
+      defaultMetrics.recordChatTurn(usage.promptTokenCount, usage.candidatesTokenCount);
+    }
+
+    if (isBlockedGeminiResponse(response)) {
+      return res.json({
+        text: BLOCKED_REPLY_TEXT,
+        translation: '',
+        grammarNotes: [],
+        sessionId: session?.sessionId ?? null,
+        quota: res.locals.quota ?? null
+      });
+    }
+
     const parsed = parseModelJsonResponse(response.text, {
       text: 'Scusa, ho avuto un problema a capire. Puoi ripetere?',
       translation: 'Sorry, I had trouble understanding. Could you repeat that?',
@@ -555,11 +576,6 @@ app.post('/api/chat', requireQuota('chatMessages'), async (req, res) => {
       } catch (err) {
         console.error('[Session] Could not checkpoint chat turn:', summarizeError(err));
       }
-    }
-
-    const usage = response.usageMetadata;
-    if (usage?.promptTokenCount !== undefined && usage.candidatesTokenCount !== undefined) {
-      defaultMetrics.recordChatTurn(usage.promptTokenCount, usage.candidatesTokenCount);
     }
 
     // sessionId is null when the client's ID is unknown or expired, so it can start a new one

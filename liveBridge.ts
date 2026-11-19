@@ -30,6 +30,7 @@ import {
 } from './src/server/sessionStore';
 import { defaultUserLimiter, UserRateLimiter } from './src/server/rateLimiter';
 import { defaultMetrics, MetricsCollector } from './src/server/metrics';
+import { MODEL_SAFETY_SETTINGS } from './src/server/modelSafety';
 
 export const LIVE_PATH = '/api/live';
 
@@ -364,6 +365,7 @@ async function runLiveCall(
   const buildConfig = (resumeHandle: string | null, systemInstruction: string): LiveConnectConfig => ({
     responseModalities: [Modality.AUDIO],
     systemInstruction,
+    safetySettings: MODEL_SAFETY_SETTINGS,
     inputAudioTranscription: {},
     outputAudioTranscription: {},
     speechConfig: {
