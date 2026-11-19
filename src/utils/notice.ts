@@ -7,6 +7,9 @@ const listeners = new Set<NoticeListener>();
 export const MERGE_FAILED_NOTICE =
   "You're signed in, but we couldn't bring over the conversation you started as a guest.";
 
+export const ACCOUNT_DELETED_NOTICE =
+  'This account was deleted, so you have been signed out. You can start again as a guest.';
+
 /**
  * Show a short notice to the learner.
  *

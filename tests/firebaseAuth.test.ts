@@ -364,3 +364,29 @@ describe('signOutToGuest', () => {
     expect(signInAnonymously).toHaveBeenCalledWith(fakeAuth);
   });
 });
+
+describe('signOutToGuest when called twice at once', () => {
+  it('shares one sign-out, so only one new guest is created', async () => {
+    const fakeAuth = {};
+    const signOut = vi.fn().mockResolvedValue(undefined);
+    const signInAnonymously = vi.fn().mockResolvedValue({ user: { uid: 'new-anon' } });
+    const deps = { getAuth: async () => fakeAuth, signOut, signInAnonymously };
+
+    await Promise.all([signOutToGuest(deps), signOutToGuest(deps)]);
+
+    expect(signOut).toHaveBeenCalledTimes(1);
+    expect(signInAnonymously).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs again for a later call once the first sign-out finished', async () => {
+    const fakeAuth = {};
+    const signOut = vi.fn().mockResolvedValue(undefined);
+    const signInAnonymously = vi.fn().mockResolvedValue({ user: { uid: 'new-anon' } });
+    const deps = { getAuth: async () => fakeAuth, signOut, signInAnonymously };
+
+    await signOutToGuest(deps);
+    await signOutToGuest(deps);
+
+    expect(signInAnonymously).toHaveBeenCalledTimes(2);
+  });
+});
