@@ -72,7 +72,7 @@ A signed-in learner on the web can subscribe with a card, and becomes premium im
    - `tests/billingWeb.test.ts` with a fake SDK module: offer mapping (with and without
      trial, missing package), purchase success calls sync, cancel, failure.
 
-4. **Activate it** (`src/main.tsx` or the first effect in `App.tsx`).
+4. ✅ **Activate it** (`src/main.tsx` or the first effect in `App.tsx`).
    ```ts
    const { revenueCatWebKey } = await loadClientConfig();
    if (revenueCatWebKey) setBilling(createWebBilling(revenueCatWebKey, { email: () => currentEmail }));

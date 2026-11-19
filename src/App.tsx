@@ -14,7 +14,9 @@ import { SignInScreen } from './components/SignInScreen';
 import { AccountMenu } from './components/AccountMenu';
 import { LimitReachedCard } from './components/LimitReachedCard';
 import { PlansScreen } from './components/PlansScreen';
-import { getBilling } from './utils/billing';
+import { getBilling, setBilling } from './utils/billing';
+import { loadClientConfig } from './utils/clientConfig';
+import { createWebBilling } from './utils/billingWeb';
 import { useDialog } from './hooks/useDialog';
 import { useAccount } from './hooks/useAccount';
 import { speechService } from './utils/speech';
@@ -35,6 +37,22 @@ export default function App() {
   const { me, refresh: refreshAccount, setUsage } = useAccount();
   const [limitReached, setLimitReached] = useState<QuotaError | null>(null);
   const [chatDraft, setChatDraft] = useState<string>('');
+
+  const emailRef = useRef<string | null>(null);
+  emailRef.current = me?.email ?? null;
+
+  useEffect(() => {
+    (async () => {
+      const { revenueCatWebKey } = await loadClientConfig();
+      if (revenueCatWebKey) {
+        setBilling(
+          createWebBilling(revenueCatWebKey, {
+            email: () => emailRef.current
+          })
+        );
+      }
+    })();
+  }, []);
 
   const persona: Persona = useMemo(
     () => TUTORS.find((t) => t.id === learnerProfile?.personaId) ?? EMMANUELE,
