@@ -680,7 +680,28 @@ describe('GET /api/me', () => {
       helperRequests: 0
     });
     expect(typeof res.body.resetsAt).toBe('string');
+    expect(res.body.consent).toBeNull();
     expect(res.body.subscription).toBeNull();
+  });
+
+  it('returns stored consent on GET /api/me after POST /api/account/consent', async () => {
+    const before = await request(app)
+      .get('/api/me')
+      .set('x-dev-user-id', 'u-me-consent');
+    expect(before.status).toBe(200);
+    expect(before.body.consent).toBeNull();
+
+    const save = await request(app)
+      .post('/api/account/consent')
+      .set('x-dev-user-id', 'u-me-consent')
+      .send({ termsVersion: '2026-11' });
+    expect(save.status).toBe(200);
+
+    const after = await request(app)
+      .get('/api/me')
+      .set('x-dev-user-id', 'u-me-consent');
+    expect(after.status).toBe(200);
+    expect(after.body.consent).toEqual(save.body.consent);
   });
 });
 

@@ -18,6 +18,7 @@ const sampleMe: Me = {
   limits: { chatMessages: 15, voiceSeconds: 300, helperRequests: 100 },
   usage: { chatMessages: 0, voiceSeconds: 0, helperRequests: 0 },
   resetsAt: '2026-11-20T00:00:00.000Z',
+  consent: null,
   subscription: null,
 };
 

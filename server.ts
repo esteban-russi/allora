@@ -319,6 +319,7 @@ app.get('/api/me', async (req, res) => {
       limits,
       usage,
       resetsAt,
+      consent: account.consent,
       subscription: account.subscription && {
         status: account.subscription.status,
         productId: account.subscription.productId,

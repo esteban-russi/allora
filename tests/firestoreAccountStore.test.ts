@@ -1,7 +1,7 @@
 /** Tests for FirestoreAccountStore; contract suite runs when FIRESTORE_TEST=1. */
 import { randomUUID } from 'crypto';
 import { Firestore } from '@google-cloud/firestore';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import {
   FirestoreAccountStore,
   fromAccountDocument
@@ -9,7 +9,7 @@ import {
 import { runAccountStoreContract } from './helpers/accountStoreContract';
 
 describe('fromAccountDocument', () => {
-  it('parses account document correctly', () => {
+  it('parses account document correctly and defaults missing consent to null', () => {
     const raw = {
       userId: 'u1',
       email: 'user1@example.com',
@@ -24,7 +24,46 @@ describe('fromAccountDocument', () => {
     expect(parsed.email).toBe('user1@example.com');
     expect(parsed.isAnonymous).toBe(false);
     expect(parsed.subscription).toBeNull();
+    expect(parsed.consent).toBeNull();
     expect((parsed as any).expiresAtTs).toBeUndefined();
+  });
+
+  it('parses stored consent when present', () => {
+    const parsed = fromAccountDocument({
+      userId: 'u2',
+      email: null,
+      isAnonymous: true,
+      subscription: null,
+      consent: { termsVersion: '2026-11', acceptedAt: '2026-11-19T12:00:00.000Z' },
+      createdAt: '2026-11-18T10:00:00.000Z',
+      lastSeenAt: '2026-11-18T10:00:00.000Z'
+    });
+    expect(parsed.consent).toEqual({
+      termsVersion: '2026-11',
+      acceptedAt: '2026-11-19T12:00:00.000Z'
+    });
+  });
+});
+
+describe('FirestoreAccountStore.setConsent (unit)', () => {
+  it('updates consent in a transaction when the account document exists', async () => {
+    const docRef = { id: 'u1' };
+    const txUpdate = vi.fn();
+    const fakeDb = {
+      collection: () => ({ doc: () => docRef }),
+      runTransaction: async (fn: (tx: any) => Promise<void>) =>
+        fn({ get: async () => ({ exists: true }), update: txUpdate })
+    } as unknown as Firestore;
+
+    const store = new FirestoreAccountStore(fakeDb);
+    await store.setConsent('u1', {
+      termsVersion: '2026-11',
+      acceptedAt: '2026-11-19T12:00:00.000Z'
+    });
+
+    expect(txUpdate).toHaveBeenCalledWith(docRef, {
+      consent: { termsVersion: '2026-11', acceptedAt: '2026-11-19T12:00:00.000Z' }
+    });
   });
 });
 

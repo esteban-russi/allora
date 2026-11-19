@@ -13,8 +13,11 @@ import { OnboardingPage } from './components/OnboardingPage';
 import { SignInScreen } from './components/SignInScreen';
 import { MagicLinkEmailForm } from './components/MagicLinkEmailForm';
 import { AccountMenu } from './components/AccountMenu';
+import { ConsentDialog } from './components/ConsentDialog';
 import { LimitReachedCard } from './components/LimitReachedCard';
 import { PlansScreen } from './components/PlansScreen';
+import { TERMS_VERSION } from './data/legal';
+import type { Consent } from './server/accountStore';
 import { getBilling, setBilling } from './utils/billing';
 import { loadClientConfig } from './utils/clientConfig';
 import { createWebBilling } from './utils/billingWeb';
@@ -39,7 +42,9 @@ export default function App() {
   // A sign-in link waiting for the learner to confirm which email it was sent to
   const [pendingMagicLinkUrl, setPendingMagicLinkUrl] = useState<string | null>(null);
 
-  const { me, refresh: refreshAccount, setUsage } = useAccount();
+  const { me, refresh: refreshAccount, setUsage, setConsent } = useAccount();
+  const hasCurrentConsent = me?.consent?.termsVersion === TERMS_VERSION;
+  const needsConsent = Boolean(me && !hasCurrentConsent);
   const [limitReached, setLimitReached] = useState<QuotaError | null>(null);
   const [failedReply, setFailedReply] = useState<{ messageId: string; text: string; reason: ChatReplyErrorReason } | null>(null);
   const [chatDraft, setChatDraft] = useState<string>('');
@@ -290,10 +295,11 @@ export default function App() {
     });
   };
 
-  const handleCompleteOnboarding = (profile: LearnerProfile) => {
+  const handleCompleteOnboarding = (profile: LearnerProfile, consent?: Consent) => {
     const selectedTutor = TUTORS.find((t) => t.id === profile.personaId) ?? EMMANUELE;
     // Only a guest's first onboarding offers sign-in; a profile edit goes back to the chat
     const isFirstOnboarding = learnerProfile === null;
+    if (consent) setConsent(consent);
     setLearnerProfile(profile);
     setMessages(createInitialMessages(selectedTutor, profile.name, profile.level));
     setFailedReply(null);
@@ -482,6 +488,7 @@ export default function App() {
     return (
       <OnboardingPage
         initialProfile={learnerProfile}
+        initialConsentAccepted={hasCurrentConsent}
         onComplete={handleCompleteOnboarding}
         onLogin={me?.isAnonymous ? () => setScreen('signin-login') : undefined}
       />
@@ -675,6 +682,8 @@ export default function App() {
         onSignedOut={resetToGuest}
         onAccountDeleted={resetToGuest}
       />
+
+      <ConsentDialog isOpen={needsConsent} onAccepted={setConsent} />
     </div>
   );
 }

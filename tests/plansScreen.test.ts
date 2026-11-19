@@ -29,6 +29,7 @@ describe('PlansScreen', () => {
     limits: { chatMessages: 15, voiceSeconds: 300, helperRequests: 100 },
     usage: { chatMessages: 2, voiceSeconds: 60, helperRequests: 5 },
     resetsAt: '2026-11-20T00:00:00.000Z',
+    consent: null,
     subscription: null
   };
 

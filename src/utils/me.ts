@@ -1,8 +1,8 @@
 /** Account state utilities and types for the client. */
-import type { Tier, Subscription } from '../server/accountStore';
+import type { Consent, Subscription, Tier } from '../server/accountStore';
 import type { PlanLimits } from '../server/plans';
 import type { DailyUsage } from '../server/usageStore';
-import { getWithAuth } from './apiClient';
+import { getWithAuth, postJson } from './apiClient';
 
 export interface Me {
   userId: string;
@@ -12,6 +12,7 @@ export interface Me {
   limits: PlanLimits;
   usage: DailyUsage;
   resetsAt: string;
+  consent: Consent | null;
   subscription: Omit<Subscription, 'updatedAt'> | null;
 }
 
@@ -35,6 +36,14 @@ export function parseMeResponse(data: unknown): Me | null {
   if (!d.usage || typeof d.usage !== 'object') return null;
   if (typeof d.resetsAt !== 'string') return null;
 
+  let consent: Consent | null = null;
+  if (d.consent !== undefined && d.consent !== null) {
+    if (typeof d.consent !== 'object') return null;
+    const c = d.consent as Record<string, unknown>;
+    if (typeof c.termsVersion !== 'string' || typeof c.acceptedAt !== 'string') return null;
+    consent = { termsVersion: c.termsVersion, acceptedAt: c.acceptedAt };
+  }
+
   return {
     userId: d.userId,
     email: d.email,
@@ -43,8 +52,34 @@ export function parseMeResponse(data: unknown): Me | null {
     limits: d.limits as PlanLimits,
     usage: d.usage as DailyUsage,
     resetsAt: d.resetsAt,
+    consent,
     subscription: (d.subscription as any) ?? null
   };
+}
+
+/**
+ * Record acceptance of the current Terms and Privacy Policy on the server.
+ *
+ * Args:
+ *   termsVersion: Version string of the accepted terms.
+ *
+ * Returns:
+ *   Stored Consent record on success, or null if the request failed.
+ */
+export async function submitConsent(termsVersion: string): Promise<Consent | null> {
+  try {
+    const res = await postJson('/api/account/consent', { termsVersion });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { consent?: unknown };
+    const raw = body?.consent as Record<string, unknown> | undefined;
+    if (raw && typeof raw.termsVersion === 'string' && typeof raw.acceptedAt === 'string') {
+      return { termsVersion: raw.termsVersion, acceptedAt: raw.acceptedAt };
+    }
+    return null;
+  } catch (err) {
+    console.warn('[Account] Failed to save consent:', err);
+    return null;
+  }
 }
 
 /**

@@ -7,7 +7,7 @@ import { InMemorySessionStore, initializeLearnerSession } from '../src/server/se
 import { InMemoryAccountStore } from '../src/server/accountStore';
 import { InMemoryUsageStore, usageDay } from '../src/server/usageStore';
 import { authenticateHttpUser, verifyIdToken } from '../src/server/auth';
-import { attachAccount } from '../src/server/accountMiddleware';
+import { attachAccount, invalidateAccountCache } from '../src/server/accountMiddleware';
 import type { IdentityAdmin } from '../src/server/identityAdmin';
 
 describe('POST /api/account/merge', () => {
@@ -153,6 +153,38 @@ describe('POST /api/account/merge', () => {
     expect(resSame.body).toEqual({ code: 'INVALID_GUEST_TOKEN' });
   });
 
+  it('copies guest consent to the target account when target has no consent', async () => {
+    const guestConsent = { termsVersion: '2026-11', acceptedAt: '2026-11-18T09:50:00.000Z' };
+    await accountStore.upsertFromAuth({ userId: 'anon-g', isAnonymous: true });
+    await accountStore.setConsent('anon-g', guestConsent);
+    await accountStore.upsertFromAuth({ userId: 'u1', isAnonymous: false });
+
+    const res = await request(app)
+      .post('/api/account/merge')
+      .set('Authorization', 'Bearer dev-token:u1')
+      .send({ guestIdToken: 'dev-token:anon-g' });
+
+    expect(res.status).toBe(200);
+    expect((await accountStore.getAccount('u1'))?.consent).toEqual(guestConsent);
+  });
+
+  it('keeps target account consent when target already has one', async () => {
+    const targetConsent = { termsVersion: '2026-11', acceptedAt: '2026-11-17T08:00:00.000Z' };
+    const guestConsent = { termsVersion: '2026-11', acceptedAt: '2026-11-18T09:50:00.000Z' };
+    await accountStore.upsertFromAuth({ userId: 'anon-g', isAnonymous: true });
+    await accountStore.setConsent('anon-g', guestConsent);
+    await accountStore.upsertFromAuth({ userId: 'u1', isAnonymous: false });
+    await accountStore.setConsent('u1', targetConsent);
+
+    const res = await request(app)
+      .post('/api/account/merge')
+      .set('Authorization', 'Bearer dev-token:u1')
+      .send({ guestIdToken: 'dev-token:anon-g' });
+
+    expect(res.status).toBe(200);
+    expect((await accountStore.getAccount('u1'))?.consent).toEqual(targetConsent);
+  });
+
   it('rejects anonymous caller with 403 SIGN_IN_REQUIRED', async () => {
     const res = await request(app)
       .post('/api/account/merge')
@@ -161,6 +193,78 @@ describe('POST /api/account/merge', () => {
 
     expect(res.status).toBe(403);
     expect(res.body).toEqual({ code: 'SIGN_IN_REQUIRED' });
+  });
+});
+
+describe('POST /api/account/consent', () => {
+  let accountStore: InMemoryAccountStore;
+  let clock: number;
+  let app: express.Express;
+
+  beforeEach(() => {
+    clock = Date.parse('2026-11-18T10:00:00.000Z');
+    accountStore = new InMemoryAccountStore(() => clock);
+    invalidateAccountCache('u-consent');
+    invalidateAccountCache('anon-consent');
+    invalidateAccountCache('u-bad-consent');
+
+    app = express();
+    app.use(express.json());
+    app.use(authenticateHttpUser());
+    app.use(attachAccount(accountStore, { cacheMs: 0 }));
+    app.use(
+      '/api/account',
+      createAccountRouter({
+        accounts: accountStore,
+        now: () => clock
+      })
+    );
+  });
+
+  it('stores consent with server time for a signed-in user', async () => {
+    const res = await request(app)
+      .post('/api/account/consent')
+      .set('Authorization', 'Bearer dev-token:u-consent')
+      .send({ termsVersion: '2026-11' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      consent: { termsVersion: '2026-11', acceptedAt: '2026-11-18T10:00:00.000Z' }
+    });
+    expect((await accountStore.getAccount('u-consent'))?.consent).toEqual({
+      termsVersion: '2026-11',
+      acceptedAt: '2026-11-18T10:00:00.000Z'
+    });
+  });
+
+  it('works for anonymous guest users', async () => {
+    const res = await request(app)
+      .post('/api/account/consent')
+      .set('Authorization', 'Bearer dev-token:anon-consent')
+      .send({ termsVersion: '2026-11' });
+
+    expect(res.status).toBe(200);
+    expect((await accountStore.getAccount('anon-consent'))?.consent).toEqual({
+      termsVersion: '2026-11',
+      acceptedAt: '2026-11-18T10:00:00.000Z'
+    });
+  });
+
+  it.each([
+    {},
+    { termsVersion: '' },
+    { termsVersion: '   ' },
+    { termsVersion: 202611 },
+    { termsVersion: null },
+    { termsVersion: 'a'.repeat(21) }
+  ])('returns 400 for invalid body %j', async (body) => {
+    const res = await request(app)
+      .post('/api/account/consent')
+      .set('Authorization', 'Bearer dev-token:u-bad-consent')
+      .send(body);
+
+    expect(res.status).toBe(400);
+    expect((await accountStore.getAccount('u-bad-consent'))?.consent).toBeNull();
   });
 });
 

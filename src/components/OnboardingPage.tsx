@@ -3,17 +3,23 @@ import { ArrowRight, Check, MapPin, Sparkles } from 'lucide-react';
 import { CefrLevel, LearnerProfile, Persona } from '../types';
 import { CEFR_LEVEL_OPTIONS, TUTORS } from '../data/personas';
 import { UserBadge } from './UserBadge';
+import { ConsentCheckbox } from './ConsentCheckbox';
 import { LegalLinks } from './LegalLinks';
 import { BRAND } from '../data/brand';
+import { TERMS_VERSION } from '../data/legal';
+import type { Consent } from '../server/accountStore';
+import { submitConsent } from '../utils/me';
 
 interface OnboardingPageProps {
   initialProfile?: LearnerProfile | null;
-  onComplete: (profile: LearnerProfile) => void;
+  initialConsentAccepted?: boolean;
+  onComplete: (profile: LearnerProfile, consent?: Consent) => void;
   onLogin?: () => void;
 }
 
 export const OnboardingPage: React.FC<OnboardingPageProps> = ({
   initialProfile,
+  initialConsentAccepted = false,
   onComplete,
   onLogin
 }) => {
@@ -22,20 +28,40 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
   const [selectedTutorId, setSelectedTutorId] = useState<string>(
     initialProfile?.personaId ?? TUTORS[0].id
   );
+  const [hasConsented, setHasConsented] = useState<boolean>(initialConsentAccepted);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [consentError, setConsentError] = useState<string | null>(null);
 
   const trimmedName = name.trim();
   const learnerInitial = (trimmedName.charAt(0) || '?').toUpperCase();
   const selectedTutor: Persona =
     TUTORS.find((t) => t.id === selectedTutorId) ?? TUTORS[0];
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!trimmedName) return;
-    onComplete({
-      name: trimmedName,
-      level,
-      personaId: selectedTutor.id
-    });
+    if (!trimmedName || !hasConsented || isSubmitting) return;
+
+    let savedConsent: Consent | undefined;
+    if (!initialConsentAccepted) {
+      setIsSubmitting(true);
+      setConsentError(null);
+      const consent = await submitConsent(TERMS_VERSION);
+      setIsSubmitting(false);
+      if (!consent) {
+        setConsentError('Could not save your confirmation. Please try again.');
+        return;
+      }
+      savedConsent = consent;
+    }
+
+    onComplete(
+      {
+        name: trimmedName,
+        level,
+        personaId: selectedTutor.id
+      },
+      savedConsent
+    );
   };
 
   return (
@@ -270,16 +296,43 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
             </div>
           </section>
 
-          {/* Submit CTA */}
-          <div className="flex items-center justify-end pt-2 pb-6">
-            <button
-              type="submit"
-              disabled={!trimmedName}
-              className="w-full sm:w-auto h-13 px-8 rounded-full bg-cobalt hover:bg-cobalt-strong text-canvas text-base font-medium flex items-center justify-center gap-2 shadow-soft transition-colors disabled:opacity-50 disabled:hover:bg-cobalt"
-            >
-              <span><span lang="it">Inizia a parlare</span> with {selectedTutor.name}</span>
-              <ArrowRight className="w-5 h-5" aria-hidden="true" />
-            </button>
+          {/* Age & terms confirmation + Submit CTA */}
+          <div className="space-y-4 pt-2 pb-6">
+            <div className="p-4 sm:p-5 rounded-[20px] bg-surface border border-line shadow-soft space-y-3">
+              <ConsentCheckbox
+                id="onboarding-consent-checkbox"
+                checked={hasConsented}
+                disabled={isSubmitting}
+                onChange={setHasConsented}
+              />
+              {consentError && (
+                <p
+                  role="alert"
+                  className="text-xs text-red-700 bg-red-50 p-2.5 rounded-xl border border-red-200"
+                >
+                  {consentError}
+                </p>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end">
+              <button
+                type="submit"
+                disabled={!trimmedName || !hasConsented || isSubmitting}
+                className="w-full sm:w-auto h-13 px-8 rounded-full bg-cobalt hover:bg-cobalt-strong text-canvas text-base font-medium flex items-center justify-center gap-2 shadow-soft transition-colors disabled:opacity-50 disabled:hover:bg-cobalt"
+              >
+                <span>
+                  {isSubmitting ? (
+                    'Starting…'
+                  ) : (
+                    <>
+                      <span lang="it">Inizia a parlare</span> with {selectedTutor.name}
+                    </>
+                  )}
+                </span>
+                <ArrowRight className="w-5 h-5" aria-hidden="true" />
+              </button>
+            </div>
           </div>
         </form>
       </main>

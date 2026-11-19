@@ -9,6 +9,7 @@ describe('tierFor', () => {
     email: 'user@example.com',
     isAnonymous: false,
     subscription: null,
+    consent: null,
     createdAt: '2026-11-18T10:00:00.000Z',
     lastSeenAt: '2026-11-18T10:00:00.000Z'
   };

@@ -32,6 +32,7 @@ describe('AccountMenu component', () => {
     limits: dummyLimits,
     usage: dummyUsage,
     resetsAt: '2026-11-20T00:00:00.000Z',
+    consent: null,
     subscription: null,
   };
 
@@ -43,6 +44,7 @@ describe('AccountMenu component', () => {
     limits: dummyLimits,
     usage: dummyUsage,
     resetsAt: '2026-11-20T00:00:00.000Z',
+    consent: null,
     subscription: null,
   };
 
@@ -54,6 +56,7 @@ describe('AccountMenu component', () => {
     limits: { ...dummyLimits, chatMessages: 300 },
     usage: dummyUsage,
     resetsAt: '2026-11-20T00:00:00.000Z',
+    consent: null,
     subscription: {
       status: 'active',
       productId: 'allora_pro_annual',
