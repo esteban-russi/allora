@@ -25,12 +25,12 @@ import { createWebBilling } from './utils/billingWeb';
 import { useDialog } from './hooks/useDialog';
 import { useAccount } from './hooks/useAccount';
 import { useConversationStats } from './hooks/useConversationStats';
+import { useLimitReached } from './hooks/useLimitReached';
 import { speechService } from './utils/speech';
 import { setAccountDeletedHandler, setAppCheckFailedHandler } from './utils/apiClient';
 import { completeMagicLink, EMAIL_FOR_SIGN_IN_KEY, isMagicLink, signOutToGuest } from './utils/firebaseAuth';
 import { ACCOUNT_DELETED_NOTICE, APP_CHECK_FAILED_NOTICE, MERGE_FAILED_NOTICE, showNotice } from './utils/notice';
 import { loadLearnerSession, requestChatReply, saveLearnerSettings, startLearnerSession, toChatMessages, type ChatReplyErrorReason } from './utils/learnerSession';
-import type { QuotaError } from './utils/quotaError';
 import type { ClientLearnerSession } from './server/sessionStore';
 
 const GRAMMAR_STRICTNESS: DevSettings['grammarStrictness'][] = ['conversational', 'tutor', 'strict'];
@@ -46,7 +46,7 @@ export default function App() {
   const { me, refresh: refreshAccount, setUsage, setConsent } = useAccount();
   const hasCurrentConsent = me?.consent?.termsVersion === TERMS_VERSION;
   const needsConsent = Boolean(me && !hasCurrentConsent);
-  const [limitReached, setLimitReached] = useState<QuotaError | null>(null);
+  const [limitReached, setLimitReached] = useLimitReached(me?.tier);
   const [premiumEnded, setPremiumEnded] = useState<boolean>(false);
   const [failedReply, setFailedReply] = useState<{ messageId: string; text: string; reason: ChatReplyErrorReason } | null>(null);
   const [chatDraft, setChatDraft] = useState<string>('');
@@ -291,25 +291,6 @@ export default function App() {
       cancelled = true;
     };
   }, []);
-
-  // Clear quota limit card when tier changes or reset time elapses
-  useEffect(() => {
-    if (!limitReached) return;
-    if (me && limitReached.tier !== me.tier) {
-      setLimitReached(null);
-      return;
-    }
-    const resetMs = Date.parse(limitReached.resetsAt);
-    if (!isNaN(resetMs)) {
-      const remaining = resetMs - Date.now();
-      if (remaining <= 0) {
-        setLimitReached(null);
-      } else {
-        const timer = setTimeout(() => setLimitReached(null), remaining);
-        return () => clearTimeout(timer);
-      }
-    }
-  }, [limitReached, me?.tier]);
 
   // Show the Premium-ended notice on load if the active tutor is premium while the user is not,
   // and clear it once the learner re-subscribes or switches to a free tutor.
