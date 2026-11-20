@@ -278,5 +278,114 @@ export function describeSessionStoreContract(name: string, makeStore: SessionSto
       const outcome = await store.transferUserSessions('empty-guest', 'account-3');
       expect(outcome).toBe('none');
     });
+
+    it('syncs notebook phrases across all conversations of a user and preserves them on deleting a session', async () => {
+      const store = setup();
+      const s1 = initializeLearnerSession({ userId: 'phrase-learner' });
+      await store.createOrUpdateSession(s1);
+
+      // Add phrase p1 via settings update on s1
+      await store.updateSessionSettings(s1.sessionId, 'phrase-learner', {
+        personaId: 'emmanuele',
+        learnerName: 'Test',
+        learnerLevel: 'A2',
+        grammarStrictness: 'tutor',
+        savedPhrases: [{ id: 'p1', it: 'Grazie', en: 'Thank you' }]
+      });
+
+      // Create second session s2 for same user
+      const s2 = initializeLearnerSession({ userId: 'phrase-learner', topic: 'cafe' });
+      await store.createOrUpdateSession(s2);
+
+      // s2 should see p1
+      const readS2 = await store.getSession(s2.sessionId, 'phrase-learner');
+      expect(readS2?.progress.savedPhrases).toEqual([{ id: 'p1', it: 'Grazie', en: 'Thank you' }]);
+
+      // Add phrase p2 on s2
+      await store.updateSessionSettings(s2.sessionId, 'phrase-learner', {
+        personaId: 'emmanuele',
+        learnerName: 'Test',
+        learnerLevel: 'A2',
+        grammarStrictness: 'tutor',
+        savedPhrases: [
+          { id: 'p1', it: 'Grazie', en: 'Thank you' },
+          { id: 'p2', it: 'Prego', en: "You're welcome" }
+        ]
+      });
+
+      // s1 should now see p1 and p2
+      const readS1 = await store.getSession(s1.sessionId, 'phrase-learner');
+      expect(readS1?.progress.savedPhrases).toHaveLength(2);
+
+      // Delete s2: s1 and user notebook still have both phrases
+      expect(await store.deleteSession(s2.sessionId, 'phrase-learner')).toBe(true);
+      const afterDel = await store.getSession(s1.sessionId, 'phrase-learner');
+      expect(afterDel?.progress.savedPhrases).toHaveLength(2);
+      expect(await store.getUserPhrases('phrase-learner')).toHaveLength(2);
+
+      // Delete s1: user notebook phrases still survive!
+      expect(await store.deleteSession(s1.sessionId, 'phrase-learner')).toBe(true);
+      expect(await store.getUserPhrases('phrase-learner')).toHaveLength(2);
+
+      // GDPR delete wipes phrases completely
+      await store.deleteAllUserData('phrase-learner');
+      expect(await store.getUserPhrases('phrase-learner')).toHaveLength(0);
+    });
+
+    it('lists user sessions newest-first with summaries and never returns another user\'s sessions', async () => {
+      const store = setup();
+      const s1 = initializeLearnerSession({ userId: 'list-user', topic: 'market' });
+      await store.createOrUpdateSession(s1);
+
+      clock += 2000;
+      const s2 = initializeLearnerSession({ userId: 'list-user', topic: 'free_chat' });
+      await store.createOrUpdateSession(s2);
+
+      // Add checkpoint turn to s2
+      await store.saveTurnCheckpoint(
+        s2.sessionId,
+        'list-user',
+        turn('t1', 'user', 'Come stai oggi a Roma?')
+      );
+
+      // Other user session
+      const other = initializeLearnerSession({ userId: 'other-user', topic: 'doctor' });
+      await store.createOrUpdateSession(other);
+
+      const list = await store.listUserSessions('list-user');
+      expect(list).toHaveLength(2);
+      // Newest first
+      expect(list[0].sessionId).toBe(s2.sessionId);
+      expect(list[0].title).toBe('Come stai oggi a Roma?');
+      expect(list[0].lastLinePreview).toBe('Come stai oggi a Roma?');
+      expect(list[0].lastLineSender).toBe('user');
+      expect(list[0].turnCount).toBe(1);
+
+      expect(list[1].sessionId).toBe(s1.sessionId);
+      expect(list[1].topic).toBe('market');
+      expect(list[1].title).toBe('At the market');
+
+      // Verify other user not returned
+      expect(list.some((s) => s.sessionId === other.sessionId)).toBe(false);
+    });
+
+    it('transfers all guest conversations to a new account', async () => {
+      const store = setup();
+      const g1 = initializeLearnerSession({ userId: 'guest-multi', topic: 'market' });
+      const g2 = initializeLearnerSession({ userId: 'guest-multi', topic: 'cafe' });
+      const g3 = initializeLearnerSession({ userId: 'guest-multi', topic: 'free_chat' });
+      await store.createOrUpdateSession(g1);
+      await store.createOrUpdateSession(g2);
+      await store.createOrUpdateSession(g3);
+
+      const outcome = await store.transferUserSessions('guest-multi', 'target-multi');
+      expect(outcome).toBe('moved');
+
+      const guestList = await store.listUserSessions('guest-multi');
+      expect(guestList).toHaveLength(0);
+
+      const targetList = await store.listUserSessions('target-multi');
+      expect(targetList).toHaveLength(3);
+    });
   });
 }

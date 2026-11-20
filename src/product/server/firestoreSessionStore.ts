@@ -3,18 +3,24 @@ import { Firestore, Timestamp, type CollectionReference, type DocumentData } fro
 import {
   appendCheckpointTurn,
   applySessionSettings,
+  computeConversationTitle,
   DEFAULT_RETENTION_MS,
   isSessionExpired,
   SessionOwnershipError,
   withRetention,
   type ConversationTurn,
+  type LearnerProgress,
   type LearnerSession,
   type SessionSettings,
-  type SessionStore
+  type SessionStore,
+  type SessionSummary
 } from './sessionStore';
 
 /** Collection holding one document per learner session, keyed by session ID. */
 export const SESSIONS_COLLECTION = 'learnerSessions';
+
+/** Collection holding per-user saved phrase notebook records, keyed by user ID. */
+export const NOTEBOOKS_COLLECTION = 'learnerNotebooks';
 
 /** Firestore writes at most 500 operations per batch. */
 const DELETE_BATCH_SIZE = 500;
@@ -50,6 +56,8 @@ export function fromSessionDocument(data: DocumentData): LearnerSession {
 export interface FirestoreSessionStoreOptions {
   /** Collection name; tests use a throwaway one. */
   collectionName?: string;
+  /** Notebook collection name; tests use a throwaway one. */
+  notebooksCollectionName?: string;
   /** Inactivity period after which a session expires. */
   retentionMs?: number;
   /** Clock, injectable for tests. */
@@ -65,6 +73,7 @@ export interface FirestoreSessionStoreOptions {
  */
 export class FirestoreSessionStore implements SessionStore {
   private collection: CollectionReference;
+  private notebooksCollection: CollectionReference;
   private retentionMs: number;
   private now: () => number;
 
@@ -73,6 +82,7 @@ export class FirestoreSessionStore implements SessionStore {
     options: FirestoreSessionStoreOptions = {}
   ) {
     this.collection = db.collection(options.collectionName ?? SESSIONS_COLLECTION);
+    this.notebooksCollection = db.collection(options.notebooksCollectionName ?? NOTEBOOKS_COLLECTION);
     this.retentionMs = options.retentionMs ?? DEFAULT_RETENTION_MS;
     this.now = options.now ?? Date.now;
   }
@@ -82,6 +92,9 @@ export class FirestoreSessionStore implements SessionStore {
     if (!data) return null;
     const session = fromSessionDocument(data);
     if (session.userId !== userId || isSessionExpired(session, this.now())) return null;
+    if (!session.title) {
+      session.title = computeConversationTitle(session);
+    }
     return session;
   }
 
@@ -102,6 +115,61 @@ export class FirestoreSessionStore implements SessionStore {
   }
 
   /**
+   * Retrieve the learner's saved notebook phrases from the per-user record.
+   */
+  async getUserPhrases(userId: string): Promise<LearnerProgress['savedPhrases']> {
+    const doc = await this.notebooksCollection.doc(userId).get();
+    const data = doc.data();
+    return Array.isArray(data?.phrases) ? data.phrases : [];
+  }
+
+  /**
+   * Save or replace the learner's saved phrases in the per-user record and sync active sessions.
+   */
+  async saveUserPhrases(userId: string, phrases: LearnerProgress['savedPhrases']): Promise<void> {
+    await this.notebooksCollection.doc(userId).set({
+      userId,
+      phrases,
+      updatedAt: new Date(this.now()).toISOString()
+    });
+    const snap = await this.collection.where('userId', '==', userId).limit(DELETE_BATCH_SIZE).get();
+    if (!snap.empty) {
+      const batch = this.db.batch();
+      snap.docs.forEach((d) => batch.update(d.ref, { 'progress.savedPhrases': phrases }));
+      await batch.commit();
+    }
+  }
+
+  /**
+   * List the user's active sessions newest-first, returning summaries only.
+   */
+  async listUserSessions(userId: string, limit: number = 50): Promise<SessionSummary[]> {
+    const snap = await this.collection
+      .where('userId', '==', userId)
+      .orderBy('updatedAt', 'desc')
+      .limit(Math.min(Math.max(limit, 1), 50))
+      .get();
+    const list: SessionSummary[] = [];
+    for (const doc of snap.docs) {
+      const session = this.owned(doc.data(), userId);
+      if (!session) continue;
+      const turns = session.checkpointTurns ?? [];
+      const lastTurn = turns.length > 0 ? turns[turns.length - 1] : null;
+      list.push({
+        sessionId: session.sessionId,
+        personaId: session.personaId,
+        topic: session.topic ?? 'free_chat',
+        title: computeConversationTitle(session),
+        lastLinePreview: lastTurn?.text ?? '',
+        lastLineSender: lastTurn?.sender ?? null,
+        turnCount: turns.length,
+        updatedAt: session.updatedAt
+      });
+    }
+    return list;
+  }
+
+  /**
    * Retrieve a learner session by ID, verifying ownership and retention period.
    *
    * Args:
@@ -112,7 +180,15 @@ export class FirestoreSessionStore implements SessionStore {
    *   The session if found, valid, and owned by user; null otherwise.
    */
   async getSession(sessionId: string, userId: string): Promise<LearnerSession | null> {
-    return this.owned((await this.collection.doc(sessionId).get()).data(), userId);
+    const session = this.owned((await this.collection.doc(sessionId).get()).data(), userId);
+    if (!session) return null;
+    const userPhrases = await this.getUserPhrases(userId);
+    if (userPhrases.length > 0) {
+      session.progress.savedPhrases = userPhrases;
+    } else if (session.progress.savedPhrases && session.progress.savedPhrases.length > 0) {
+      await this.saveUserPhrases(userId, session.progress.savedPhrases);
+    }
+    return session;
   }
 
   /**
@@ -133,7 +209,16 @@ export class FirestoreSessionStore implements SessionStore {
       .orderBy('updatedAt', 'desc')
       .limit(1)
       .get();
-    return snapshot.empty ? null : this.owned(snapshot.docs[0].data(), userId);
+    if (snapshot.empty) return null;
+    const session = this.owned(snapshot.docs[0].data(), userId);
+    if (!session) return null;
+    const userPhrases = await this.getUserPhrases(userId);
+    if (userPhrases.length > 0) {
+      session.progress.savedPhrases = userPhrases;
+    } else if (session.progress.savedPhrases && session.progress.savedPhrases.length > 0) {
+      await this.saveUserPhrases(userId, session.progress.savedPhrases);
+    }
+    return session;
   }
 
   /**
@@ -149,6 +234,15 @@ export class FirestoreSessionStore implements SessionStore {
    *   SessionOwnershipError: If the session ID is already held by a different user.
    */
   async createOrUpdateSession(session: LearnerSession): Promise<LearnerSession> {
+    const userPhrases = await this.getUserPhrases(session.userId);
+    if (userPhrases.length > 0) {
+      session.progress.savedPhrases = userPhrases;
+    } else if (session.progress.savedPhrases && session.progress.savedPhrases.length > 0) {
+      await this.saveUserPhrases(session.userId, session.progress.savedPhrases);
+    }
+    if (!session.title) {
+      session.title = computeConversationTitle(session);
+    }
     const ref = this.collection.doc(session.sessionId);
     return this.db.runTransaction(async (tx) => {
       const existing = (await tx.get(ref)).data();
@@ -198,6 +292,9 @@ export class FirestoreSessionStore implements SessionStore {
     userId: string,
     settings: SessionSettings
   ): Promise<LearnerSession | null> {
+    if (settings.savedPhrases !== undefined) {
+      await this.saveUserPhrases(userId, settings.savedPhrases);
+    }
     return this.modify(sessionId, userId, (session) =>
       applySessionSettings(session, settings, this.now(), this.retentionMs)
     );
@@ -260,12 +357,14 @@ export class FirestoreSessionStore implements SessionStore {
     let deleted = 0;
     for (;;) {
       const snapshot = await this.collection.where('userId', '==', userId).limit(DELETE_BATCH_SIZE).get();
-      if (snapshot.empty) return deleted;
+      if (snapshot.empty) break;
       const batch = this.db.batch();
       snapshot.docs.forEach((doc) => batch.delete(doc.ref));
       await batch.commit();
       deleted += snapshot.size;
     }
+    await this.notebooksCollection.doc(userId).delete();
+    return deleted;
   }
 
   /**
@@ -287,6 +386,15 @@ export class FirestoreSessionStore implements SessionStore {
     if (targetActive) {
       await this.deleteAllUserData(fromUserId);
       return 'discarded';
+    }
+
+    const guestNotebookSnap = await this.notebooksCollection.doc(fromUserId).get();
+    if (guestNotebookSnap.exists) {
+      const targetNotebookSnap = await this.notebooksCollection.doc(toUserId).get();
+      if (!targetNotebookSnap.exists) {
+        await this.notebooksCollection.doc(toUserId).set(guestNotebookSnap.data()!);
+      }
+      await this.notebooksCollection.doc(fromUserId).delete();
     }
 
     for (;;) {
