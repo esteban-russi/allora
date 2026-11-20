@@ -31,6 +31,8 @@ interface ChatInterfaceProps {
   onSignIn?: () => void;
   onSeePlans?: () => void;
   onContinueWithEmmanuele?: () => void;
+  onComposerFocus?: () => void;
+  onComposerBlur?: () => void;
 }
 
 const ACCENTS = ['à', 'è', 'é', 'ì', 'ò', 'ù'];
@@ -53,7 +55,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   canUpgrade,
   onSignIn,
   onSeePlans,
-  onContinueWithEmmanuele
+  onContinueWithEmmanuele,
+  onComposerFocus,
+  onComposerBlur
 }) => {
   const [inputText, setInputText] = useState<string>(draft ?? '');
   const [visibleTranslations, setVisibleTranslations] = useState<Set<string>>(new Set());
@@ -494,6 +498,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
               ref={inputRef}
               type="text"
               value={inputText}
+              onFocus={onComposerFocus}
+              onBlur={onComposerBlur}
               onChange={(e) => {
                 setInputText(e.target.value);
                 onDraftChange?.(e.target.value);

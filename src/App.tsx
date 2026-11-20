@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { EMMANUELE, INITIAL_MESSAGES, INITIAL_SAVED_PHRASES, TUTORS, createInitialMessages } from './product/data/personas';
 import { ChatMessage, DevSettings, LearnerProfile, Persona, SavedPhrase } from './product/types';
 import { ChatInterface } from './product/components/ChatInterface';
@@ -9,6 +9,9 @@ import { PersonaProfileModal } from './product/components/PersonaProfileModal';
 import { IconRail } from './product/components/IconRail';
 import { TopHeader } from './product/components/TopHeader';
 import { UtilityPanel } from './product/components/UtilityPanel';
+import { HomeTab } from './product/components/HomeTab';
+import { ProfileTab } from './product/components/ProfileTab';
+import { BottomTabBar } from './product/components/BottomTabBar';
 import { OnboardingPage } from './product/components/OnboardingPage';
 import { SignInScreen } from './platform/components/SignInScreen';
 import { MagicLinkEmailForm } from './platform/components/MagicLinkEmailForm';
@@ -20,13 +23,13 @@ import { PlansScreen } from './product/components/PlansScreen';
 import { TERMS_VERSION } from './config/legal';
 import type { Consent } from './platform/server/accountStore';
 import { getBilling } from './platform/client/billing';
-import { useDialog } from './platform/hooks/useDialog';
 import { useAccount } from './platform/hooks/useAccount';
 import { useConversationStats } from './product/hooks/useConversationStats';
 import { useLimitReached } from './platform/hooks/useLimitReached';
 import { useWebBilling } from './platform/hooks/useWebBilling';
 import { useTutorChat } from './product/hooks/useTutorChat';
 import { useScreenFlow, type SignInMode } from './product/hooks/useScreenFlow';
+import { useAppNavigation } from './product/hooks/useAppNavigation';
 import { speechService } from './product/client/speech';
 import { setAccountDeletedHandler, setAppCheckFailedHandler } from './platform/client/apiClient';
 import { completeMagicLink, EMAIL_FOR_SIGN_IN_KEY, isMagicLink, signOutToGuest } from './platform/client/firebaseAuth';
@@ -53,6 +56,21 @@ export default function App() {
 
   useWebBilling(me?.email ?? null);
 
+  const nav = useAppNavigation({ initialTab: 'chat' });
+  const {
+    activeTab,
+    selectTab,
+    isComposerFocused,
+    setIsComposerFocused,
+    homeHeadingRef,
+    notebookHeadingRef,
+    profileHeadingRef,
+    pushOverlay,
+    closeOverlay,
+    pushScreen,
+    closeScreen
+  } = nav;
+
   const persona: Persona = useMemo(
     () => TUTORS.find((t) => t.id === learnerProfile?.personaId) ?? EMMANUELE,
     [learnerProfile?.personaId]
@@ -62,16 +80,12 @@ export default function App() {
   const [savedPhrases, setSavedPhrases] = useState<SavedPhrase[]>(INITIAL_SAVED_PHRASES);
   const [isCallOpen, setIsCallOpen] = useState<boolean>(false);
 
-  // Modals & drawers
+  // Modals & dialogs
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [isDevLabOpen, setIsDevLabOpen] = useState<boolean>(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
-  const [isNotebookDrawerOpen, setIsNotebookDrawerOpen] = useState<boolean>(false);
+  const [profileModalPersona, setProfileModalPersona] = useState<Persona>(persona);
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState<boolean>(false);
-
-  const notebookDrawerRef = useRef<HTMLDivElement>(null);
-  const notebookHeadingRef = useRef<HTMLHeadingElement>(null);
-  useDialog(notebookDrawerRef, isNotebookDrawerOpen, () => setIsNotebookDrawerOpen(false));
 
   // Experimental Dev Settings (Defaulting to real Gemini Live server TTS)
   const [devSettings, setDevSettings] = useState<DevSettings>({
@@ -113,7 +127,6 @@ export default function App() {
   const { messages } = chat;
   const { grammarHighlight, talkingShare } = useConversationStats(messages);
 
-
   const applySession = (session: ClientLearnerSession) => {
     const tutor = TUTORS.find((t) => t.id === session.personaId) ?? EMMANUELE;
     const profile: LearnerProfile = { name: session.learnerName, level: session.learnerLevel, personaId: tutor.id };
@@ -150,7 +163,6 @@ export default function App() {
   const resetToGuest = () => {
     setIsAccountMenuOpen(false);
     setIsCallOpen(false);
-    setIsNotebookDrawerOpen(false);
     setIsProfileModalOpen(false);
     setLearnerProfile(null);
     chat.resetConversation(INITIAL_MESSAGES);
@@ -272,14 +284,13 @@ export default function App() {
 
   const handleCompleteOnboarding = (profile: LearnerProfile, consent?: Consent) => {
     const selectedTutor = TUTORS.find((t) => t.id === profile.personaId) ?? EMMANUELE;
-    // Only a guest's first onboarding offers sign-in; a profile edit goes back to the chat
     const isFirstOnboarding = learnerProfile === null;
     if (consent) setConsent(consent);
     setLearnerProfile(profile);
     flow.clearTutorSelection();
     chat.resetConversation(createInitialMessages(selectedTutor, profile.name, profile.level));
-    // A new profile starts a new conversation; the notebook carries over
     void startLearnerSession({ profile, grammarStrictness: devSettings.grammarStrictness, savedPhrases });
+    closeScreen('onboarding');
     if (me?.isAnonymous && isFirstOnboarding) {
       setScreen('signin-after-onboarding');
     } else {
@@ -293,15 +304,6 @@ export default function App() {
         ? savedPhrases.filter(p => p.id !== message.id)
         : [{ id: message.id, it: message.text, en: message.translation }, ...savedPhrases]
     );
-  };
-
-  const openNotebook = () => {
-    if (window.matchMedia('(min-width: 1024px)').matches) {
-      notebookHeadingRef.current?.focus();
-      notebookHeadingRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
-    } else {
-      setIsNotebookDrawerOpen(true);
-    }
   };
 
   const handleContinueWithEmmanuele = () => {
@@ -322,8 +324,28 @@ export default function App() {
     });
   };
 
+  const handleSelectTutor = (nextTutor: Persona) => {
+    if (learnerProfile?.personaId === nextTutor.id) {
+      selectTab('chat');
+      return;
+    }
+    const nextProfile: LearnerProfile = {
+      name: learnerProfile?.name ?? '',
+      level: learnerProfile?.level ?? 'A2',
+      personaId: nextTutor.id
+    };
+    setLearnerProfile(nextProfile);
+    chat.resetConversation(createInitialMessages(nextTutor, nextProfile.name, nextProfile.level));
+    setDevSettings((prev) => ({ ...prev, voiceId: nextTutor.voiceId }));
+    void startLearnerSession({
+      profile: nextProfile,
+      grammarStrictness: devSettings.grammarStrictness,
+      savedPhrases
+    });
+    selectTab('chat');
+  };
+
   const startCall = async () => {
-    setIsNotebookDrawerOpen(false);
     const m = await refreshAccount();
     if (isTutorLockedForTier(persona, m?.tier ?? me?.tier)) {
       setPremiumEnded(true);
@@ -336,9 +358,83 @@ export default function App() {
         tier: m.tier,
         resetsAt: m.resetsAt
       });
+      pushOverlay('limit-reached-voice', () => setLimitReached(null));
       return;
     }
     setIsCallOpen(true);
+    pushOverlay('voice-call', () => setIsCallOpen(false));
+  };
+
+  const endCall = () => {
+    setIsCallOpen(false);
+    closeOverlay('voice-call');
+  };
+
+  const openSettings = () => {
+    setIsSettingsOpen(true);
+    pushOverlay('settings', () => setIsSettingsOpen(false));
+  };
+
+  const closeSettings = () => {
+    setIsSettingsOpen(false);
+    closeOverlay('settings');
+  };
+
+  const openDevLab = () => {
+    closeSettings();
+    setIsDevLabOpen(true);
+    pushOverlay('dev-lab', () => setIsDevLabOpen(false));
+  };
+
+  const closeDevLab = () => {
+    setIsDevLabOpen(false);
+    closeOverlay('dev-lab');
+  };
+
+  const openProfileModal = (targetPersona?: Persona) => {
+    setProfileModalPersona(targetPersona ?? persona);
+    setIsProfileModalOpen(true);
+    pushOverlay('persona-profile', () => setIsProfileModalOpen(false));
+  };
+
+  const closeProfileModal = () => {
+    setIsProfileModalOpen(false);
+    closeOverlay('persona-profile');
+  };
+
+  const openAccountMenu = () => {
+    setIsAccountMenuOpen(true);
+    pushOverlay('account-menu', () => setIsAccountMenuOpen(false));
+  };
+
+  const closeAccountMenu = () => {
+    setIsAccountMenuOpen(false);
+    closeOverlay('account-menu');
+  };
+
+  const navigateToPlans = () => {
+    pushScreen('plans', () => setScreen('app'));
+    setScreen('plans');
+  };
+
+  const navigateToSignIn = () => {
+    pushScreen('signin-login', () => setScreen('app'));
+    setScreen('signin-login');
+  };
+
+  const navigateToEditProfile = () => {
+    pushScreen('onboarding', () => setScreen('app'));
+    setScreen('onboarding');
+  };
+
+  const handleSeePlansForTutor = (tutorId: string) => {
+    const isGuest = !me || me.isAnonymous;
+    if (isGuest) {
+      pushScreen('signin-login', () => setScreen('app'));
+    } else {
+      pushScreen('plans', () => setScreen('app'));
+    }
+    flow.seePlansForTutor(tutorId, isGuest);
   };
 
   const panelProps = {
@@ -348,7 +444,7 @@ export default function App() {
     talkingShare,
     me,
     onSwitchToVoice: startCall,
-    onOpenProfile: () => setIsProfileModalOpen(true),
+    onOpenProfile: () => openProfileModal(persona),
     onRemovePhrase: (id: string) => updateSavedPhrases(savedPhrases.filter(p => p.id !== id))
   };
 
@@ -392,8 +488,14 @@ export default function App() {
     return (
       <SignInScreen
         mode="login"
-        onSignedIn={() => handleSignedIn('login')}
-        onSkip={flow.cancelSignIn}
+        onSignedIn={() => {
+          closeScreen('signin-login');
+          void handleSignedIn('login');
+        }}
+        onSkip={() => {
+          closeScreen('signin-login');
+          flow.cancelSignIn();
+        }}
       />
     );
   }
@@ -402,8 +504,14 @@ export default function App() {
     return (
       <PlansScreen
         me={me}
-        onDone={(purchased = false) => flow.afterPlans(purchased, me?.tier === 'premium')}
-        onNeedSignIn={() => setScreen('signin-login')}
+        onDone={(purchased = false) => {
+          closeScreen('plans');
+          flow.afterPlans(purchased, me?.tier === 'premium');
+        }}
+        onNeedSignIn={() => {
+          closeScreen('plans');
+          navigateToSignIn();
+        }}
         refreshAccount={refreshAccount}
       />
     );
@@ -417,9 +525,9 @@ export default function App() {
         initialConsentAccepted={hasCurrentConsent}
         tier={me?.tier ?? 'guest'}
         canUpgrade={getBilling().isAvailable()}
-        onSeePlans={(tutorId) => flow.seePlansForTutor(tutorId, !me || me.isAnonymous)}
+        onSeePlans={(tutorId) => handleSeePlansForTutor(tutorId)}
         onComplete={handleCompleteOnboarding}
-        onLogin={me?.isAnonymous ? () => setScreen('signin-login') : undefined}
+        onLogin={me?.isAnonymous ? navigateToSignIn : undefined}
       />
     );
   }
@@ -436,78 +544,129 @@ export default function App() {
   return (
     <div className="h-dvh w-full flex overflow-hidden bg-canvas text-ink">
       <IconRail
+        activeTab={activeTab}
+        onSelectTab={(tab) => {
+          if (tab === 'notebook' && window.matchMedia('(min-width: 1024px)').matches && activeTab === 'chat') {
+            notebookHeadingRef.current?.focus();
+            notebookHeadingRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+          } else {
+            selectTab(tab);
+          }
+        }}
         learnerInitial={learnerInitial}
-        onOpenNotebook={openNotebook}
-        onOpenSettings={() => setIsSettingsOpen(true)}
-        onOpenAccount={() => setIsAccountMenuOpen(true)}
+        onOpenSettings={openSettings}
+        onOpenAccount={openAccountMenu}
       />
 
       <div className="flex-1 min-w-0 flex flex-col">
         <TopHeader
+          activeTab={activeTab}
           persona={persona}
           learnerInitial={learnerInitial}
           learnerLevel={learnerProfile.level}
           mode={isCallOpen ? 'voice' : 'text'}
           onSelectVoice={startCall}
-          onOpenNotebook={openNotebook}
-          onOpenAccount={() => setIsAccountMenuOpen(true)}
+          onOpenAccount={openAccountMenu}
         />
 
         <div className="flex-1 min-h-0 flex gap-5 lg:pr-5 lg:pb-5">
-          <div id="chat" className="flex-1 min-w-0 flex">
-            <ChatInterface
-              persona={persona}
-              messages={messages}
-              devSettings={devSettings}
-              savedPhraseIds={savedPhrases.map(p => p.id)}
-              onSendMessage={chat.sendMessage}
-              onSavePhrase={handleSavePhrase}
-              isAiGenerating={chat.isAiGenerating}
-              draft={chat.draft}
-              onDraftChange={chat.setDraft}
-              failedReply={chat.failedReply}
-              onRetryReply={chat.retryReply}
-              limitReached={limitReached}
-              premiumEnded={premiumEnded}
-              tier={me?.tier ?? 'guest'}
-              canUpgrade={getBilling().isAvailable() && me?.tier !== 'premium'}
-              onSignIn={() => setScreen('signin-login')}
-              onSeePlans={() => setScreen(me?.isAnonymous ? 'signin-login' : 'plans')}
-              onContinueWithEmmanuele={handleContinueWithEmmanuele}
-            />
-          </div>
+          {activeTab === 'home' && (
+            <div className="flex-1 min-w-0 flex">
+              <HomeTab
+                learnerProfile={learnerProfile}
+                persona={persona}
+                messages={messages}
+                savedPhrases={savedPhrases}
+                talkingShare={talkingShare}
+                tier={me?.tier ?? 'guest'}
+                canUpgrade={getBilling().isAvailable() && me?.tier !== 'premium'}
+                onNavigateToChat={() => selectTab('chat')}
+                onNavigateToNotebook={() => selectTab('notebook')}
+                onStartVoiceCall={() => void startCall()}
+                onSelectTutor={handleSelectTutor}
+                onSeePlansForTutor={handleSeePlansForTutor}
+                onOpenTutorProfile={(t) => openProfileModal(t)}
+                headingRef={homeHeadingRef}
+              />
+            </div>
+          )}
 
-          <div className="hidden lg:block w-[360px] xl:w-[380px] shrink-0">
-            <UtilityPanel {...panelProps} notebookHeadingRef={notebookHeadingRef} />
-          </div>
+          {activeTab === 'chat' && (
+            <>
+              <div id="chat" className={`flex-1 min-w-0 flex ${isComposerFocused ? 'pb-0' : 'pb-16 md:pb-0'}`}>
+                <ChatInterface
+                  persona={persona}
+                  messages={messages}
+                  devSettings={devSettings}
+                  savedPhraseIds={savedPhrases.map((p) => p.id)}
+                  onSendMessage={chat.sendMessage}
+                  onSavePhrase={handleSavePhrase}
+                  isAiGenerating={chat.isAiGenerating}
+                  draft={chat.draft}
+                  onDraftChange={chat.setDraft}
+                  failedReply={chat.failedReply}
+                  onRetryReply={chat.retryReply}
+                  limitReached={limitReached}
+                  premiumEnded={premiumEnded}
+                  tier={me?.tier ?? 'guest'}
+                  canUpgrade={getBilling().isAvailable() && me?.tier !== 'premium'}
+                  onSignIn={navigateToSignIn}
+                  onSeePlans={() => {
+                    if (me?.isAnonymous) navigateToSignIn();
+                    else navigateToPlans();
+                  }}
+                  onContinueWithEmmanuele={handleContinueWithEmmanuele}
+                  onComposerFocus={() => setIsComposerFocused(true)}
+                  onComposerBlur={() => setIsComposerFocused(false)}
+                />
+              </div>
+
+              <div className="hidden lg:block w-[360px] xl:w-[380px] shrink-0">
+                <UtilityPanel {...panelProps} notebookHeadingRef={notebookHeadingRef} />
+              </div>
+            </>
+          )}
+
+          {activeTab === 'notebook' && (
+            <div className="flex-1 min-h-0 flex justify-center overflow-y-auto px-4 py-4 pb-20 md:pb-6">
+              <div className="w-full max-w-2xl h-full">
+                <UtilityPanel {...panelProps} notebookHeadingRef={notebookHeadingRef} />
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'profile' && (
+            <div className="flex-1 min-h-0 flex">
+              <ProfileTab
+                learnerProfile={learnerProfile}
+                devSettings={devSettings}
+                onSaveSettings={handleSaveSettings}
+                onOpenDevLab={devLabEnabled ? openDevLab : undefined}
+                me={me}
+                onEditProfile={navigateToEditProfile}
+                onSignIn={navigateToSignIn}
+                onUpgrade={navigateToPlans}
+                onSignedOut={resetToGuest}
+                onAccountDeleted={resetToGuest}
+                headingRef={profileHeadingRef}
+              />
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Notebook as a drawer below the lg breakpoint */}
-      {isNotebookDrawerOpen && (
-        <div
-          className="lg:hidden fixed inset-0 z-40 flex justify-end bg-ink/30 backdrop-blur-[2px]"
-          onClick={(e) => { if (e.target === e.currentTarget) setIsNotebookDrawerOpen(false); }}
-        >
-          <div
-            ref={notebookDrawerRef}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Tutor and notebook"
-            tabIndex={-1}
-            className="w-full max-w-[380px] h-full p-3 focus:outline-none"
-          >
-            <UtilityPanel {...panelProps} onClose={() => setIsNotebookDrawerOpen(false)} />
-          </div>
-        </div>
-      )}
+      <BottomTabBar
+        activeTab={activeTab}
+        onSelectTab={selectTab}
+        isHidden={isComposerFocused || isCallOpen}
+      />
 
       {isCallOpen && (
         <VoiceCallModal
           persona={persona}
           devSettings={devSettings}
           learnerProfile={learnerProfile}
-          onEndCall={() => setIsCallOpen(false)}
+          onEndCall={endCall}
           onPremiumRequired={() => {
             setPremiumEnded(true);
             void refreshAccount();
@@ -521,6 +680,7 @@ export default function App() {
                 tier: m.tier,
                 resetsAt: m.resetsAt
               });
+              pushOverlay('limit-reached-voice', () => setLimitReached(null));
             }
           }}
         />
@@ -530,7 +690,10 @@ export default function App() {
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30 backdrop-blur-xs p-4 animate-in fade-in duration-200"
           onClick={(e) => {
-            if (e.target === e.currentTarget) setLimitReached(null);
+            if (e.target === e.currentTarget) {
+              closeOverlay('limit-reached-voice');
+              setLimitReached(null);
+            }
           }}
         >
           <div
@@ -544,19 +707,27 @@ export default function App() {
               tier={me?.tier ?? 'guest'}
               canUpgrade={getBilling().isAvailable() && me?.tier === 'free'}
               onSignIn={() => {
+                closeOverlay('limit-reached-voice');
                 setLimitReached(null);
-                setScreen('signin-login');
+                navigateToSignIn();
               }}
               onSeePlans={() => {
+                closeOverlay('limit-reached-voice');
                 setLimitReached(null);
-                setScreen('plans');
+                navigateToPlans();
               }}
-              onDismiss={() => setLimitReached(null)}
+              onDismiss={() => {
+                closeOverlay('limit-reached-voice');
+                setLimitReached(null);
+              }}
             />
             <div className="flex justify-end pt-1">
               <button
                 type="button"
-                onClick={() => setLimitReached(null)}
+                onClick={() => {
+                  closeOverlay('limit-reached-voice');
+                  setLimitReached(null);
+                }}
                 className="px-4 py-2 rounded-xl text-sm font-semibold text-ink-muted hover:text-ink hover:bg-surface-tint transition-colors"
               >
                 Close
@@ -568,23 +739,16 @@ export default function App() {
 
       <SettingsDialog
         isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
+        onClose={closeSettings}
         settings={devSettings}
         onSaveSettings={handleSaveSettings}
-        onOpenDevLab={
-          devLabEnabled
-            ? () => {
-                setIsSettingsOpen(false);
-                setIsDevLabOpen(true);
-              }
-            : undefined
-        }
+        onOpenDevLab={devLabEnabled ? openDevLab : undefined}
       />
 
       {devLabEnabled && (
         <DevSettingsDrawer
           isOpen={isDevLabOpen}
-          onClose={() => setIsDevLabOpen(false)}
+          onClose={closeDevLab}
           settings={devSettings}
           onSaveSettings={handleSaveSettings}
           activePersonaName={persona.fullName}
@@ -592,27 +756,27 @@ export default function App() {
       )}
 
       <PersonaProfileModal
-        persona={persona}
+        persona={profileModalPersona}
         isOpen={isProfileModalOpen}
-        onClose={() => setIsProfileModalOpen(false)}
+        onClose={closeProfileModal}
         onStartVideoCall={startCall}
       />
 
       <AccountMenu
         isOpen={isAccountMenuOpen}
-        onClose={() => setIsAccountMenuOpen(false)}
+        onClose={closeAccountMenu}
         me={me}
         onEditProfile={() => {
-          setIsAccountMenuOpen(false);
-          setScreen('onboarding');
+          closeAccountMenu();
+          navigateToEditProfile();
         }}
         onSignIn={() => {
-          setIsAccountMenuOpen(false);
-          setScreen('signin-login');
+          closeAccountMenu();
+          navigateToSignIn();
         }}
         onUpgrade={() => {
-          setIsAccountMenuOpen(false);
-          setScreen('plans');
+          closeAccountMenu();
+          navigateToPlans();
         }}
         onSignedOut={resetToGuest}
         onAccountDeleted={resetToGuest}
