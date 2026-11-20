@@ -1,6 +1,7 @@
 /** Browser and mobile client for a Gemini Live voice call with reconnect, heartbeat, and resumption. */
 import { getAuthToken } from '../../platform/client/apiClient';
 import { getAppCheckToken } from '../../platform/client/appCheck';
+import { notifyHabits } from './habitsClient';
 
 const MODEL_SAMPLE_RATE = 24000;
 const HEARTBEAT_INTERVAL_MS = 5000;
@@ -78,6 +79,8 @@ export interface LiveCallHandlers {
   onError: (message: string, beforeReady: boolean) => void;
   /** Triggered when the daily voice quota is exceeded. */
   onQuotaExceeded?: () => void;
+  /** Triggered when daily practice goal is met during voice call. */
+  onGoalMet?: (habits: any) => void;
 }
 
 /** One Gemini Live voice call: microphone up, tutor audio and transcripts down. */
@@ -283,6 +286,7 @@ export class LiveCall {
     sessionId?: string;
     resumed?: boolean;
     fallback?: 'turn_based';
+    habits?: any;
   }): void {
     switch (event.type) {
       case 'session_ready':
@@ -322,6 +326,12 @@ export class LiveCall {
         this.handlers.onTurnComplete(this.userText.trim(), this.personaText.trim());
         this.userText = '';
         this.personaText = '';
+        break;
+      case 'goal_met':
+        if (event.habits) {
+          notifyHabits(event.habits);
+          this.handlers.onGoalMet?.(event.habits);
+        }
         break;
       case 'resumption_failed':
         // The server closes the socket next; stop first so that is not treated as a drop to reconnect from

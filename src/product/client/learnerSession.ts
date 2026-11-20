@@ -1,8 +1,10 @@
 /** Remembers the learner session on this device, restores it on load, and links chat requests to it. */
-import type { ClientLearnerSession, ConversationTurn } from '../server/sessionStore';
+import type { ClientLearnerSession, ConversationTurn, SessionSummary } from '../server/sessionStore';
 import type { CefrLevel, ChatMessage, GrammarNote, LearnerProfile, SavedPhrase } from '../types';
-import { getWithAuth, postJson } from '../../platform/client/apiClient';
+import { deleteWithAuth, getWithAuth, postJson } from '../../platform/client/apiClient';
 import { readQuotaError, type QuotaError } from '../../platform/client/quotaError';
+import type { HabitSummary } from '../server/habitStore';
+import { celebrateGoalMet, notifyHabits } from './habitsClient';
 
 const STORAGE_KEY = 'parliamo.learnerSessionId';
 const CEFR_LEVELS: CefrLevel[] = ['A1', 'A2', 'B1', 'B2', 'C1'];
@@ -147,6 +149,19 @@ function isClientSession(value: unknown): value is ClientLearnerSession {
  *   The session, or null when there is none, the request fails, or the reply is malformed.
  */
 export async function loadLearnerSession(): Promise<ClientLearnerSession | null> {
+  const rememberedId = getLearnerSessionId();
+  if (rememberedId) {
+    try {
+      const res = await getWithAuth(`/api/session/${rememberedId}`);
+      if (res.ok) {
+        const session: unknown = await res.json();
+        if (isClientSession(session)) return session;
+      }
+    } catch {
+      // Fall through to most recent session
+    }
+  }
+
   try {
     const res = await getWithAuth('/api/session');
     if (!res.ok) return null;
@@ -154,6 +169,105 @@ export async function loadLearnerSession(): Promise<ClientLearnerSession | null>
     if (!isClientSession(session)) return null;
     rememberLearnerSessionId(session.sessionId);
     return session;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch summaries of all user sessions, newest first.
+ *
+ * Returns:
+ *   List of SessionSummary objects.
+ */
+export async function fetchSessionList(): Promise<SessionSummary[]> {
+  try {
+    const res = await getWithAuth('/api/session/list');
+    if (!res.ok) return [];
+    const list = await res.json();
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Fetch a specific learner session by ID.
+ *
+ * Args:
+ *   sessionId: The session ID to retrieve.
+ *
+ * Returns:
+ *   ClientLearnerSession if found and owned, null otherwise.
+ */
+export async function fetchSessionById(sessionId: string): Promise<ClientLearnerSession | null> {
+  try {
+    const res = await getWithAuth(`/api/session/${sessionId}`);
+    if (!res.ok) return null;
+    const session: unknown = await res.json();
+    return isClientSession(session) ? session : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Delete a specific conversation by ID.
+ *
+ * Args:
+ *   sessionId: The session ID to delete.
+ *
+ * Returns:
+ *   True if deleted successfully.
+ */
+export async function deleteSessionById(sessionId: string): Promise<boolean> {
+  try {
+    const res = await deleteWithAuth(`/api/session/${sessionId}`);
+    if (res.ok) {
+      if (getLearnerSessionId() === sessionId) {
+        rememberLearnerSessionId(null);
+      }
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Create a new conversation session with optional topic.
+ *
+ * Args:
+ *   options: Persona, topic, learner profile and strictness settings.
+ *
+ * Returns:
+ *   The newly created ClientLearnerSession.
+ */
+export async function createConversation(options: {
+  personaId: string;
+  topic?: string;
+  learnerName?: string;
+  learnerLevel?: CefrLevel;
+  grammarStrictness?: string;
+  savedPhrases?: SavedPhrase[];
+}): Promise<ClientLearnerSession | null> {
+  try {
+    const res = await postJson('/api/session', {
+      personaId: options.personaId,
+      topic: options.topic,
+      learnerName: options.learnerName ?? '',
+      learnerLevel: options.learnerLevel ?? 'A2',
+      grammarStrictness: options.grammarStrictness ?? 'tutor',
+      savedPhrases: options.savedPhrases
+    });
+    if (!res.ok) return null;
+    const session: unknown = await res.json();
+    if (isClientSession(session)) {
+      rememberLearnerSessionId(session.sessionId);
+      return session;
+    }
+    return null;
   } catch {
     return null;
   }
@@ -225,6 +339,7 @@ export type ChatTurnResult =
       translation: string;
       grammarNotes: GrammarNote[];
       quotaUsed?: number;
+      habits?: HabitSummary;
     }
   | { status: 'quota'; quota: QuotaError }
   | { status: 'premium_required' }
@@ -296,12 +411,19 @@ export async function requestChatReply(request: ChatRequest): Promise<ChatTurnRe
     if (res.ok) {
       const data = await res.json();
       if (typeof data?.text === 'string' && data.text) {
+        if (data.habits) {
+          notifyHabits(data.habits);
+          if (data.habits.justMetGoal) {
+            celebrateGoalMet(data.habits.currentStreak);
+          }
+        }
         return {
           status: 'ok',
           text: data.text,
           translation: typeof data.translation === 'string' ? data.translation : '',
           grammarNotes: Array.isArray(data.grammarNotes) ? data.grammarNotes : [],
           quotaUsed: typeof data?.quota?.used === 'number' ? data.quota.used : undefined,
+          habits: data.habits
         };
       }
     }
