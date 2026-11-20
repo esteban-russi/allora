@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { AccountMenu } from '../src/components/AccountMenu';
+import { AccountMenu, openManageSubscriptionTab, type ManageTab } from '../src/components/AccountMenu';
 import type { Me } from '../src/utils/me';
 import type { PlanLimits } from '../src/server/plans';
 import type { DailyUsage } from '../src/server/usageStore';
@@ -185,5 +185,120 @@ describe('AccountMenu component', () => {
       })
     );
     expect(html).toContain('Manage subscription');
+  });
+});
+
+describe('openManageSubscriptionTab', () => {
+  it('opens a blank tab synchronously, clears opener before navigating, and returns true', async () => {
+    const events: string[] = [];
+    let openerValue: unknown = { parent: true };
+    let hrefValue = '';
+
+    const fakeTab: ManageTab = {
+      get opener() {
+        return openerValue;
+      },
+      set opener(value: unknown) {
+        openerValue = value;
+        events.push(`opener=${String(value)}`);
+      },
+      location: {
+        get href() {
+          return hrefValue;
+        },
+        set href(value: string) {
+          hrefValue = value;
+          events.push(`href=${value}`);
+        }
+      },
+      close: vi.fn(() => {
+        events.push('close');
+      })
+    };
+
+    const openTab = vi.fn(() => {
+      events.push('open');
+      return fakeTab;
+    });
+
+    let resolveUrl!: (url: string | null) => void;
+    const urlPromise = new Promise<string | null>((resolve) => {
+      resolveUrl = resolve;
+    });
+
+    const resultPromise = openManageSubscriptionTab('user-789', () => urlPromise, openTab);
+
+    // Tab must be opened synchronously before the URL promise settles.
+    expect(openTab).toHaveBeenCalledTimes(1);
+    expect(openTab).toHaveBeenCalledWith('', '_blank');
+    expect(events).toEqual(['open']);
+
+    resolveUrl('https://billing.revenuecat.com/portal/direct');
+    const opened = await resultPromise;
+
+    expect(opened).toBe(true);
+    expect(openerValue).toBeNull();
+    expect(hrefValue).toBe('https://billing.revenuecat.com/portal/direct');
+    expect(events).toEqual([
+      'open',
+      'opener=null',
+      'href=https://billing.revenuecat.com/portal/direct'
+    ]);
+    expect(fakeTab.close).not.toHaveBeenCalled();
+  });
+
+  it('closes the blank tab and returns false when manageUrl resolves to null', async () => {
+    const fakeTab: ManageTab = {
+      opener: {},
+      location: { href: '' },
+      close: vi.fn()
+    };
+    const openTab = vi.fn(() => fakeTab);
+
+    const opened = await openManageSubscriptionTab('user-789', async () => null, openTab);
+
+    expect(opened).toBe(false);
+    expect(fakeTab.close).toHaveBeenCalledTimes(1);
+    expect(fakeTab.location.href).toBe('');
+  });
+
+  it('closes the blank tab and returns false when manageUrl throws', async () => {
+    const fakeTab: ManageTab = {
+      opener: {},
+      location: { href: '' },
+      close: vi.fn()
+    };
+    const openTab = vi.fn(() => fakeTab);
+
+    const opened = await openManageSubscriptionTab(
+      'user-789',
+      async () => {
+        throw new Error('upstream failed');
+      },
+      openTab
+    );
+
+    expect(opened).toBe(false);
+    expect(fakeTab.close).toHaveBeenCalledTimes(1);
+    expect(fakeTab.location.href).toBe('');
+  });
+
+  it('falls back to opening directly with noopener,noreferrer when blank tab is blocked', async () => {
+    const openTab = vi.fn(() => null);
+
+    const opened = await openManageSubscriptionTab(
+      'user-789',
+      async () => 'https://billing.revenuecat.com/portal/direct',
+      openTab
+    );
+
+    expect(opened).toBe(true);
+    expect(openTab).toHaveBeenNthCalledWith(1, '', '_blank');
+    expect(openTab).toHaveBeenNthCalledWith(
+      2,
+      'https://billing.revenuecat.com/portal/direct',
+      '_blank',
+      'noopener,noreferrer'
+    );
   });
 });

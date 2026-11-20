@@ -1,3 +1,4 @@
+/** Account menu dialog for identity, subscription management, sign-out, and deletion. */
 import React, { useRef, useState } from 'react';
 import { X, User, LogIn, LogOut, Trash2, Edit3, ShieldAlert, Sparkles, ExternalLink } from 'lucide-react';
 import type { Me } from '../utils/me';
@@ -6,6 +7,49 @@ import { signOutToGuest } from '../utils/firebaseAuth';
 import { deleteWithAuth } from '../utils/apiClient';
 import { getBilling } from '../utils/billing';
 import { LegalLinks } from './LegalLinks';
+
+export interface ManageTab {
+  opener: unknown;
+  location: { href: string };
+  close(): void;
+}
+
+/**
+ * Open a blank tab synchronously and navigate it to the management URL once resolved.
+ *
+ * Args:
+ *   userId: Signed-in learner ID passed to `billing.manageUrl`.
+ *   fetchManageUrl: Async resolver returning the management URL or null.
+ *   openTab: Window opener (defaults to `window.open`).
+ *
+ * Returns:
+ *   True when a management URL was resolved and opened, false if null or an error occurred.
+ */
+export async function openManageSubscriptionTab(
+  userId: string,
+  fetchManageUrl: (id: string) => Promise<string | null> = (id) => getBilling().manageUrl(id),
+  openTab: (url: string, target: string, features?: string) => ManageTab | null = (url, target, features) =>
+    window.open(url, target, features)
+): Promise<boolean> {
+  const tab = openTab('', '_blank');
+  try {
+    const url = await fetchManageUrl(userId);
+    if (!url) {
+      tab?.close();
+      return false;
+    }
+    if (tab) {
+      tab.opener = null;
+      tab.location.href = url;
+    } else {
+      openTab(url, '_blank', 'noopener,noreferrer');
+    }
+    return true;
+  } catch {
+    tab?.close();
+    return false;
+  }
+}
 
 export interface AccountMenuProps {
   isOpen: boolean;
@@ -34,6 +78,7 @@ export const AccountMenu: React.FC<AccountMenuProps> = ({
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [manageError, setManageError] = useState<string | null>(null);
   const [subWarning, setSubWarning] = useState<string | null>(null);
 
   if (!isOpen) return null;
@@ -44,6 +89,15 @@ export const AccountMenu: React.FC<AccountMenuProps> = ({
   const planName = me?.tier
     ? me.tier.charAt(0).toUpperCase() + me.tier.slice(1)
     : 'Guest';
+
+  const handleManageSubscription = async () => {
+    if (!me) return;
+    setManageError(null);
+    const opened = await openManageSubscriptionTab(me.userId);
+    if (!opened) {
+      setManageError('Could not open subscription management. Please try again.');
+    }
+  };
 
   const handleSignOut = async () => {
     try {
@@ -186,6 +240,11 @@ export const AccountMenu: React.FC<AccountMenuProps> = ({
               </div>
 
               {/* Actions */}
+              {manageError && (
+                <p role="alert" className="text-xs text-red-700 bg-red-50 p-2.5 rounded-xl border border-red-200">
+                  {manageError}
+                </p>
+              )}
               <div className="space-y-2">
                 <button
                   type="button"
@@ -230,12 +289,7 @@ export const AccountMenu: React.FC<AccountMenuProps> = ({
                     {me?.tier === 'premium' && isBillingAvailable && (
                       <button
                         type="button"
-                        onClick={async () => {
-                          const url = await getBilling().manageUrl(me.userId);
-                          if (url) {
-                            window.open(url, '_blank', 'noopener,noreferrer');
-                          }
-                        }}
+                        onClick={handleManageSubscription}
                         className="w-full h-11 flex items-center gap-3 px-4 rounded-2xl hover:bg-surface-tint text-sm font-semibold text-ink transition-colors"
                       >
                         <ExternalLink className="w-4 h-4 text-ink-muted" aria-hidden="true" />
