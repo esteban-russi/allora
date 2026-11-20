@@ -1,8 +1,12 @@
 /** Periodic cleanup of expired learner sessions and stale rate-limit windows. */
-import type { SessionStore } from './sessionStore';
 import type { UserRateLimiter } from './rateLimiter';
 
 export const DEFAULT_MAINTENANCE_INTERVAL_MS = 60 * 60 * 1000;
+
+/** A store whose records expire, such as the learner session store. */
+export interface ExpiringStore {
+  purgeExpiredSessions(): Promise<number>;
+}
 
 /**
  * Run cleanup now and then on an interval, so retention is enforced even for
@@ -17,7 +21,7 @@ export const DEFAULT_MAINTENANCE_INTERVAL_MS = 60 * 60 * 1000;
  *   A function that stops the schedule.
  */
 export function scheduleMaintenance(
-  sessionStore: SessionStore,
+  sessionStore: ExpiringStore,
   userLimiter: UserRateLimiter,
   intervalMs: number = DEFAULT_MAINTENANCE_INTERVAL_MS
 ): () => void {

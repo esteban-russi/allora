@@ -1,4 +1,4 @@
-/** Model safety settings, block-reason detection, and fixed Italian decline text. */
+/** Model safety settings and block-reason detection for Gemini responses. */
 import {
   BlockedReason,
   FinishReason,
@@ -6,10 +6,6 @@ import {
   HarmCategory,
   type SafetySetting
 } from '@google/genai';
-
-/** Fixed polite Italian decline returned when Gemini blocks a chat reply. */
-export const BLOCKED_REPLY_TEXT =
-  "Scusa, di questo non posso parlare. Torniamo all'italiano?";
 
 /** Explicit safety thresholds sent on every chat and Live model request. */
 export const MODEL_SAFETY_SETTINGS: SafetySetting[] = [

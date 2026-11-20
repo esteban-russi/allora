@@ -7,11 +7,14 @@ import type { CefrLevel } from '../types';
 import { defaultSessionStore } from './defaultSessionStore';
 import { CHAT_MODEL, generateContentWithFallback, hasGenAiCredentials, parseModelJsonResponse } from './genAi';
 import { defaultMetrics } from './metrics';
-import { BLOCKED_REPLY_TEXT, isBlockedGeminiResponse, MODEL_SAFETY_SETTINGS } from './modelSafety';
+import { isBlockedGeminiResponse, MODEL_SAFETY_SETTINGS } from './modelSafety';
 import { requirePersonaAccess } from './personaAccess';
 import { requireQuota } from './quota';
 import type { ConversationTurn, SessionStore } from './sessionStore';
 import { summarizeError } from './vertexCooldown';
+
+/** The tutor's reply when Gemini blocks a turn for safety. */
+export const BLOCKED_REPLY_TEXT = "Scusa, di questo non posso parlare. Torniamo all'italiano?";
 
 export interface ChatRouterDeps {
   sessions?: SessionStore;

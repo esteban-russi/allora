@@ -9,11 +9,8 @@ import {
   buildVoiceCallInstruction,
   SAFETY_INSTRUCTION
 } from '../src/data/personaPrompts';
-import {
-  BLOCKED_REPLY_TEXT,
-  isBlockedGeminiResponse,
-  MODEL_SAFETY_SETTINGS
-} from '../src/server/modelSafety';
+import { BLOCKED_REPLY_TEXT } from '../src/server/chatRoutes';
+import { isBlockedGeminiResponse, MODEL_SAFETY_SETTINGS } from '../src/server/modelSafety';
 import { fakeGemini, openCall, startBridgeServer } from './helpers/fakeGemini';
 
 afterEach(() => {

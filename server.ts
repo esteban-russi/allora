@@ -235,7 +235,7 @@ app.get('/api/me', async (req, res) => {
 });
 
 // Account lifecycle routes (guest merge and account deletion)
-app.use('/api/account', createAccountRouter());
+app.use('/api/account', createAccountRouter({ sessions: defaultSessionStore }));
 
 // Billing routes (subscription sync)
 app.use('/api/billing', createBillingRouter());

@@ -1,12 +1,10 @@
 /** Account lifecycle routes: consent, account merge, and account deletion. */
 import { Router, type Request, type Response } from 'express';
-import type { SessionStore } from './sessionStore';
 import type { AccountStore, Consent } from './accountStore';
 import type { UsageStore } from './usageStore';
 import type { ReportStore } from './reportStore';
 import type { IdentityAdmin } from './identityAdmin';
 import type { AuthenticatedUser } from './auth';
-import { defaultSessionStore } from './defaultSessionStore';
 import { defaultAccountStore } from './defaultAccountStore';
 import { defaultUsageStore } from './defaultUsageStore';
 import { defaultReportStore } from './defaultReportStore';
@@ -17,8 +15,15 @@ import { invalidateAccountCache } from './accountMiddleware';
 import { summarizeError } from './vertexCooldown';
 import { createRevenueCatClient, type RevenueCatClient } from './revenueCat';
 
+/** The per-user app data that moves with a guest merge and goes with an account deletion. */
+export interface UserDataStore {
+  transferUserSessions(fromUserId: string, toUserId: string): Promise<'moved' | 'discarded' | 'none'>;
+  deleteAllUserData(userId: string): Promise<number>;
+}
+
 export interface AccountRouterDeps {
-  sessions?: SessionStore;
+  /** The app's own per-user data; required because it belongs to the app, not the platform. */
+  sessions: UserDataStore;
   accounts?: AccountStore;
   usage?: UsageStore;
   reports?: ReportStore;
@@ -35,14 +40,14 @@ const MAX_TERMS_VERSION_LENGTH = 20;
  * Create Express router for /api/account endpoints.
  *
  * Args:
- *   deps: Storage and identity dependencies (injectable for testing).
+ *   deps: The app's per-user data store, plus storage and identity overrides for testing.
  *
  * Returns:
  *   Configured Express Router.
  */
-export function createAccountRouter(deps: AccountRouterDeps = {}): Router {
+export function createAccountRouter(deps: AccountRouterDeps): Router {
   const router = Router();
-  const sessions = deps.sessions ?? defaultSessionStore;
+  const { sessions } = deps;
   const accounts = deps.accounts ?? defaultAccountStore;
   const usage = deps.usage ?? defaultUsageStore;
   const reports = deps.reports ?? defaultReportStore;

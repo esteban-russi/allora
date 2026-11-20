@@ -243,6 +243,7 @@ describe('POST /api/account/consent', () => {
     app.use(
       '/api/account',
       createAccountRouter({
+        sessions: new InMemorySessionStore(),
         accounts: accountStore,
         now: () => clock
       })
