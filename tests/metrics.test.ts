@@ -1,6 +1,6 @@
 /** Tests for privacy-preserving operational metrics, percentiles, and cost telemetry. */
 import { describe, expect, it } from 'vitest';
-import { MetricsCollector } from '../src/server/metrics';
+import { MetricsCollector } from '../src/platform/server/metrics';
 
 describe('MetricsCollector', () => {
   it('calculates p50, p90, and p95 percentiles for TTFA latency', () => {

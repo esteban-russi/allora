@@ -1,43 +1,45 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { EMMANUELE, INITIAL_MESSAGES, INITIAL_SAVED_PHRASES, TUTORS, createInitialMessages } from './data/personas';
-import { ChatMessage, DevSettings, GrammarNote, LearnerProfile, Persona, SavedPhrase } from './types';
-import { ChatInterface } from './components/ChatInterface';
-import { VoiceCallModal } from './components/VoiceCallModal';
-import { DevSettingsDrawer } from './components/DevSettingsDrawer';
-import { SettingsDialog, isDevLabEnabled } from './components/SettingsDialog';
-import { PersonaProfileModal } from './components/PersonaProfileModal';
-import { IconRail } from './components/IconRail';
-import { TopHeader } from './components/TopHeader';
-import { UtilityPanel } from './components/UtilityPanel';
-import { OnboardingPage } from './components/OnboardingPage';
-import { SignInScreen } from './components/SignInScreen';
-import { MagicLinkEmailForm } from './components/MagicLinkEmailForm';
-import { AccountMenu } from './components/AccountMenu';
-import { ConsentDialog } from './components/ConsentDialog';
-import { LimitReachedCard } from './components/LimitReachedCard';
-import { isTutorLockedForTier } from './components/PremiumEndedNotice';
-import { PlansScreen } from './components/PlansScreen';
-import { TERMS_VERSION } from './data/legal';
-import type { Consent } from './server/accountStore';
-import { getBilling, setBilling } from './utils/billing';
-import { loadClientConfig } from './utils/clientConfig';
-import { createWebBilling } from './utils/billingWeb';
-import { useDialog } from './hooks/useDialog';
-import { useAccount } from './hooks/useAccount';
-import { speechService } from './utils/speech';
-import { setAccountDeletedHandler, setAppCheckFailedHandler } from './utils/apiClient';
-import { completeMagicLink, EMAIL_FOR_SIGN_IN_KEY, isMagicLink, signOutToGuest } from './utils/firebaseAuth';
-import { ACCOUNT_DELETED_NOTICE, APP_CHECK_FAILED_NOTICE, MERGE_FAILED_NOTICE, showNotice } from './utils/notice';
-import { loadLearnerSession, requestChatReply, saveLearnerSettings, startLearnerSession, toChatMessages, type ChatReplyErrorReason } from './utils/learnerSession';
-import type { QuotaError } from './utils/quotaError';
-import type { ClientLearnerSession } from './server/sessionStore';
+import { EMMANUELE, INITIAL_MESSAGES, INITIAL_SAVED_PHRASES, TUTORS, createInitialMessages } from './product/data/personas';
+import { ChatMessage, DevSettings, LearnerProfile, Persona, SavedPhrase } from './product/types';
+import { ChatInterface } from './product/components/ChatInterface';
+import { VoiceCallModal } from './product/components/VoiceCallModal';
+import { DevSettingsDrawer } from './product/components/DevSettingsDrawer';
+import { SettingsDialog, isDevLabEnabled } from './product/components/SettingsDialog';
+import { PersonaProfileModal } from './product/components/PersonaProfileModal';
+import { IconRail } from './product/components/IconRail';
+import { TopHeader } from './product/components/TopHeader';
+import { UtilityPanel } from './product/components/UtilityPanel';
+import { OnboardingPage } from './product/components/OnboardingPage';
+import { SignInScreen } from './platform/components/SignInScreen';
+import { MagicLinkEmailForm } from './platform/components/MagicLinkEmailForm';
+import { AccountMenu } from './platform/components/AccountMenu';
+import { ConsentDialog } from './platform/components/ConsentDialog';
+import { LimitReachedCard } from './platform/components/LimitReachedCard';
+import { isTutorLockedForTier } from './product/components/PremiumEndedNotice';
+import { PlansScreen } from './product/components/PlansScreen';
+import { TERMS_VERSION } from './config/legal';
+import type { Consent } from './platform/server/accountStore';
+import { getBilling } from './platform/client/billing';
+import { useDialog } from './platform/hooks/useDialog';
+import { useAccount } from './platform/hooks/useAccount';
+import { useConversationStats } from './product/hooks/useConversationStats';
+import { useLimitReached } from './platform/hooks/useLimitReached';
+import { useWebBilling } from './platform/hooks/useWebBilling';
+import { useTutorChat } from './product/hooks/useTutorChat';
+import { useScreenFlow, type SignInMode } from './product/hooks/useScreenFlow';
+import { speechService } from './product/client/speech';
+import { setAccountDeletedHandler, setAppCheckFailedHandler } from './platform/client/apiClient';
+import { completeMagicLink, EMAIL_FOR_SIGN_IN_KEY, isMagicLink, signOutToGuest } from './platform/client/firebaseAuth';
+import { ACCOUNT_DELETED_NOTICE, APP_CHECK_FAILED_NOTICE, MERGE_FAILED_NOTICE, showNotice } from './platform/client/notice';
+import { loadLearnerSession, saveLearnerSettings, startLearnerSession, toChatMessages } from './product/client/learnerSession';
+import type { ClientLearnerSession } from './product/server/sessionStore';
 
-const countWords = (text: string) => text.trim().split(/\s+/).filter(Boolean).length;
 const GRAMMAR_STRICTNESS: DevSettings['grammarStrictness'][] = ['conversational', 'tutor', 'strict'];
 
 export default function App() {
   const [learnerProfile, setLearnerProfile] = useState<LearnerProfile | null>(null);
-  const [screen, setScreen] = useState<'onboarding' | 'signin-after-onboarding' | 'signin-login' | 'plans' | 'app'>('onboarding');
+  const flow = useScreenFlow();
+  const { screen, setScreen } = flow;
   // True until the saved session (if any) has been loaded, so onboarding does not flash
   const [isRestoring, setIsRestoring] = useState<boolean>(true);
   // A sign-in link waiting for the learner to confirm which email it was sent to
@@ -46,29 +48,10 @@ export default function App() {
   const { me, refresh: refreshAccount, setUsage, setConsent } = useAccount();
   const hasCurrentConsent = me?.consent?.termsVersion === TERMS_VERSION;
   const needsConsent = Boolean(me && !hasCurrentConsent);
-  const [limitReached, setLimitReached] = useState<QuotaError | null>(null);
+  const [limitReached, setLimitReached] = useLimitReached(me?.tier);
   const [premiumEnded, setPremiumEnded] = useState<boolean>(false);
-  const [failedReply, setFailedReply] = useState<{ messageId: string; text: string; reason: ChatReplyErrorReason } | null>(null);
-  const [chatDraft, setChatDraft] = useState<string>('');
-  // Premium tutor tapped in onboarding before signing in / subscribing
-  const [pendingTutorId, setPendingTutorId] = useState<string | null>(null);
-  const [selectedOnboardingTutorId, setSelectedOnboardingTutorId] = useState<string | null>(null);
 
-  const emailRef = useRef<string | null>(null);
-  emailRef.current = me?.email ?? null;
-
-  useEffect(() => {
-    (async () => {
-      const { revenueCatWebKey } = await loadClientConfig();
-      if (revenueCatWebKey) {
-        setBilling(
-          createWebBilling(revenueCatWebKey, {
-            email: () => emailRef.current
-          })
-        );
-      }
-    })();
-  }, []);
+  useWebBilling(me?.email ?? null);
 
   const persona: Persona = useMemo(
     () => TUTORS.find((t) => t.id === learnerProfile?.personaId) ?? EMMANUELE,
@@ -76,9 +59,7 @@ export default function App() {
   );
   const learnerInitial = (learnerProfile?.name.trim().charAt(0) || 'E').toUpperCase();
 
-  const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
   const [savedPhrases, setSavedPhrases] = useState<SavedPhrase[]>(INITIAL_SAVED_PHRASES);
-  const [isAiGenerating, setIsAiGenerating] = useState<boolean>(false);
   const [isCallOpen, setIsCallOpen] = useState<boolean>(false);
 
   // Modals & drawers
@@ -106,100 +87,62 @@ export default function App() {
     autoPlayAudio: false,
   });
 
-  // Latest grammar tip from the tutor, featured in the notebook
-  const grammarHighlight = useMemo<GrammarNote | null>(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const notes = messages[i].grammarNotes;
-      if (messages[i].sender === 'persona' && notes && notes.length > 0) return notes[0];
-    }
-    return null;
-  }, [messages]);
+  const speakIfAutoPlay = (text: string) => {
+    if (!devSettings.autoPlayAudio) return;
+    speechService.speakSmart(text, {
+      provider: devSettings.voiceProvider,
+      voiceName: persona.voiceId,
+      gender: persona.voiceGender
+    });
+  };
 
-  // Share of words the learner produced in this conversation
-  const talkingShare = useMemo(() => {
-    let learner = 0;
-    let total = 0;
-    for (const m of messages) {
-      const words = countWords(m.text);
-      total += words;
-      if (m.sender === 'user') learner += words;
-    }
-    return total === 0 ? 0 : Math.round((learner / total) * 100);
-  }, [messages]);
+  const chat = useTutorChat({
+    initialMessages: INITIAL_MESSAGES,
+    persona,
+    learnerProfile,
+    temperature: devSettings.temperature,
+    grammarStrictness: devSettings.grammarStrictness,
+    onQuotaReached: setLimitReached,
+    onPremiumRequired: () => {
+      setPremiumEnded(true);
+      void refreshAccount();
+    },
+    onUsage: (used) => setUsage('chatMessages', used),
+    onReply: speakIfAutoPlay
+  });
+  const { messages } = chat;
+  const { grammarHighlight, talkingShare } = useConversationStats(messages);
+
 
   const applySession = (session: ClientLearnerSession) => {
     const tutor = TUTORS.find((t) => t.id === session.personaId) ?? EMMANUELE;
     const profile: LearnerProfile = { name: session.learnerName, level: session.learnerLevel, personaId: tutor.id };
     setLearnerProfile(profile);
-    setMessages([
+    chat.resetConversation([
       ...createInitialMessages(tutor, profile.name, profile.level),
       ...toChatMessages(session.checkpointTurns, tutor.id)
     ]);
-    setFailedReply(null);
     setSavedPhrases(session.progress.savedPhrases);
     if (GRAMMAR_STRICTNESS.includes(session.grammarStrictness as DevSettings['grammarStrictness'])) {
       setDevSettings((prev) => ({ ...prev, grammarStrictness: session.grammarStrictness as DevSettings['grammarStrictness'] }));
     }
   };
 
-  const handleSignedIn = async (mode: 'login' | 'after-onboarding') => {
+  const handleSignedIn = async (mode: SignInMode) => {
     const updatedMe = await refreshAccount();
     const session = await loadLearnerSession();
     if (session) {
       applySession(session);
     }
-    if (pendingTutorId) {
-      if (updatedMe?.tier === 'premium') {
-        setSelectedOnboardingTutorId(pendingTutorId);
-        setPendingTutorId(null);
-        setScreen('onboarding');
-      } else if (getBilling().isAvailable()) {
-        setScreen('plans');
-      } else {
-        setPendingTutorId(null);
-        setScreen('onboarding');
-      }
-      return;
+    const startSession = flow.afterSignIn({
+      mode,
+      hasSession: Boolean(session),
+      isPremium: updatedMe?.tier === 'premium',
+      billingAvailable: getBilling().isAvailable()
+    });
+    if (startSession && learnerProfile) {
+      void startLearnerSession({ profile: learnerProfile, grammarStrictness: devSettings.grammarStrictness, savedPhrases });
     }
-    if (session) {
-      if (mode === 'after-onboarding' && getBilling().isAvailable() && updatedMe?.tier !== 'premium') {
-        setScreen('plans');
-      } else {
-        setScreen('app');
-      }
-    } else if (mode === 'login') {
-      setScreen('onboarding');
-    } else {
-      if (learnerProfile) {
-        void startLearnerSession({ profile: learnerProfile, grammarStrictness: devSettings.grammarStrictness, savedPhrases });
-      }
-      if (getBilling().isAvailable() && updatedMe?.tier !== 'premium') {
-        setScreen('plans');
-      } else {
-        setScreen('app');
-      }
-    }
-  };
-
-  const handleSeePlansForTutor = (tutorId: string) => {
-    setPendingTutorId(tutorId);
-    if (!me || me.isAnonymous) {
-      setScreen('signin-login');
-    } else {
-      setScreen('plans');
-    }
-  };
-
-  const handlePlansDone = (purchased = false) => {
-    if (pendingTutorId) {
-      if (purchased || me?.tier === 'premium') {
-        setSelectedOnboardingTutorId(pendingTutorId);
-      }
-      setPendingTutorId(null);
-      setScreen('onboarding');
-      return;
-    }
-    setScreen('app');
   };
 
   // Start over as a new guest: blank profile, conversation and notebook, back to onboarding,
@@ -210,14 +153,12 @@ export default function App() {
     setIsNotebookDrawerOpen(false);
     setIsProfileModalOpen(false);
     setLearnerProfile(null);
-    setMessages(INITIAL_MESSAGES);
+    chat.resetConversation(INITIAL_MESSAGES);
+    chat.setDraft('');
     setSavedPhrases(INITIAL_SAVED_PHRASES);
     setLimitReached(null);
     setPremiumEnded(false);
-    setFailedReply(null);
-    setChatDraft('');
-    setPendingTutorId(null);
-    setSelectedOnboardingTutorId(null);
+    flow.clearTutorSelection();
     void refreshAccount();
     setScreen('onboarding');
   };
@@ -311,25 +252,6 @@ export default function App() {
     };
   }, []);
 
-  // Clear quota limit card when tier changes or reset time elapses
-  useEffect(() => {
-    if (!limitReached) return;
-    if (me && limitReached.tier !== me.tier) {
-      setLimitReached(null);
-      return;
-    }
-    const resetMs = Date.parse(limitReached.resetsAt);
-    if (!isNaN(resetMs)) {
-      const remaining = resetMs - Date.now();
-      if (remaining <= 0) {
-        setLimitReached(null);
-      } else {
-        const timer = setTimeout(() => setLimitReached(null), remaining);
-        return () => clearTimeout(timer);
-      }
-    }
-  }, [limitReached, me?.tier]);
-
   // Show the Premium-ended notice on load if the active tutor is premium while the user is not,
   // and clear it once the learner re-subscribes or switches to a free tutor.
   useEffect(() => {
@@ -348,25 +270,14 @@ export default function App() {
     }
   };
 
-  const speakIfAutoPlay = (text: string) => {
-    if (!devSettings.autoPlayAudio) return;
-    speechService.speakSmart(text, {
-      provider: devSettings.voiceProvider,
-      voiceName: persona.voiceId,
-      gender: persona.voiceGender
-    });
-  };
-
   const handleCompleteOnboarding = (profile: LearnerProfile, consent?: Consent) => {
     const selectedTutor = TUTORS.find((t) => t.id === profile.personaId) ?? EMMANUELE;
     // Only a guest's first onboarding offers sign-in; a profile edit goes back to the chat
     const isFirstOnboarding = learnerProfile === null;
     if (consent) setConsent(consent);
     setLearnerProfile(profile);
-    setPendingTutorId(null);
-    setSelectedOnboardingTutorId(null);
-    setMessages(createInitialMessages(selectedTutor, profile.name, profile.level));
-    setFailedReply(null);
+    flow.clearTutorSelection();
+    chat.resetConversation(createInitialMessages(selectedTutor, profile.name, profile.level));
     // A new profile starts a new conversation; the notebook carries over
     void startLearnerSession({ profile, grammarStrictness: devSettings.grammarStrictness, savedPhrases });
     if (me?.isAnonymous && isFirstOnboarding) {
@@ -374,88 +285,6 @@ export default function App() {
     } else {
       setScreen('app');
     }
-  };
-
-  const requestTutorReply = async (text: string, messageId: string, history: ChatMessage[]) => {
-    setIsAiGenerating(true);
-
-    const result = await requestChatReply({
-      personaId: persona.id,
-      history,
-      userMessage: text,
-      temperature: devSettings.temperature,
-      grammarStrictness: devSettings.grammarStrictness,
-      learnerLevel: learnerProfile?.level ?? 'A2',
-      learnerName: learnerProfile?.name
-    });
-
-    if (result.status === 'quota') {
-      setMessages((prev) => prev.filter((m) => m.id !== messageId));
-      setFailedReply(null);
-      setChatDraft(text);
-      setLimitReached(result.quota);
-      setIsAiGenerating(false);
-      return;
-    }
-
-    if (result.status === 'premium_required') {
-      setMessages((prev) => prev.filter((m) => m.id !== messageId));
-      setFailedReply(null);
-      setChatDraft(text);
-      setPremiumEnded(true);
-      setIsAiGenerating(false);
-      void refreshAccount();
-      return;
-    }
-
-    if (result.status === 'ok') {
-      if (result.quotaUsed !== undefined) {
-        setUsage('chatMessages', result.quotaUsed);
-      }
-      const aiMessage: ChatMessage = {
-        id: `b-${Date.now()}`,
-        sender: 'persona',
-        personaId: persona.id,
-        text: result.text,
-        translation: result.translation,
-        grammarNotes: result.grammarNotes,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      };
-      setMessages((prev) => [...prev, aiMessage]);
-      setFailedReply(null);
-      speakIfAutoPlay(aiMessage.text);
-      setIsAiGenerating(false);
-      return;
-    }
-
-    setFailedReply({ messageId, text, reason: result.reason });
-    setIsAiGenerating(false);
-  };
-
-  // Handle student sending message in chat with real server Gemini API integration
-  const handleSendMessage = async (text: string) => {
-    const userMsg: ChatMessage = {
-      id: `u-${Date.now()}`,
-      sender: 'user',
-      personaId: persona.id,
-      text,
-      translation: '',
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    };
-
-    const history = messages.slice(-6);
-    setFailedReply(null);
-    setMessages((prev) => [...prev, userMsg]);
-    await requestTutorReply(text, userMsg.id, history);
-  };
-
-  const handleRetryReply = async () => {
-    if (!failedReply || isAiGenerating) return;
-    const { messageId, text } = failedReply;
-    const msgIndex = messages.findIndex((m) => m.id === messageId);
-    const history = (msgIndex === -1 ? messages : messages.slice(0, msgIndex)).slice(-6);
-    setFailedReply(null);
-    await requestTutorReply(text, messageId, history);
   };
 
   const handleSavePhrase = (message: ChatMessage) => {
@@ -483,9 +312,8 @@ export default function App() {
     };
     setPremiumEnded(false);
     setLimitReached(null);
-    setFailedReply(null);
     setLearnerProfile(nextProfile);
-    setMessages(createInitialMessages(EMMANUELE, nextProfile.name, nextProfile.level));
+    chat.resetConversation(createInitialMessages(EMMANUELE, nextProfile.name, nextProfile.level));
     setDevSettings((prev) => ({ ...prev, voiceId: EMMANUELE.voiceId }));
     void startLearnerSession({
       profile: nextProfile,
@@ -565,10 +393,7 @@ export default function App() {
       <SignInScreen
         mode="login"
         onSignedIn={() => handleSignedIn('login')}
-        onSkip={() => {
-          setPendingTutorId(null);
-          setScreen('onboarding');
-        }}
+        onSkip={flow.cancelSignIn}
       />
     );
   }
@@ -577,7 +402,7 @@ export default function App() {
     return (
       <PlansScreen
         me={me}
-        onDone={handlePlansDone}
+        onDone={(purchased = false) => flow.afterPlans(purchased, me?.tier === 'premium')}
         onNeedSignIn={() => setScreen('signin-login')}
         refreshAccount={refreshAccount}
       />
@@ -588,11 +413,11 @@ export default function App() {
     return (
       <OnboardingPage
         initialProfile={learnerProfile}
-        initialTutorId={selectedOnboardingTutorId ?? undefined}
+        initialTutorId={flow.selectedTutorId ?? undefined}
         initialConsentAccepted={hasCurrentConsent}
         tier={me?.tier ?? 'guest'}
         canUpgrade={getBilling().isAvailable()}
-        onSeePlans={handleSeePlansForTutor}
+        onSeePlans={(tutorId) => flow.seePlansForTutor(tutorId, !me || me.isAnonymous)}
         onComplete={handleCompleteOnboarding}
         onLogin={me?.isAnonymous ? () => setScreen('signin-login') : undefined}
       />
@@ -635,13 +460,13 @@ export default function App() {
               messages={messages}
               devSettings={devSettings}
               savedPhraseIds={savedPhrases.map(p => p.id)}
-              onSendMessage={handleSendMessage}
+              onSendMessage={chat.sendMessage}
               onSavePhrase={handleSavePhrase}
-              isAiGenerating={isAiGenerating}
-              draft={chatDraft}
-              onDraftChange={setChatDraft}
-              failedReply={failedReply}
-              onRetryReply={handleRetryReply}
+              isAiGenerating={chat.isAiGenerating}
+              draft={chat.draft}
+              onDraftChange={chat.setDraft}
+              failedReply={chat.failedReply}
+              onRetryReply={chat.retryReply}
               limitReached={limitReached}
               premiumEnded={premiumEnded}
               tier={me?.tier ?? 'guest'}

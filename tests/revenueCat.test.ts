@@ -1,6 +1,6 @@
 /** Tests for RevenueCat REST client and subscription mapping. */
 import { describe, expect, it, vi } from 'vitest';
-import { createRevenueCatClient, toSubscription } from '../src/server/revenueCat';
+import { createRevenueCatClient, toSubscription } from '../src/platform/server/revenueCat';
 
 describe('toSubscription', () => {
   const nowMs = Date.parse('2026-11-19T12:00:00.000Z');

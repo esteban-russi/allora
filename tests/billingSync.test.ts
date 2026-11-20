@@ -1,8 +1,8 @@
 /** Tests for syncSubscription handler. */
 import { describe, expect, it, vi } from 'vitest';
-import { syncSubscription } from '../src/server/billingSync';
-import { InMemoryAccountStore } from '../src/server/accountStore';
-import type { RevenueCatClient } from '../src/server/revenueCat';
+import { syncSubscription } from '../src/platform/server/billingSync';
+import { InMemoryAccountStore } from '../src/platform/server/accountStore';
+import type { RevenueCatClient } from '../src/platform/server/revenueCat';
 
 describe('syncSubscription', () => {
   const nowMs = Date.parse('2026-11-19T12:00:00.000Z');

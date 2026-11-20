@@ -2,10 +2,10 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ChatInterface } from '../src/components/ChatInterface';
-import { ReportDialog, submitReport } from '../src/components/ReportDialog';
-import { EMMANUELE } from '../src/data/personas';
-import type { ChatMessage, DevSettings } from '../src/types';
+import { ChatInterface } from '../src/product/components/ChatInterface';
+import { ReportDialog, submitReport } from '../src/product/components/ReportDialog';
+import { EMMANUELE } from '../src/product/data/personas';
+import type { ChatMessage, DevSettings } from '../src/product/types';
 
 afterEach(() => {
   vi.restoreAllMocks();

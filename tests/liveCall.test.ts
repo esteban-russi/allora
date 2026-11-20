@@ -1,13 +1,13 @@
 /** Tests for the LiveCall client: reconnects, heartbeat, and capture setup. */
 import type { FirebaseApp } from 'firebase/app';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { setAuthTokenProvider } from '../src/utils/apiClient';
+import { setAuthTokenProvider } from '../src/platform/client/apiClient';
 import {
   initAppCheck,
   resetAppCheckForTesting,
   setNativeAppCheckProvider
-} from '../src/utils/appCheck';
-import { isVoiced, LiveCall, type LiveCallHandlers } from '../src/utils/liveCall';
+} from '../src/platform/client/appCheck';
+import { isVoiced, LiveCall, type LiveCallHandlers } from '../src/product/client/liveCall';
 import { FakeSocket, FakeWorkletNode, installFakeBrowser } from './helpers/fakeBrowser';
 
 function handlers(overrides: Partial<LiveCallHandlers> = {}): LiveCallHandlers {

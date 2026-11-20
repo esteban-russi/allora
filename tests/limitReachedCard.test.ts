@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { LimitReachedCard } from '../src/components/LimitReachedCard';
-import type { QuotaError } from '../src/utils/quotaError';
+import { LimitReachedCard } from '../src/platform/components/LimitReachedCard';
+import type { QuotaError } from '../src/platform/client/quotaError';
 
 describe('LimitReachedCard', () => {
   const chatQuota: QuotaError = {

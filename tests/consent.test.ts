@@ -2,11 +2,11 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ConsentDialog } from '../src/components/ConsentDialog';
-import { OnboardingPage } from '../src/components/OnboardingPage';
-import { TERMS_VERSION } from '../src/data/legal';
-import { legalUrl } from '../src/utils/legalUrl';
-import { parseMeResponse, submitConsent } from '../src/utils/me';
+import { ConsentDialog } from '../src/platform/components/ConsentDialog';
+import { OnboardingPage } from '../src/product/components/OnboardingPage';
+import { TERMS_VERSION } from '../src/config/legal';
+import { legalUrl } from '../src/platform/client/legalUrl';
+import { parseMeResponse, submitConsent } from '../src/platform/client/me';
 
 afterEach(() => {
   vi.restoreAllMocks();

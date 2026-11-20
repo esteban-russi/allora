@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   getPrivacyPolicyConfig,
   isAiStudioFallbackPermitted
-} from '../src/server/privacyAndPolicy';
+} from '../src/platform/server/privacyAndPolicy';
 
 describe('Data Privacy and AI Studio Terms Policy', () => {
   const originalGcpProject = process.env.GCP_PROJECT;

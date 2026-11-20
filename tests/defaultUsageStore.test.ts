@@ -1,8 +1,8 @@
 /** Tests for choosing the usage store from the environment. */
 import { describe, expect, it } from 'vitest';
-import { createUsageStore } from '../src/server/defaultUsageStore';
-import { FirestoreUsageStore } from '../src/server/firestoreUsageStore';
-import { InMemoryUsageStore } from '../src/server/usageStore';
+import { createUsageStore } from '../src/platform/server/defaultUsageStore';
+import { FirestoreUsageStore } from '../src/platform/server/firestoreUsageStore';
+import { InMemoryUsageStore } from '../src/platform/server/usageStore';
 
 describe('createUsageStore', () => {
   it.each([{}, { SESSION_STORE: '' }, { SESSION_STORE: 'memory' }])('uses memory for %j', (env) => {

@@ -4,10 +4,12 @@ import '@fontsource-variable/inter';
 import '@fontsource/jetbrains-mono/400.css';
 import '@fontsource/jetbrains-mono/500.css';
 import App from './App.tsx';
-import { NoticeToast } from './components/NoticeToast';
+import { NoticeToast } from './platform/components/NoticeToast';
 import './index.css';
-import { startAnonymousAuth } from './utils/firebaseAuth';
+import { setSignOutCleanup, startAnonymousAuth } from './platform/client/firebaseAuth';
+import { rememberLearnerSessionId } from './product/client/learnerSession';
 
+setSignOutCleanup(() => rememberLearnerSessionId(null));
 void startAnonymousAuth();
 
 createRoot(document.getElementById('root')!).render(

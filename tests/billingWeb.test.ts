@@ -1,7 +1,7 @@
 /** Tests for RevenueCat Web Billing implementation. */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { createWebBilling } from '../src/utils/billingWeb';
-import * as apiModule from '../src/utils/apiClient';
+import { createWebBilling } from '../src/platform/client/billingWeb';
+import * as apiModule from '../src/platform/client/apiClient';
 
 describe('createWebBilling', () => {
   // Shaped like the SDK's Offerings type: `availablePackages`, `product.price`, `product.freeTrialPhase`

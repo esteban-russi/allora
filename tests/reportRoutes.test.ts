@@ -3,9 +3,9 @@ import express from 'express';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { app as serverApp } from '../server';
-import { authenticateHttpUser } from '../src/server/auth';
-import { createReportRouter } from '../src/server/reportRoutes';
-import { InMemoryReportStore } from '../src/server/reportStore';
+import { authenticateHttpUser } from '../src/platform/server/auth';
+import { createReportRouter } from '../src/platform/server/reportRoutes';
+import { InMemoryReportStore } from '../src/platform/server/reportStore';
 
 describe('POST /api/report', () => {
   let reportStore: InMemoryReportStore;

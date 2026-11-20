@@ -2,8 +2,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { DevSettingsDrawer } from '../src/components/DevSettingsDrawer';
-import type { DevSettings } from '../src/types';
+import { DevSettingsDrawer } from '../src/product/components/DevSettingsDrawer';
+import type { DevSettings } from '../src/product/types';
 
 describe('DevSettingsDrawer', () => {
   const settings: DevSettings = {

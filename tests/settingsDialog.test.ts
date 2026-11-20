@@ -6,9 +6,9 @@ import {
   DEV_LAB_STORAGE_KEY,
   SettingsDialog,
   isDevLabEnabled,
-} from '../src/components/SettingsDialog';
-import { IconRail } from '../src/components/IconRail';
-import type { DevSettings } from '../src/types';
+} from '../src/product/components/SettingsDialog';
+import { IconRail } from '../src/product/components/IconRail';
+import type { DevSettings } from '../src/product/types';
 
 const baseSettings: DevSettings = {
   voiceProvider: 'gemini_live',

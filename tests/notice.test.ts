@@ -1,6 +1,6 @@
 /** Tests for the client notice channel. */
 import { describe, expect, it, vi } from 'vitest';
-import { showNotice, subscribeToNotices } from '../src/utils/notice';
+import { showNotice, subscribeToNotices } from '../src/platform/client/notice';
 
 describe('notices', () => {
   it('delivers a notice to every subscriber', () => {

@@ -6,7 +6,7 @@ import {
   initAppCheck,
   resetAppCheckForTesting,
   setNativeAppCheckProvider
-} from '../src/utils/appCheck';
+} from '../src/platform/client/appCheck';
 
 const mockProviderInstances: Array<{ siteKey: string }> = [];
 const mockInitializeAppCheck = vi.fn();

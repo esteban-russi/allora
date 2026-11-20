@@ -2,14 +2,14 @@
 import express from 'express';
 import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createAccountRouter } from '../src/server/accountRoutes';
-import { InMemorySessionStore, initializeLearnerSession } from '../src/server/sessionStore';
-import { InMemoryAccountStore } from '../src/server/accountStore';
-import { InMemoryUsageStore, usageDay } from '../src/server/usageStore';
-import { InMemoryReportStore } from '../src/server/reportStore';
-import { authenticateHttpUser, verifyIdToken } from '../src/server/auth';
-import { attachAccount, invalidateAccountCache } from '../src/server/accountMiddleware';
-import type { IdentityAdmin } from '../src/server/identityAdmin';
+import { createAccountRouter } from '../src/platform/server/accountRoutes';
+import { InMemorySessionStore, initializeLearnerSession } from '../src/product/server/sessionStore';
+import { InMemoryAccountStore } from '../src/platform/server/accountStore';
+import { InMemoryUsageStore, usageDay } from '../src/platform/server/usageStore';
+import { InMemoryReportStore } from '../src/platform/server/reportStore';
+import { authenticateHttpUser, verifyIdToken } from '../src/platform/server/auth';
+import { attachAccount, invalidateAccountCache } from '../src/platform/server/accountMiddleware';
+import type { IdentityAdmin } from '../src/platform/server/identityAdmin';
 
 describe('POST /api/account/merge', () => {
   let sessionStore: InMemorySessionStore;
@@ -243,6 +243,7 @@ describe('POST /api/account/consent', () => {
     app.use(
       '/api/account',
       createAccountRouter({
+        sessions: new InMemorySessionStore(),
         accounts: accountStore,
         now: () => clock
       })

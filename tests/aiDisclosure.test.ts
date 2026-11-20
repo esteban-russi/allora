@@ -2,9 +2,9 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { OnboardingPage } from '../src/components/OnboardingPage';
-import { PersonaProfileModal } from '../src/components/PersonaProfileModal';
-import { EMMANUELE } from '../src/data/personas';
+import { OnboardingPage } from '../src/product/components/OnboardingPage';
+import { PersonaProfileModal } from '../src/product/components/PersonaProfileModal';
+import { EMMANUELE } from '../src/product/data/personas';
 
 describe('AI disclosure', () => {
   it('shows the AI tutor tag and disclosure sentence for the selected tutor in OnboardingPage', () => {

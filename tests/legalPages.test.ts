@@ -2,8 +2,8 @@
 import fs from 'fs';
 import path from 'path';
 import { describe, expect, it } from 'vitest';
-import { BRAND } from '../src/data/brand';
-import { legalUrl, type LegalPage } from '../src/utils/legalUrl';
+import { BRAND } from '../src/config/brand';
+import { legalUrl, type LegalPage } from '../src/platform/client/legalUrl';
 
 const publicDir = path.resolve(__dirname, '..', 'public');
 const LEGAL_PAGES: LegalPage[] = ['privacy', 'terms', 'delete-account'];

@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { PlansScreen } from '../src/components/PlansScreen';
-import { EMMANUELE } from '../src/data/personas';
-import type { Persona } from '../src/types';
-import { setBilling, type Billing, type PlanOffer } from '../src/utils/billing';
-import type { Me } from '../src/utils/me';
+import { PlansScreen } from '../src/product/components/PlansScreen';
+import { EMMANUELE } from '../src/product/data/personas';
+import type { Persona } from '../src/product/types';
+import { setBilling, type Billing, type PlanOffer } from '../src/platform/client/billing';
+import type { Me } from '../src/platform/client/me';
 
 describe('PlansScreen', () => {
   const dummyOffers: PlanOffer[] = [

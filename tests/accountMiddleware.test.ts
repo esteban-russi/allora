@@ -5,9 +5,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   attachAccount,
   invalidateAccountCache
-} from '../src/server/accountMiddleware';
-import { InMemoryAccountStore, type AccountStore } from '../src/server/accountStore';
-import type { IdentityAdmin } from '../src/server/identityAdmin';
+} from '../src/platform/server/accountMiddleware';
+import { InMemoryAccountStore, type AccountStore } from '../src/platform/server/accountStore';
+import type { IdentityAdmin } from '../src/platform/server/identityAdmin';
 
 describe('accountMiddleware', () => {
   let clock = Date.parse('2026-11-18T10:00:00.000Z');

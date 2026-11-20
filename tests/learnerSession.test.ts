@@ -9,7 +9,7 @@ import {
   startLearnerSession,
   toChatMessages,
   type LearnerSettings
-} from '../src/utils/learnerSession';
+} from '../src/product/client/learnerSession';
 
 const chat = { personaId: 'emmanuele', userMessage: 'Ciao', learnerLevel: 'A2' };
 

@@ -2,8 +2,8 @@
 import express from 'express';
 import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { quotasMode, requireQuota } from '../src/server/quota';
-import { InMemoryUsageStore } from '../src/server/usageStore';
+import { quotasMode, requireQuota } from '../src/platform/server/quota';
+import { InMemoryUsageStore } from '../src/platform/server/usageStore';
 
 describe('quotasMode', () => {
   it('defaults to off when unset', () => {

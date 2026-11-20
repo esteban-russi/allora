@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createIdentityAdmin } from '../src/server/identityAdmin';
+import { createIdentityAdmin } from '../src/platform/server/identityAdmin';
 
 vi.mock('firebase-admin/app', () => ({
   getApps: vi.fn(() => []),

@@ -6,8 +6,8 @@ import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
 
-vi.mock('../src/data/personaPrompts', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../src/data/personaPrompts')>();
+vi.mock('../src/product/data/personaPrompts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/product/data/personaPrompts')>();
   const testPremiumId = 'test-premium';
   const testPremiumIds: readonly string[] = [testPremiumId];
   return {
@@ -26,14 +26,15 @@ vi.mock('../src/data/personaPrompts', async (importOriginal) => {
   };
 });
 
-import { app, primaryAi } from '../server';
-import { invalidateAccountCache } from '../src/server/accountMiddleware';
-import { InMemoryAccountStore, type Subscription } from '../src/server/accountStore';
-import { defaultAccountStore } from '../src/server/defaultAccountStore';
-import { defaultUsageStore } from '../src/server/defaultUsageStore';
-import { canUsePersona, PREMIUM_REQUIRED_BODY, requirePersonaAccess } from '../src/server/personaAccess';
-import { requireQuota } from '../src/server/quota';
-import { InMemoryUsageStore, usageDay } from '../src/server/usageStore';
+import { app } from '../server';
+import { primaryAi } from '../src/platform/server/genAi';
+import { invalidateAccountCache } from '../src/platform/server/accountMiddleware';
+import { InMemoryAccountStore, type Subscription } from '../src/platform/server/accountStore';
+import { defaultAccountStore } from '../src/platform/server/defaultAccountStore';
+import { defaultUsageStore } from '../src/platform/server/defaultUsageStore';
+import { canUsePersona, PREMIUM_REQUIRED_BODY, requirePersonaAccess } from '../src/product/server/personaAccess';
+import { requireQuota } from '../src/platform/server/quota';
+import { InMemoryUsageStore, usageDay } from '../src/platform/server/usageStore';
 import { fakeGemini, openCall, startBridgeServer, type TestCall } from './helpers/fakeGemini';
 
 const TEST_PREMIUM_ID = 'test-premium';

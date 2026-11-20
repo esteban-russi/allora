@@ -4,13 +4,13 @@ import path from 'path';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { ChatInterface } from '../src/components/ChatInterface';
-import { UtilityPanel } from '../src/components/UtilityPanel';
-import { OnboardingPage } from '../src/components/OnboardingPage';
-import { SignInScreen } from '../src/components/SignInScreen';
-import { PersonaProfileModal } from '../src/components/PersonaProfileModal';
-import { EMMANUELE, INITIAL_MESSAGES } from '../src/data/personas';
-import type { DevSettings } from '../src/types';
+import { ChatInterface } from '../src/product/components/ChatInterface';
+import { UtilityPanel } from '../src/product/components/UtilityPanel';
+import { OnboardingPage } from '../src/product/components/OnboardingPage';
+import { SignInScreen } from '../src/platform/components/SignInScreen';
+import { PersonaProfileModal } from '../src/product/components/PersonaProfileModal';
+import { EMMANUELE, INITIAL_MESSAGES } from '../src/product/data/personas';
+import type { DevSettings } from '../src/product/types';
 
 const rootDir = path.resolve(__dirname, '..');
 

@@ -5,7 +5,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import {
   FirestoreUsageStore,
   USAGE_COLLECTION
-} from '../src/server/firestoreUsageStore';
+} from '../src/platform/server/firestoreUsageStore';
 import { runUsageStoreContract } from './helpers/usageStoreContract';
 
 describe('USAGE_COLLECTION', () => {

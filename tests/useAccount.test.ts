@@ -2,10 +2,10 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import * as meModule from '../src/utils/me';
-import * as apiModule from '../src/utils/apiClient';
-import { useAccount } from '../src/hooks/useAccount';
-import type { Me } from '../src/utils/me';
+import * as meModule from '../src/platform/client/me';
+import * as apiModule from '../src/platform/client/apiClient';
+import { useAccount } from '../src/platform/hooks/useAccount';
+import type { Me } from '../src/platform/client/me';
 
 // Simple harness component to test useAccount hook output
 function AccountHarness({ onRender }: { onRender: (result: ReturnType<typeof useAccount>) => void }) {

@@ -1,6 +1,6 @@
 /** Behaviour every AccountStore must have, run against each implementation. */
 import { describe, expect, it } from 'vitest';
-import type { AccountStore, Consent, Subscription } from '../../src/server/accountStore';
+import type { AccountStore, Consent, Subscription } from '../../src/platform/server/accountStore';
 
 export type AccountStoreFactory = (options: { now: () => number }) => AccountStore;
 

@@ -10,8 +10,8 @@ import {
   requireAppCheck,
   type AppCheckMode,
   type AppCheckVerifier
-} from '../src/server/appCheck';
-import { MetricsCollector } from '../src/server/metrics';
+} from '../src/platform/server/appCheck';
+import { MetricsCollector } from '../src/platform/server/metrics';
 
 const mockGetApps = vi.fn(() => [] as unknown[]);
 const mockInitializeApp = vi.fn((_options?: unknown) => ({ name: '[DEFAULT]' }));

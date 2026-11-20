@@ -5,7 +5,7 @@ import {
   unavailableBilling,
   type Billing,
   type PlanOffer
-} from '../src/utils/billing';
+} from '../src/platform/client/billing';
 
 describe('billing interface', () => {
   beforeEach(() => {

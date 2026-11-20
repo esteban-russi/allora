@@ -1,6 +1,6 @@
 /** Tests for anonymous and federated Firebase sign-in on the client. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getAuthToken, setAuthTokenProvider } from '../src/utils/apiClient';
+import { getAuthToken, setAuthTokenProvider } from '../src/platform/client/apiClient';
 import {
   completeMagicLink,
   EMAIL_FOR_SIGN_IN_KEY,
@@ -10,11 +10,12 @@ import {
   setAuthInstanceForTesting,
   signInAndMerge,
   signInWithGoogle,
+  setSignOutCleanup,
   signOutToGuest,
   startAnonymousAuth,
   type FirebaseClientConfig
-} from '../src/utils/firebaseAuth';
-import { getLearnerSessionId, rememberLearnerSessionId } from '../src/utils/learnerSession';
+} from '../src/platform/client/firebaseAuth';
+import { getLearnerSessionId, rememberLearnerSessionId } from '../src/product/client/learnerSession';
 
 const CONFIG: FirebaseClientConfig = {
   apiKey: 'api-key',
@@ -363,7 +364,8 @@ describe('isMagicLink and completeMagicLink', () => {
 });
 
 describe('signOutToGuest', () => {
-  it('signs out, clears stored session ID, and signs in anonymously', async () => {
+  it('signs out, runs the sign-out cleanup, and signs in anonymously', async () => {
+    setSignOutCleanup(() => rememberLearnerSessionId(null));
     rememberLearnerSessionId('sess_123');
     expect(getLearnerSessionId()).toBe('sess_123');
 
@@ -380,6 +382,7 @@ describe('signOutToGuest', () => {
     expect(signOut).toHaveBeenCalledWith(fakeAuth);
     expect(getLearnerSessionId()).toBeNull();
     expect(signInAnonymously).toHaveBeenCalledWith(fakeAuth);
+    setSignOutCleanup(null);
   });
 });
 

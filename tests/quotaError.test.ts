@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readQuotaError, formatResetTime } from '../src/utils/quotaError';
+import { readQuotaError, formatResetTime } from '../src/platform/client/quotaError';
 
 describe('readQuotaError', () => {
   it('returns null for non-429 responses and preserves original body', async () => {

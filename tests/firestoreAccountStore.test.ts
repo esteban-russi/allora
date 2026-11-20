@@ -5,7 +5,7 @@ import { afterAll, describe, expect, it, vi } from 'vitest';
 import {
   FirestoreAccountStore,
   fromAccountDocument
-} from '../src/server/firestoreAccountStore';
+} from '../src/platform/server/firestoreAccountStore';
 import { runAccountStoreContract } from './helpers/accountStoreContract';
 
 describe('fromAccountDocument', () => {

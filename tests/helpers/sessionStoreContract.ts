@@ -5,7 +5,7 @@ import {
   SessionOwnershipError,
   type ConversationTurn,
   type SessionStore
-} from '../../src/server/sessionStore';
+} from '../../src/product/server/sessionStore';
 
 /** Builds a fresh, empty store whose clock is `now` and whose retention is `retentionMs`. */
 export type SessionStoreFactory = (options: { retentionMs: number; now: () => number }) => SessionStore;

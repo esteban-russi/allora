@@ -1,8 +1,8 @@
 /** Tests for premium persona markers in personaPrompts and personas. */
 import { describe, expect, it } from 'vitest';
-import { isPremiumPersona, PREMIUM_PERSONA_IDS } from '../src/data/personaPrompts';
-import { EMMANUELE, TUTORS } from '../src/data/personas';
-import type { Persona } from '../src/types';
+import { isPremiumPersona, PREMIUM_PERSONA_IDS } from '../src/product/data/personaPrompts';
+import { EMMANUELE, TUTORS } from '../src/product/data/personas';
+import type { Persona } from '../src/product/types';
 
 describe('PREMIUM_PERSONA_IDS and isPremiumPersona', () => {
   it('starts empty before owner-supplied premium tutors are added', () => {
