@@ -12,7 +12,9 @@ GITHUB_REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
 POOL="github"
 PROVIDER="github-actions"
 DEPLOY_SA="github-deployer@${PROJECT_ID}.iam.gserviceaccount.com"
-RUNTIME_SA="${SERVICE}-runtime@${PROJECT_ID}.iam.gserviceaccount.com"
+# Fixed name: service accounts cannot be renamed, and the live one predates the Allora rename
+RUNTIME_SA_NAME="parliamo-italiano-runtime"
+RUNTIME_SA="${RUNTIME_SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 
 export CLOUDSDK_CORE_PROJECT="$PROJECT_ID" # scoped to this run, gcloud config untouched
 PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
@@ -32,7 +34,7 @@ create gcloud artifacts repositories create "$REPO" \
 echo "Creating service accounts..."
 create gcloud iam service-accounts create github-deployer \
   --display-name="GitHub Actions deployer"
-create gcloud iam service-accounts create "${SERVICE}-runtime" \
+create gcloud iam service-accounts create "$RUNTIME_SA_NAME" \
   --display-name="${SERVICE} Cloud Run runtime"
 
 echo "Granting roles..."
