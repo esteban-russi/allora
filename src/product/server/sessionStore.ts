@@ -1,6 +1,8 @@
 /** Persistent learner sessions, conversation checkpoints, and retention/deletion lifecycle. */
 import { randomUUID } from 'crypto';
 import type { CefrLevel } from '../types';
+import { getTopicById } from '../data/topics';
+import { getTutorGreeting } from '../data/personaGreetings';
 
 export const DEFAULT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000; // 30-day inactivity retention
 
@@ -40,6 +42,8 @@ export interface LearnerSession {
   learnerName: string;
   learnerLevel: CefrLevel;
   grammarStrictness: string;
+  topic?: string;
+  title?: string;
   progress: LearnerProgress;
   checkpointTurns: ConversationTurn[];
   upstreamResumptionHandle: string | null;
@@ -49,6 +53,17 @@ export interface LearnerSession {
   expiresAt: string;
 }
 
+export interface SessionSummary {
+  sessionId: string;
+  personaId: string;
+  topic: string;
+  title: string;
+  lastLinePreview: string;
+  lastLineSender: 'user' | 'persona' | null;
+  turnCount: number;
+  updatedAt: string;
+}
+
 export interface CreateSessionOptions {
   userId: string;
   personaId?: string;
@@ -56,6 +71,9 @@ export interface CreateSessionOptions {
   learnerLevel?: CefrLevel;
   grammarStrictness?: string;
   retentionMs?: number;
+  topic?: string;
+  title?: string;
+  savedPhrases?: LearnerProgress['savedPhrases'];
 }
 
 function isBoundedString(value: unknown, maxLength: number): value is string {
@@ -178,10 +196,13 @@ export interface SessionSettings {
 export interface SessionStore {
   getSession(sessionId: string, userId: string): Promise<LearnerSession | null>;
   getActiveUserSession(userId: string): Promise<LearnerSession | null>;
+  listUserSessions(userId: string, limit?: number): Promise<SessionSummary[]>;
   createOrUpdateSession(session: LearnerSession): Promise<LearnerSession>;
   saveTurnCheckpoint(sessionId: string, userId: string, turn: ConversationTurn): Promise<LearnerSession | null>;
   updateSessionSettings(sessionId: string, userId: string, settings: SessionSettings): Promise<LearnerSession | null>;
   updateUpstreamHandle(sessionId: string, userId: string, handle: string | null, model?: string): Promise<void>;
+  getUserPhrases(userId: string): Promise<LearnerProgress['savedPhrases']>;
+  saveUserPhrases(userId: string, phrases: LearnerProgress['savedPhrases']): Promise<void>;
   deleteSession(sessionId: string, userId: string): Promise<boolean>;
   deleteAllUserData(userId: string): Promise<number>;
   transferUserSessions(fromUserId: string, toUserId: string): Promise<'moved' | 'discarded' | 'none'>;
@@ -189,6 +210,34 @@ export interface SessionStore {
 }
 
 const MAX_CHECKPOINT_TURNS = 50;
+
+/**
+ * Compute the display title for a conversation:
+ * - Topic label if not free_chat
+ * - First learner message (truncated) for free chat
+ * - 'Free chat' if no learner message yet
+ *
+ * Args:
+ *   session: Partial session with topic, title and turns.
+ *
+ * Returns:
+ *   Friendly conversation title string.
+ */
+export function computeConversationTitle(
+  session: Pick<LearnerSession, 'topic' | 'title' | 'checkpointTurns'>
+): string {
+  if (session.topic && session.topic !== 'free_chat') {
+    const topic = getTopicById(session.topic);
+    if (topic) return topic.label;
+  }
+  const firstUserTurn = session.checkpointTurns.find((t) => t.sender === 'user');
+  if (firstUserTurn) {
+    const text = firstUserTurn.text.trim();
+    return text.length > 35 ? text.slice(0, 32) + '...' : text;
+  }
+  if (session.title && session.title !== 'Free chat') return session.title;
+  return 'Free chat';
+}
 
 /**
  * Check whether a session has passed its retention expiry.
@@ -251,10 +300,15 @@ export function appendCheckpointTurn(
     if (t.sender === 'user') userWords += words;
   }
   const talkingSharePct = totalWords > 0 ? Math.round((userWords / totalWords) * 100) : 0;
+  const title =
+    !session.topic || session.topic === 'free_chat'
+      ? computeConversationTitle({ topic: session.topic, title: session.title, checkpointTurns: turns })
+      : (session.title ?? computeConversationTitle(session));
 
   return withRetention(
     {
       ...session,
+      title,
       checkpointTurns: turns,
       progress: { ...session.progress, totalTurns: turns.length, talkingSharePct }
     },
@@ -305,6 +359,7 @@ export function applySessionSettings(
  */
 export class InMemorySessionStore implements SessionStore {
   private sessions = new Map<string, LearnerSession>();
+  private userPhrases = new Map<string, LearnerProgress['savedPhrases']>();
 
   constructor(private retentionMs: number = DEFAULT_RETENTION_MS, private now: () => number = Date.now) {}
 
@@ -316,10 +371,21 @@ export class InMemorySessionStore implements SessionStore {
       this.sessions.delete(sessionId);
       return null;
     }
-    return session;
+    const cloned = structuredClone(session);
+    if (this.userPhrases.has(userId)) {
+      cloned.progress.savedPhrases = structuredClone(this.userPhrases.get(userId)!);
+    } else if (cloned.progress.savedPhrases && cloned.progress.savedPhrases.length > 0) {
+      this.userPhrases.set(userId, structuredClone(cloned.progress.savedPhrases));
+    }
+    return cloned;
   }
 
   private write(session: LearnerSession): LearnerSession {
+    if (this.userPhrases.has(session.userId)) {
+      session.progress.savedPhrases = structuredClone(this.userPhrases.get(session.userId)!);
+    } else if (session.progress.savedPhrases && session.progress.savedPhrases.length > 0) {
+      this.userPhrases.set(session.userId, structuredClone(session.progress.savedPhrases));
+    }
     this.sessions.set(session.sessionId, structuredClone(session));
     return structuredClone(session);
   }
@@ -351,10 +417,81 @@ export class InMemorySessionStore implements SessionStore {
   async getActiveUserSession(userId: string): Promise<LearnerSession | null> {
     let latest: LearnerSession | null = null;
     for (const session of [...this.sessions.values()]) {
-      if (session.userId !== userId || !this.readOwned(session.sessionId, userId)) continue;
-      if (!latest || session.updatedAt > latest.updatedAt) latest = session;
+      if (session.userId !== userId) continue;
+      const owned = this.readOwned(session.sessionId, userId);
+      if (!owned) continue;
+      if (!latest || owned.updatedAt > latest.updatedAt) latest = owned;
     }
     return latest ? structuredClone(latest) : null;
+  }
+
+  /**
+   * List the user's active sessions newest-first, returning summaries only.
+   *
+   * Args:
+   *   userId: Authenticated user identifier.
+   *   limit: Max sessions to return (capped at 50).
+   *
+   * Returns:
+   *   List of SessionSummary objects.
+   */
+  async listUserSessions(userId: string, limit: number = 50): Promise<SessionSummary[]> {
+    const list: LearnerSession[] = [];
+    for (const session of [...this.sessions.values()]) {
+      if (session.userId !== userId) continue;
+      const owned = this.readOwned(session.sessionId, userId);
+      if (owned) list.push(owned);
+    }
+    list.sort(
+      (a, b) =>
+        b.updatedAt.localeCompare(a.updatedAt) ||
+        b.createdAt.localeCompare(a.createdAt) ||
+        b.sessionId.localeCompare(a.sessionId)
+    );
+    const max = Math.min(Math.max(limit, 1), 50);
+    return list.slice(0, max).map((s) => {
+      const turns = s.checkpointTurns;
+      const lastTurn = turns.length > 0 ? turns[turns.length - 1] : null;
+      return {
+        sessionId: s.sessionId,
+        personaId: s.personaId,
+        topic: s.topic ?? 'free_chat',
+        title: computeConversationTitle(s),
+        lastLinePreview: lastTurn?.text ?? '',
+        lastLineSender: lastTurn?.sender ?? null,
+        turnCount: turns.length,
+        updatedAt: s.updatedAt
+      };
+    });
+  }
+
+  /**
+   * Get the learner's saved phrases notebook.
+   *
+   * Args:
+   *   userId: Authenticated user identifier.
+   *
+   * Returns:
+   *   List of saved phrases.
+   */
+  async getUserPhrases(userId: string): Promise<LearnerProgress['savedPhrases']> {
+    return structuredClone(this.userPhrases.get(userId) ?? []);
+  }
+
+  /**
+   * Save or replace the learner's saved phrases notebook across all user sessions.
+   *
+   * Args:
+   *   userId: Authenticated user identifier.
+   *   phrases: Saved phrases list.
+   */
+  async saveUserPhrases(userId: string, phrases: LearnerProgress['savedPhrases']): Promise<void> {
+    this.userPhrases.set(userId, structuredClone(phrases));
+    for (const session of this.sessions.values()) {
+      if (session.userId === userId) {
+        session.progress.savedPhrases = structuredClone(phrases);
+      }
+    }
   }
 
   /**
@@ -373,6 +510,14 @@ export class InMemorySessionStore implements SessionStore {
     const existing = this.sessions.get(session.sessionId);
     if (existing && existing.userId !== session.userId) {
       throw new SessionOwnershipError(session.sessionId);
+    }
+    if (this.userPhrases.has(session.userId)) {
+      session.progress.savedPhrases = structuredClone(this.userPhrases.get(session.userId)!);
+    } else if (session.progress.savedPhrases && session.progress.savedPhrases.length > 0) {
+      this.userPhrases.set(session.userId, structuredClone(session.progress.savedPhrases));
+    }
+    if (!session.title) {
+      session.title = computeConversationTitle(session);
     }
     return this.write(withRetention(session, this.now(), this.retentionMs));
   }
@@ -414,6 +559,14 @@ export class InMemorySessionStore implements SessionStore {
     userId: string,
     settings: SessionSettings
   ): Promise<LearnerSession | null> {
+    if (settings.savedPhrases !== undefined) {
+      this.userPhrases.set(userId, structuredClone(settings.savedPhrases));
+      for (const s of this.sessions.values()) {
+        if (s.userId === userId) {
+          s.progress.savedPhrases = structuredClone(settings.savedPhrases);
+        }
+      }
+    }
     const session = this.readOwned(sessionId, userId);
     if (!session) return null;
     return this.write(applySessionSettings(session, settings, this.now(), this.retentionMs));
@@ -447,6 +600,7 @@ export class InMemorySessionStore implements SessionStore {
 
   /**
    * Delete a specific conversation session and all its checkpoints (GDPR compliance).
+   * The notebook (saved phrases) belongs to the learner and survives deleting a conversation.
    *
    * Args:
    *   sessionId: Target session identifier.
@@ -478,11 +632,12 @@ export class InMemorySessionStore implements SessionStore {
         deletedCount++;
       }
     }
+    this.userPhrases.delete(userId);
     return deletedCount;
   }
 
   /**
-   * Give a guest's sessions to an account.
+   * Give a guest's sessions and notebook to an account.
    *
    * Args:
    *   fromUserId: Source user identifier (guest).
@@ -506,6 +661,14 @@ export class InMemorySessionStore implements SessionStore {
     if (targetActive) {
       await this.deleteAllUserData(fromUserId);
       return 'discarded';
+    }
+
+    const guestPhrases = this.userPhrases.get(fromUserId);
+    if (guestPhrases) {
+      this.userPhrases.delete(fromUserId);
+      if (!this.userPhrases.has(toUserId) || this.userPhrases.get(toUserId)!.length === 0) {
+        this.userPhrases.set(toUserId, guestPhrases);
+      }
     }
 
     for (const session of this.sessions.values()) {
@@ -553,22 +716,40 @@ export function initializeLearnerSession(options: CreateSessionOptions): Learner
   const retentionMs = options.retentionMs ?? DEFAULT_RETENTION_MS;
   const expiresAt = new Date(Date.now() + retentionMs).toISOString();
   const level: CefrLevel = options.learnerLevel ?? 'A2';
+  const topic = options.topic ?? 'free_chat';
+  const topicConfig = getTopicById(topic);
+  const title = options.title ?? (topic !== 'free_chat' && topicConfig ? topicConfig.label : 'Free chat');
+  const personaId = options.personaId ?? 'emmanuele';
+
+  const greeting = getTutorGreeting(personaId, options.learnerName, level, topic);
+  const checkpointTurns: ConversationTurn[] = [
+    {
+      id: `turn_${randomUUID()}`,
+      sender: 'persona',
+      text: greeting.text,
+      translation: greeting.translation,
+      grammarNotes: greeting.grammarNotes,
+      timestamp: now
+    }
+  ];
 
   return {
     sessionId: `sess_${randomUUID()}`,
     userId: options.userId,
-    personaId: options.personaId ?? 'emmanuele',
+    personaId,
     learnerName: options.learnerName ?? '',
     learnerLevel: level,
     grammarStrictness: options.grammarStrictness ?? 'tutor',
+    topic,
+    title,
     progress: {
       cefrLevel: level,
       levelHistory: [{ level, timestamp: now }],
-      savedPhrases: [],
-      totalTurns: 0,
+      savedPhrases: options.savedPhrases ? [...options.savedPhrases] : [],
+      totalTurns: checkpointTurns.length,
       talkingSharePct: 0
     },
-    checkpointTurns: [],
+    checkpointTurns,
     upstreamResumptionHandle: null,
     upstreamModel: null,
     createdAt: now,

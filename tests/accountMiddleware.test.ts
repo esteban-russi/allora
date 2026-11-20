@@ -1,6 +1,4 @@
 /** Tests for account middleware attaching Account to requests with in-memory caching. */
-import express from 'express';
-import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   attachAccount,
@@ -8,6 +6,48 @@ import {
 } from '../src/platform/server/accountMiddleware';
 import { InMemoryAccountStore, type AccountStore } from '../src/platform/server/accountStore';
 import type { IdentityAdmin } from '../src/platform/server/identityAdmin';
+
+async function executeTest(
+  storeToUse: AccountStore,
+  header: string,
+  nowFn: () => number,
+  identity?: IdentityAdmin
+) {
+  const middleware = attachAccount(storeToUse, { cacheMs: 60_000, now: nowFn, identity });
+  const [userId, isAnonStr, email, authProvider] = header.split(':');
+  const req: any = {
+    user: {
+      userId,
+      isAnonymous: isAnonStr === 'true',
+      email: email || undefined,
+      authProvider: (authProvider || (isAnonStr === 'true' ? 'firebase' : 'google')) as any
+    }
+  };
+  let statusCode = 200;
+  let bodyData: any = null;
+  const res: any = {
+    status(code: number) {
+      statusCode = code;
+      return res;
+    },
+    json(data: any) {
+      bodyData = data;
+      return res;
+    }
+  };
+  await middleware(req, res, () => {
+    bodyData = { account: req.account };
+  });
+  return { status: statusCode, body: bodyData };
+}
+
+function request(context: { store: AccountStore; nowFn: () => number; identity?: IdentityAdmin }) {
+  return {
+    get: (_url: string) => ({
+      set: (_header: string, val: string) => executeTest(context.store, val, context.nowFn, context.identity)
+    })
+  };
+}
 
 describe('accountMiddleware', () => {
   let clock = Date.parse('2026-11-18T10:00:00.000Z');
@@ -18,6 +58,7 @@ describe('accountMiddleware', () => {
     store = new InMemoryAccountStore(() => clock);
     invalidateAccountCache('u1');
     invalidateAccountCache('anon-1');
+    invalidateAccountCache('dev-learner-default');
   });
 
   function createTestApp(
@@ -25,29 +66,7 @@ describe('accountMiddleware', () => {
     nowFn = () => clock,
     identity?: IdentityAdmin
   ) {
-    const app = express();
-    // Simulate auth middleware setting req.user
-    app.use((req, _res, next) => {
-      const authHeader = req.headers['x-test-user'];
-      if (typeof authHeader === 'string') {
-        const [userId, isAnonStr, email] = authHeader.split(':');
-        req.user = {
-          userId,
-          isAnonymous: isAnonStr === 'true',
-          email: email || undefined,
-          authProvider: isAnonStr === 'true' ? 'firebase' : 'google'
-        };
-      }
-      next();
-    });
-
-    app.use(attachAccount(storeToUse, { cacheMs: 60_000, now: nowFn, identity }));
-
-    app.get('/test', (req, res) => {
-      res.json({ account: req.account });
-    });
-
-    return app;
+    return { store: storeToUse, nowFn, identity };
   }
 
   it('creates an account record on first request and attaches it', async () => {
@@ -160,5 +179,23 @@ describe('accountMiddleware', () => {
 
     expect(res.status).toBe(200);
     expect(identity.userExists).not.toHaveBeenCalled();
+  });
+
+  it('skips identity check for dev-auth users even when account does not exist yet', async () => {
+    const identity: IdentityAdmin = {
+      deleteUser: vi.fn(),
+      userExists: vi.fn().mockResolvedValue(false)
+    };
+    const app = createTestApp(store, () => clock, identity);
+
+    const res = await request(app)
+      .get('/test')
+      .set('x-test-user', 'dev-learner-default:false:dev@example.com:dev');
+
+    expect(res.status).toBe(200);
+    expect(res.body.account.account.userId).toBe('dev-learner-default');
+    expect(identity.userExists).not.toHaveBeenCalled();
+    const stored = await store.getAccount('dev-learner-default');
+    expect(stored?.userId).toBe('dev-learner-default');
   });
 });

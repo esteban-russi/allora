@@ -103,10 +103,89 @@ describe('/api/session endpoints', () => {
     ['an unknown level', { learnerLevel: 'Z9' }],
     ['an unknown grammar strictness', { grammarStrictness: 'lenient' }],
     ['malformed saved phrases', { savedPhrases: [{ id: 1 }] }],
-    ['a non-string sessionId', { sessionId: 123 }]
+    ['a non-string sessionId', { sessionId: 123 }],
+    ['an unknown topic', { topic: 'space-travel' }]
   ])('rejects POST /api/session with %s', async (_label, body) => {
     const res = await request(app).post('/api/session').set('x-dev-user-id', 'validation-user').send(body);
     expect(res.status).toBe(400);
+  });
+
+  it('creates a session with a valid topic and returns title and topic', async () => {
+    const res = await request(app)
+      .post('/api/session')
+      .set('x-dev-user-id', 'user-topic-test')
+      .send({
+        personaId: 'emmanuele',
+        topic: 'cafe'
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.topic).toBe('cafe');
+    expect(res.body.title).toBe('Ordering at a café');
+  });
+
+  it('lists user sessions with GET /api/session/list and returns single session via GET /api/session/:sessionId', async () => {
+    // Fresh user has empty list
+    const emptyList = await request(app)
+      .get('/api/session/list')
+      .set('x-dev-user-id', 'user-multi-session');
+    expect(emptyList.status).toBe(200);
+    expect(emptyList.body).toEqual([]);
+
+    // Create session 1: market
+    const sess1 = await request(app)
+      .post('/api/session')
+      .set('x-dev-user-id', 'user-multi-session')
+      .send({ personaId: 'emmanuele', topic: 'market' });
+    expect(sess1.status).toBe(200);
+
+    // Ensure distinct millisecond timestamp for newest-first order
+    await new Promise((resolve) => setTimeout(resolve, 15));
+
+    // Create session 2: free chat
+    const sess2 = await request(app)
+      .post('/api/session')
+      .set('x-dev-user-id', 'user-multi-session')
+      .send({ personaId: 'emmanuele', topic: 'free_chat' });
+    expect(sess2.status).toBe(200);
+
+    // List sessions: newest first
+    const listRes = await request(app)
+      .get('/api/session/list')
+      .set('x-dev-user-id', 'user-multi-session');
+    expect(listRes.status).toBe(200);
+    expect(listRes.body).toHaveLength(2);
+    expect(listRes.body[0].sessionId).toBe(sess2.body.sessionId);
+    expect(listRes.body[0].topic).toBe('free_chat');
+    expect(listRes.body[1].sessionId).toBe(sess1.body.sessionId);
+    expect(listRes.body[1].topic).toBe('market');
+    expect(listRes.body[1].title).toBe('At the market');
+
+    // Never return other users' sessions
+    const otherUserList = await request(app)
+      .get('/api/session/list')
+      .set('x-dev-user-id', 'user-other-observer');
+    expect(otherUserList.body).toEqual([]);
+
+    // GET /api/session/:sessionId (owner view)
+    const detailRes = await request(app)
+      .get(`/api/session/${sess1.body.sessionId}`)
+      .set('x-dev-user-id', 'user-multi-session');
+    expect(detailRes.status).toBe(200);
+    expect(detailRes.body.sessionId).toBe(sess1.body.sessionId);
+    expect(detailRes.body.topic).toBe('market');
+
+    // GET /api/session/:sessionId for another user -> 404
+    const forbiddenDetail = await request(app)
+      .get(`/api/session/${sess1.body.sessionId}`)
+      .set('x-dev-user-id', 'user-other-observer');
+    expect(forbiddenDetail.status).toBe(404);
+
+    // GET /api/session/:sessionId with unknown ID -> 404
+    const unknownDetail = await request(app)
+      .get('/api/session/non-existent-sess-id')
+      .set('x-dev-user-id', 'user-multi-session');
+    expect(unknownDetail.status).toBe(404);
   });
 
   it('supports GDPR deletion of all user sessions via DELETE /api/session', async () => {

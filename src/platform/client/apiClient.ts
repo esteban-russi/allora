@@ -136,6 +136,23 @@ export async function postJson(path: string, body: unknown): Promise<Response> {
 }
 
 /**
+ * PUT a JSON body to an API route with the user's ID token and App Check token attached.
+ *
+ * Args:
+ *   path: API path, e.g. `/api/habits/settings`.
+ *   body: JSON-serialisable request body.
+ *
+ * Returns:
+ *   The fetch Response; callers check `res.ok`.
+ */
+export async function putJson(path: string, body: unknown): Promise<Response> {
+  const { token, headers } = await authHeaders({ 'Content-Type': 'application/json' });
+  const res = await fetch(path, { method: 'PUT', headers, body: JSON.stringify(body) });
+  await handleAuthError(res, token);
+  return res;
+}
+
+/**
  * DELETE an API route with the user's ID token and App Check token attached.
  *
  * Args:

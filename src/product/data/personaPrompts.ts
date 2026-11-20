@@ -1,5 +1,6 @@
 import type { CefrLevel } from '../types';
 import { BRAND } from '../../config/brand';
+import { getTopicById } from './topics';
 
 /**
  * System-prompt text for each tutor, keyed by persona id.
@@ -54,14 +55,15 @@ export function sanitizeLearnerName(raw: unknown): string {
   return cleaned;
 }
 
-type InstructionOptions = {
+export type InstructionOptions = {
   personaId: string;
   level?: CefrLevel;
   grammarStrictness?: string;
   learnerName?: unknown;
+  topic?: string;
 };
 
-/** Persona, level, learner and strictness lines shared by the chat and voice prompts. */
+/** Persona, level, learner, topic and strictness lines shared by the chat and voice prompts. */
 function buildTutorContext(options: InstructionOptions): string[] {
   const personaPrompt = PERSONA_PROMPTS[options.personaId] || PERSONA_PROMPTS.emmanuele;
   const levelKey: CefrLevel = options.level && Object.hasOwn(LEVEL_PROMPTS, options.level) ? options.level : 'A2';
@@ -69,11 +71,14 @@ function buildTutorContext(options: InstructionOptions): string[] {
   const strictness = options.grammarStrictness || 'tutor';
   const safeName = sanitizeLearnerName(options.learnerName);
   const studentLine = safeName ? `Lo studente con cui parli si chiama ${safeName}.` : '';
+  const topicConfig = getTopicById(options.topic);
+  const topicLine = topicConfig?.promptLine ?? '';
 
   return [
     personaPrompt,
     levelPrompt,
     studentLine,
+    topicLine,
     `Tu sei un tutor madrelingua italiano per una piattaforma di apprendimento conversazionale ("${BRAND.name}").`,
     `Rigidità correzione: "${strictness}".`
   ].filter(Boolean);

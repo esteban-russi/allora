@@ -37,6 +37,8 @@ import { createAccountRouter } from './src/platform/server/accountRoutes';
 import { createBillingRouter, createRevenueCatWebhookRouter } from './src/platform/server/billingRoutes';
 import { createReportRouter } from './src/platform/server/reportRoutes';
 import { createSessionRouter } from './src/product/server/sessionRoutes';
+import { createHabitRouter } from './src/product/server/habitRoutes';
+import { defaultHabitStore } from './src/product/server/defaultHabitStore';
 import { createChatRouter } from './src/product/server/chatRoutes';
 import { createSpeechRouter, speechClientStatus } from './src/product/server/speechRoutes';
 import { BRAND } from './src/config/brand';
@@ -150,7 +152,7 @@ app.use('/api/webhooks', createRevenueCatWebhookRouter());
 
 // App Check, authentication, and per-user rate limit middleware stack for billed routes
 app.use(
-  ['/api/chat', '/api/translate', '/api/tts', '/api/stt', '/api/session', '/api/me', '/api/account', '/api/billing', '/api/report'],
+  ['/api/chat', '/api/translate', '/api/tts', '/api/stt', '/api/session', '/api/me', '/api/account', '/api/billing', '/api/report', '/api/habits'],
   requireAppCheck(),
   authenticateHttpUser(),
   createUserRateLimitMiddleware(defaultUserLimiter),
@@ -235,7 +237,7 @@ app.get('/api/me', async (req, res) => {
 });
 
 // Account lifecycle routes (guest merge and account deletion)
-app.use('/api/account', createAccountRouter({ sessions: defaultSessionStore }));
+app.use('/api/account', createAccountRouter({ sessions: defaultSessionStore, habits: defaultHabitStore }));
 
 // Billing routes (subscription sync)
 app.use('/api/billing', createBillingRouter());
@@ -245,6 +247,9 @@ app.use('/api/report', createReportRouter());
 
 // Learner session routes (continuity, checkpoints and GDPR deletion)
 app.use('/api/session', createSessionRouter());
+
+// Habit tracking and daily turn goals
+app.use('/api/habits', createHabitRouter());
 
 // Tutor chat: one turn with grammar notes, checkpointed to the learner session
 app.use('/api/chat', createChatRouter());

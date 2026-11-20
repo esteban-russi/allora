@@ -51,8 +51,9 @@ describe('toClientSession', () => {
 describe('appendCheckpointTurn', () => {
   it('does not modify the session it is given', () => {
     const session = initializeLearnerSession({ userId: 'u' });
+    const originalLength = session.checkpointTurns.length;
     appendCheckpointTurn(session, { id: 't', sender: 'user', text: 'ciao', timestamp: session.createdAt }, 0, 1000);
-    expect(session.checkpointTurns).toEqual([]);
+    expect(session.checkpointTurns).toHaveLength(originalLength);
   });
 
   it('reports a zero talking share when no words were said', () => {

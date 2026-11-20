@@ -16,6 +16,7 @@ describe('POST /api/account/merge', () => {
   let accountStore: InMemoryAccountStore;
   let usageStore: InMemoryUsageStore;
   let reportStore: InMemoryReportStore;
+  let mockHabits: { mergeUserHabits: any; deleteAllUserHabits: any };
   let mockIdentity: IdentityAdmin;
   let mockRevenueCat: { getSubscriber: any; deleteSubscriber: any };
   let clock: number;
@@ -27,6 +28,10 @@ describe('POST /api/account/merge', () => {
     accountStore = new InMemoryAccountStore(() => clock);
     usageStore = new InMemoryUsageStore();
     reportStore = new InMemoryReportStore();
+    mockHabits = {
+      mergeUserHabits: vi.fn().mockResolvedValue(undefined),
+      deleteAllUserHabits: vi.fn().mockResolvedValue(1)
+    };
     mockIdentity = {
       deleteUser: vi.fn().mockResolvedValue(undefined),
       userExists: vi.fn().mockResolvedValue(true)
@@ -47,6 +52,7 @@ describe('POST /api/account/merge', () => {
         accounts: accountStore,
         usage: usageStore,
         reports: reportStore,
+        habits: mockHabits,
         identity: mockIdentity,
         revenueCat: mockRevenueCat,
         verifyToken: verifyIdToken,
@@ -66,6 +72,7 @@ describe('POST /api/account/merge', () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ sessions: 'moved' });
+    expect(mockHabits.mergeUserHabits).toHaveBeenCalledWith('anon-g', 'u1');
 
     const transferred = await sessionStore.getSession(guestSession.sessionId, 'u1');
     expect(transferred).not.toBeNull();
@@ -244,6 +251,7 @@ describe('POST /api/account/consent', () => {
       '/api/account',
       createAccountRouter({
         sessions: new InMemorySessionStore(),
+        habits: { mergeUserHabits: vi.fn(), deleteAllUserHabits: vi.fn() },
         accounts: accountStore,
         now: () => clock
       })
@@ -302,6 +310,7 @@ describe('DELETE /api/account', () => {
   let accountStore: InMemoryAccountStore;
   let usageStore: InMemoryUsageStore;
   let reportStore: InMemoryReportStore;
+  let mockHabits: { mergeUserHabits: any; deleteAllUserHabits: any };
   let mockIdentity: IdentityAdmin;
   let mockRevenueCat: { getSubscriber: any; deleteSubscriber: any };
   let clock: number;
@@ -313,6 +322,10 @@ describe('DELETE /api/account', () => {
     accountStore = new InMemoryAccountStore(() => clock);
     usageStore = new InMemoryUsageStore();
     reportStore = new InMemoryReportStore();
+    mockHabits = {
+      mergeUserHabits: vi.fn().mockResolvedValue(undefined),
+      deleteAllUserHabits: vi.fn().mockResolvedValue(1)
+    };
     mockIdentity = {
       deleteUser: vi.fn().mockResolvedValue(undefined),
       userExists: vi.fn().mockResolvedValue(true)
@@ -333,6 +346,7 @@ describe('DELETE /api/account', () => {
         accounts: accountStore,
         usage: usageStore,
         reports: reportStore,
+        habits: mockHabits,
         identity: mockIdentity,
         revenueCat: mockRevenueCat,
         verifyToken: verifyIdToken,
@@ -370,6 +384,7 @@ describe('DELETE /api/account', () => {
     expect(usage.chatMessages).toBe(0);
     expect(reportStore.getUserReports('u1')).toEqual([]);
     expect(await accountStore.getAccount('u1')).toBeNull();
+    expect(mockHabits.deleteAllUserHabits).toHaveBeenCalledWith('u1');
     expect(mockIdentity.deleteUser).toHaveBeenCalledWith('u1');
     expect(mockRevenueCat.deleteSubscriber).toHaveBeenCalledWith('u1');
   });

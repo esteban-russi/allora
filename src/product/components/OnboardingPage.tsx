@@ -10,6 +10,8 @@ import { BRAND } from '../../config/brand';
 import { TERMS_VERSION } from '../../config/legal';
 import type { Consent, Tier } from '../../platform/server/accountStore';
 import { submitConsent } from '../../platform/client/me';
+import { HabitGoalSelector } from './HabitGoalSelector';
+import type { HabitGoal } from '../server/habitStore';
 
 export type TutorSelectOutcome =
   | { action: 'select'; tutorId: string }
@@ -45,11 +47,12 @@ export interface OnboardingPageProps {
   initialProfile?: LearnerProfile | null;
   initialTutorId?: string;
   initialConsentAccepted?: boolean;
+  initialHabitGoal?: HabitGoal;
   tier?: Tier;
   canUpgrade?: boolean;
   onSeePlans?: (tutorId: string) => void;
   tutors?: readonly Persona[];
-  onComplete: (profile: LearnerProfile, consent?: Consent) => void;
+  onComplete: (profile: LearnerProfile, consent?: Consent, habitGoal?: HabitGoal) => void;
   onLogin?: () => void;
 }
 
@@ -57,6 +60,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
   initialProfile,
   initialTutorId,
   initialConsentAccepted = false,
+  initialHabitGoal = 10,
   tier = 'free',
   canUpgrade = false,
   onSeePlans,
@@ -66,6 +70,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
 }) => {
   const [name, setName] = useState<string>(initialProfile?.name ?? '');
   const [level, setLevel] = useState<CefrLevel>(initialProfile?.level ?? 'A2');
+  const [habitGoal, setHabitGoal] = useState<HabitGoal>(initialHabitGoal);
   const [selectedTutorId, setSelectedTutorId] = useState<string>(
     initialTutorId ?? initialProfile?.personaId ?? tutors[0].id
   );
@@ -119,7 +124,8 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
         level,
         personaId: selectedTutor.id
       },
-      savedConsent
+      savedConsent,
+      habitGoal
     );
   };
 
@@ -400,6 +406,35 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                 );
               })}
             </div>
+          </section>
+
+          {/* Step 4: Optional daily practice goal */}
+          <section
+            aria-labelledby="onboarding-goal-heading"
+            className="p-5 sm:p-6 rounded-[24px] bg-surface border border-line shadow-soft space-y-3"
+          >
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold tracking-[0.08em] uppercase text-cobalt">
+                  Step 4
+                </span>
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-muted bg-canvas px-2 py-0.5 rounded-full border border-line">
+                  Optional
+                </span>
+              </div>
+              <h2 id="onboarding-goal-heading" className="font-serif text-xl text-ink mt-1">
+                Set a daily practice goal
+              </h2>
+              <p className="text-sm text-ink-muted mt-0.5">
+                Practice Italian every day at your own pace. You can change this anytime.
+              </p>
+            </div>
+
+            <HabitGoalSelector
+              labelId="onboarding-goal-heading"
+              value={habitGoal}
+              onChange={setHabitGoal}
+            />
           </section>
 
           {/* Age & terms confirmation + Submit CTA */}

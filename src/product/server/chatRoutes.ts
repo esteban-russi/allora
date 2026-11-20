@@ -5,6 +5,8 @@ import { Router } from 'express';
 import { buildSystemInstruction, GRAMMAR_STRICTNESS_LEVELS, LEVEL_PROMPTS, PERSONA_PROMPTS } from '../data/personaPrompts';
 import type { CefrLevel } from '../types';
 import { defaultSessionStore } from './defaultSessionStore';
+import { defaultHabitStore } from './defaultHabitStore';
+import { type HabitStore } from './habitStore';
 import { CHAT_MODEL, generateContentWithFallback, hasGenAiCredentials, parseModelJsonResponse } from '../../platform/server/genAi';
 import { defaultMetrics } from '../../platform/server/metrics';
 import { isBlockedGeminiResponse, MODEL_SAFETY_SETTINGS } from '../../platform/server/modelSafety';
@@ -18,6 +20,7 @@ export const BLOCKED_REPLY_TEXT = "Scusa, di questo non posso parlare. Torniamo 
 
 export interface ChatRouterDeps {
   sessions?: SessionStore;
+  habits?: HabitStore;
 }
 
 /**
@@ -28,7 +31,7 @@ export interface ChatRouterDeps {
  * when the request names one of the user's sessions.
  *
  * Args:
- *   deps: Session store (injectable for testing).
+ *   deps: Session store and habit store (injectable for testing).
  *
  * Returns:
  *   Configured Express Router.
@@ -36,6 +39,7 @@ export interface ChatRouterDeps {
 export function createChatRouter(deps: ChatRouterDeps = {}): Router {
   const router = Router();
   const sessionStore = deps.sessions ?? defaultSessionStore;
+  const habitStore = deps.habits ?? defaultHabitStore;
 
   router.post('/', requirePersonaAccess(), requireQuota('chatMessages'), async (req, res) => {
     const startTime = Date.now();
@@ -76,17 +80,18 @@ export function createChatRouter(deps: ChatRouterDeps = {}): Router {
         });
       }
 
-      const systemInstruction = buildSystemInstruction({
-        personaId,
-        level: learnerLevel as CefrLevel,
-        grammarStrictness,
-        learnerName
-      });
-
       const userId = req.user!.userId;
       const session =
         typeof sessionId === 'string' && sessionId ? await sessionStore.getSession(sessionId, userId) : null;
       const contents = buildChatContents(history, session?.checkpointTurns ?? [], userMessage);
+
+      const systemInstruction = buildSystemInstruction({
+        personaId,
+        level: learnerLevel as CefrLevel,
+        grammarStrictness,
+        learnerName,
+        topic: session?.topic
+      });
 
       const response = await generateContentWithFallback({
         model: CHAT_MODEL,
@@ -162,8 +167,21 @@ export function createChatRouter(deps: ChatRouterDeps = {}): Router {
         }
       }
 
+      let habits = null;
+      try {
+        const habitResult = await habitStore.recordTurn(userId, Date.now());
+        habits = habitResult.summary;
+      } catch (err) {
+        console.error('[Habits] Could not record turn for chat:', summarizeError(err));
+      }
+
       // sessionId is null when the client's ID is unknown or expired, so it can start a new one
-      res.json({ ...parsed, sessionId: session?.sessionId ?? null, quota: res.locals.quota ?? null });
+      res.json({
+        ...parsed,
+        sessionId: session?.sessionId ?? null,
+        quota: res.locals.quota ?? null,
+        habits
+      });
     } catch (error: any) {
       console.error('Chat generation error:', error);
       res.status(500).json({
