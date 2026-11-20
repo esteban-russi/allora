@@ -251,6 +251,7 @@ describe('POST /api/account/consent', () => {
       '/api/account',
       createAccountRouter({
         sessions: new InMemorySessionStore(),
+        habits: { mergeUserHabits: vi.fn(), deleteAllUserHabits: vi.fn() },
         accounts: accountStore,
         now: () => clock
       })

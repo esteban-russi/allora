@@ -29,7 +29,7 @@ export interface UserHabitsStore {
 export interface AccountRouterDeps {
   /** The app's own per-user data; required because it belongs to the app, not the platform. */
   sessions: UserDataStore;
-  habits?: UserHabitsStore;
+  habits: UserHabitsStore;
   accounts?: AccountStore;
   usage?: UsageStore;
   reports?: ReportStore;
@@ -113,9 +113,7 @@ export function createAccountRouter(deps: AccountRouterDeps): Router {
 
     try {
       const outcome = await sessions.transferUserSessions(guest.userId, user.userId);
-      if (deps.habits) {
-        await deps.habits.mergeUserHabits(guest.userId, user.userId);
-      }
+      await deps.habits.mergeUserHabits(guest.userId, user.userId);
 
       const day = usageDay(now());
       const guestUsage = await usage.getUsage(guest.userId, day);
@@ -165,9 +163,7 @@ export function createAccountRouter(deps: AccountRouterDeps): Router {
 
     try {
       await sessions.deleteAllUserData(userId);
-      if (deps.habits) {
-        await deps.habits.deleteAllUserHabits(userId);
-      }
+      await deps.habits.deleteAllUserHabits(userId);
       await usage.deleteAllUserUsage(userId);
       await reports.deleteAllUserReports(userId);
       await accounts.deleteAccount(userId);
