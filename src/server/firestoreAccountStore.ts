@@ -6,7 +6,7 @@ import {
   type CollectionReference,
   type DocumentData
 } from '@google-cloud/firestore';
-import type { Account, AccountStore, Subscription } from './accountStore';
+import type { Account, AccountStore, Consent, Subscription } from './accountStore';
 
 export const USERS_COLLECTION = 'users';
 
@@ -22,11 +22,21 @@ const GUEST_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
  *   The Account object with TTL metadata stripped.
  */
 export function fromAccountDocument(data: DocumentData): Account {
+  const rawConsent = data.consent;
+  const consent: Consent | null =
+    rawConsent &&
+    typeof rawConsent === 'object' &&
+    typeof rawConsent.termsVersion === 'string' &&
+    typeof rawConsent.acceptedAt === 'string'
+      ? { termsVersion: rawConsent.termsVersion, acceptedAt: rawConsent.acceptedAt }
+      : null;
+
   return {
     userId: data.userId,
     email: data.email ?? null,
     isAnonymous: Boolean(data.isAnonymous),
     subscription: data.subscription ?? null,
+    consent,
     createdAt: data.createdAt,
     lastSeenAt: data.lastSeenAt
   };
@@ -79,6 +89,7 @@ export class FirestoreAccountStore implements AccountStore {
           email,
           isAnonymous: user.isAnonymous,
           subscription: null,
+          consent: null,
           createdAt: nowIso,
           lastSeenAt: nowIso
         };
@@ -157,6 +168,24 @@ export class FirestoreAccountStore implements AccountStore {
       const snap = await tx.get(docRef);
       if (!snap.exists) return;
       tx.update(docRef, { subscription: subscription ? structuredClone(subscription) : null });
+    });
+  }
+
+  /**
+   * Record terms consent for an existing user account.
+   *
+   * Args:
+   *   userId: Target user identifier.
+   *   consent: Accepted terms version and timestamp.
+   */
+  async setConsent(userId: string, consent: Consent): Promise<void> {
+    const docRef = this.collection.doc(userId);
+    await this.db.runTransaction(async (tx) => {
+      const snap = await tx.get(docRef);
+      if (!snap.exists) return;
+      tx.update(docRef, {
+        consent: { termsVersion: consent.termsVersion, acceptedAt: consent.acceptedAt }
+      });
     });
   }
 

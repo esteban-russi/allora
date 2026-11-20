@@ -13,11 +13,17 @@ export interface Subscription {
   updatedAt: string; // ISO time
 }
 
+export interface Consent {
+  termsVersion: string;
+  acceptedAt: string; // ISO time
+}
+
 export interface Account {
   userId: string;
   email: string | null;
   isAnonymous: boolean;
-  subscription: Subscription | null; // null until plan 05 writes it
+  subscription: Subscription | null;
+  consent: Consent | null;
   createdAt: string; // ISO time
   lastSeenAt: string; // ISO time
 }
@@ -27,6 +33,7 @@ export interface AccountStore {
   upsertFromAuth(user: { userId: string; email?: string; isAnonymous: boolean }): Promise<Account>;
   getAccount(userId: string): Promise<Account | null>;
   setSubscription(userId: string, subscription: Subscription | null): Promise<void>;
+  setConsent(userId: string, consent: Consent): Promise<void>;
   deleteAccount(userId: string): Promise<boolean>;
 }
 
@@ -61,6 +68,7 @@ export class InMemoryAccountStore implements AccountStore {
         email,
         isAnonymous: user.isAnonymous,
         subscription: null,
+        consent: null,
         createdAt: nowIso,
         lastSeenAt: nowIso
       };
@@ -112,6 +120,19 @@ export class InMemoryAccountStore implements AccountStore {
     const existing = this.accounts.get(userId);
     if (!existing) return;
     existing.subscription = subscription ? structuredClone(subscription) : null;
+  }
+
+  /**
+   * Record terms consent for an existing account.
+   *
+   * Args:
+   *   userId: Target user identifier.
+   *   consent: Accepted terms version and timestamp.
+   */
+  async setConsent(userId: string, consent: Consent): Promise<void> {
+    const existing = this.accounts.get(userId);
+    if (!existing) return;
+    existing.consent = structuredClone(consent);
   }
 
   /**

@@ -3,9 +3,10 @@
 Learn conversational Italian by talking to people, not flashcards.
 
 The name, short name, premium plan name and support email live in `src/data/brand.ts`;
-`index.html` gets the name at build time and `metadata.json` carries it by hand. The
-repository, Cloud Run service, GCP project and the `parliamo.*` browser storage keys
-keep the old name on purpose: renaming them would risk the deployment and sign learners out.
+`index.html` gets the name at build time and `public/manifest.webmanifest` carries it by hand. The
+GitHub repository, Cloud Run service and Artifact Registry repository are named `allora`. The GCP
+project, the runtime service account and the `parliamo.*` browser storage keys keep the old
+name on purpose: they cannot be renamed, or renaming them would sign learners out.
 
 Allora is a web app where you practise Italian with an AI tutor. For now there is one: **Emmanuele the Roman**, a retired legionary who chats about daily life in Rome. You can write to him or switch to a hands-free voice call: speak into your microphone, and he answers out loud in natural Italian, with captions, translations and short grammar notes to help you learn from every reply.
 
@@ -16,6 +17,16 @@ Allora is a web app where you practise Italian with an AI tutor. For now there i
 | **Emmanuele il Romano** | Roma | Retired legionary | A2-B1 | Daily life in Rome, work and routines, food and markets, Roman history |
 
 Emmanuele has a hand-written persona prompt, a native saying, a sample greeting, his own Gemini voice (Charon) and two portrait expressions (resting and speaking).
+
+### Premium tutors and adding a tutor
+
+Premium can unlock extra tutors while Emmanuele stays free for everyone (`PREMIUM_PERSONA_IDS` in `src/data/personaPrompts.ts` starts empty until owner-supplied tutors are added):
+
+- **How the lock works:** `src/data/personaPrompts.ts` exports `PREMIUM_PERSONA_IDS` and `isPremiumPersona(id)` (used to derive `Persona.isPremium`). On the server, `src/server/personaAccess.ts` enforces access on `POST /api/session` (create and update) and ahead of `requireQuota` on `POST /api/chat` with HTTP 403 `{ code: 'PREMIUM_REQUIRED' }`, and `liveBridge.ts` rejects `/api/live` upgrades with HTTP 403 `PREMIUM_REQUIRED`. `/api/tts` stays unrestricted so anyone can preview tutor voice samples.
+- **Client behaviour:** Locked tutors appear in `OnboardingPage` with a **Premium** lock tag (or **Coming soon** with `aria-disabled` when billing is unavailable) and an **About `<name>`** preview button opening `PersonaProfileModal`. Tapping a locked tutor sends guests through sign-in first, opens `PlansScreen`, and selects the chosen tutor after purchase. `PlansScreen` adds **All tutors** (names and small portraits) once at least one premium tutor exists. If Premium expires while using a premium tutor, the conversation is kept and `PremiumEndedNotice` offers **See plans** or **Continue with Emmanuele**.
+- **Adding a premium tutor (files & owner content):**
+  - **Owner content needed per tutor:** `id`, name, full name, age, city, region, role; bio, 4 topics, `dailyContext`, `dialectSpecialty`, `cefrLevel`/`levelLabel`, native saying + translation; Italian persona prompt; Gemini prebuilt voice name + `voiceGender` (`male`/`female`) and sample audio text + translation; starter messages and quick replies per CEFR level; two original `.webp` portraits (resting and speaking, matching `src/assets/emmanuele/`).
+  - **Files to update:** place portraits in `src/assets/<id>/`; add the prompt to `PERSONA_PROMPTS`, voice to `PERSONA_VOICES`, and ID to `PREMIUM_PERSONA_IDS` in `src/data/personaPrompts.ts`; define the `Persona` (with `isPremium: isPremiumPersona('<id>')`), append it to `TUTORS`, and update `createInitialMessages` in `src/data/personas.ts`. Then test text chat and a Live voice call at A1 and C1.
 
 ## Design
 
@@ -37,7 +48,7 @@ Italian text is set in Fraunces; the interface uses Inter.
 - **Hands-free voice calls.** Calls stream through Gemini Live, so the tutor answers in under a second and you can interrupt him mid-sentence. Ask him to go slower, repeat himself, or suggest something to say. If Live is unavailable, the call carries on turn by turn (speech recognition, then chat, then text-to-speech).
 - **Captions.** Follow each line of the call in Italian with an English translation.
 - **Natural voices.** Replies are spoken with Gemini text-to-speech. If it is unavailable, the app falls back to the browser's built-in Italian voice.
-- **Adjustable tutoring.** A settings drawer lets you choose how strictly mistakes are corrected (conversational, tutor or strict), how much regional slang to use, speech rate, subtitles, auto-play and a custom system prompt.
+- **Adjustable tutoring.** Settings let you choose correction style (Casual, Friendly Tutor, or Strict Professor), subtitles, auto-play replies aloud, and speaking speed.
 
 ## How it works
 
@@ -102,6 +113,8 @@ The billed API routes (`/api/chat`, `/api/translate`, `/api/tts`, `/api/stt`, `/
 
 On load the client signs the learner in anonymously with Firebase (`src/utils/firebaseAuth.ts`), using the public web config from `GET /api/auth-config`, and the same anonymous account is reused on that device. That needs `FIREBASE_API_KEY` and `FIREBASE_APP_ID` set on the server and Anonymous sign-in enabled in the Firebase project `GCP_PROJECT`; without them, the client sends no token, which only works when auth is not enforced. Anyone can create anonymous accounts, so the per-IP limits remain the backstop against abuse.
 
+**App Check.** Billed API routes and the `/api/live` WebSocket upgrade can require a Firebase App Check token (`X-Firebase-AppCheck` header on HTTP, or `appcheck, <token>` after `auth, <token>` in `Sec-WebSocket-Protocol`), verified via `firebase-admin/app-check`. `APP_CHECK_MODE` defaults to `off`; `monitor` verifies and records `appCheck: { ok, failed, missing }` counters in `/api/metrics` without blocking; `enforce` rejects invalid or missing tokens with HTTP 401 (`APP_CHECK_REQUIRED`) and prompts the learner to reload or update the app. Public routes (`/api/health`, `/api/auth-config`, `/api/webhooks/revenuecat`, static files) are uncovered. On web, the client lazily initializes reCAPTCHA Enterprise when `FIREBASE_APPCHECK_SITE_KEY` is served via `/api/auth-config`; native Android Play Integrity connects through `setNativeAppCheckProvider` in `src/utils/appCheck.ts`.
+
 **Sign-in, merging and account deletion.** Learners can upgrade from guest to an authenticated account using Google popup sign-in or an email magic link (`sendSignInLinkToEmail`). Upon signing in, `POST /api/account/merge` moves the guest's session and daily usage over to the account (unless the account already has active sessions, in which case guest sessions are discarded), deletes the guest `users` record, and deletes the anonymous Firebase user. `DELETE /api/account` deletes the learner's sessions, usage, and account documents, and permanently deletes their Firebase Auth user via `firebase-admin` (notifying the user if an active store subscription exists).
 
 **Accounts and tiers.** Authenticated users are assigned a tier (`guest`, `free`, `premium`). `GET /api/me` returns the learner's account details, current tier, plan limits, subscription metadata, today's usage, and quota reset time (`resetsAt`). Guest records in Firestore carry a 30-day inactivity TTL on `expiresAtTs`. Accounts and sessions live in the store selected by `SESSION_STORE` (`memory` or `firestore`).
@@ -122,10 +135,11 @@ When daily quotas are reached:
 
 **Billing backend and subscription synchronization.** RevenueCat acts as the source of truth for premium subscriptions across web and mobile stores:
 - `POST /api/billing/sync`: Authenticated endpoint that queries RevenueCat REST API v1 for the current learner's entitlements and synchronizes `users/<uid>.subscription`. Invoked by the client post-purchase or on app launch when subscriptions near expiration.
+- `GET /api/billing/manage`: Authenticated endpoint that queries RevenueCat REST API v2 (`REVENUECAT_V2_SECRET_KEY` + `REVENUECAT_PROJECT_ID`) for a single-use authenticated Web Billing management URL (`Cache-Control: no-store`), so learners land directly on their subscription page without email verification. Returns 503 `BILLING_UNAVAILABLE` when either v2 variable is unset, 404 `NO_WEB_SUBSCRIPTION` when the learner has no active Web Billing subscription, and falls back to the SDK's `managementURL` on the client.
 - `POST /api/webhooks/revenuecat`: Webhook listener secured with constant-time token comparison (`REVENUECAT_WEBHOOK_AUTH`). Processes subscriber events (initial purchase, renewal, expiration, user transfer) by pulling latest status directly from RevenueCat.
 - Subscription state includes a 1-hour grace window (`SUBSCRIPTION_SKEW_MS`) past `expiresAt` to avoid disruptions during delayed renewal webhooks.
 - Account deletion (`DELETE /api/account`) cleans up subscriber data in RevenueCat via `deleteSubscriber`.
-- When `REVENUECAT_SECRET_KEY` is omitted, the app runs normally without billing (endpoints return 503 `BILLING_UNAVAILABLE`).
+- When `REVENUECAT_SECRET_KEY` (or the v2 variables) are omitted, the server starts normally and the corresponding billing endpoints return 503 `BILLING_UNAVAILABLE`.
 
 **Learner sessions.** A session holds the learner's level, saved phrases and the last 50 conversation turns. The server assigns its ID, the client remembers it on the device, and both chat and Live turns are checkpointed to it. `GET /api/session` returns the latest session, `POST` creates or updates one, `DELETE /api/session/:id` deletes one and `DELETE /api/session` deletes all of a user's data. Sessions expire after 30 days without activity.
 
@@ -135,7 +149,7 @@ When daily quotas are reached:
 
 **Privacy.** Learner audio and text go only to Vertex AI by default (`vertex_only`). Failover to Google AI Studio, whose terms allow prompts to be logged and reviewed, happens only with `ALLOW_AI_STUDIO_FALLBACK=true`, and is logged as an audit warning. Raw audio and transcripts are never logged.
 
-**Metrics.** `GET /api/metrics` reports p50/p90/p95 time to first audio and barge-in stop latency (measured on the device from speech detection), reconnect outcomes, Live lessons with audio minutes, and estimated chat and Live costs. When auth is enforced, only user IDs in `METRICS_ADMIN_USER_IDS` can read it. `/api/health` stays public and reports only status and configuration.
+**Metrics.** `GET /api/metrics` reports runtime configuration (models, billing, GCP region and client availability), privacy mode, p50/p90/p95 time to first audio and barge-in stop latency (measured on the device from speech detection), reconnect outcomes, Live lessons with audio minutes, and estimated chat and Live costs. When auth is enforced, only user IDs in `METRICS_ADMIN_USER_IDS` can read it. `/api/health` stays public and returns only `{ "status": "ok" }`.
 
 ## Deployment
 
@@ -157,15 +171,26 @@ The script enables the APIs, creates the Artifact Registry repo, the deployer an
 2. **Authorised domains:** In Firebase Console → Authentication → Settings → Authorised domains, add the app's Cloud Run or custom domain.
 3. **Customize action URL:** In Firebase Console → Authentication → Templates → edit template → "Customize action URL": `<APP_URL>/auth/action`.
 4. **IAM permissions:** Ensure `roles/firebaseauth.admin` is granted to the runtime service account (`parliamo-italiano-runtime@<project>.iam.gserviceaccount.com`).
+5. **App Check (when ready to roll out):** Create a score-based reCAPTCHA Enterprise website key in Google Cloud, register the web app in Firebase Console → App Check → Apps, store the key in GitHub repository variable `FIREBASE_APPCHECK_SITE_KEY`, then roll out `APP_CHECK_MODE` in `.github/workflows/deploy.yml` from `off` → `monitor` (watch `/api/metrics` `appCheck` counters) → `enforce`.
 
 ### RevenueCat setup (owner, before deploying billing)
 
-1. **RevenueCat project:** Create the project, entitlement `premium`, and offering `default` with packages `$rc_monthly` and `$rc_annual`.
-2. **Secret Manager secrets:** Store the RevenueCat REST API secret key and a random webhook secret:
+| Variable | Source | Purpose |
+|---|---|---|
+| `REVENUECAT_SECRET_KEY` | Secret Manager (`revenuecat-secret-key`) | RevenueCat REST API v1 secret key for `/api/billing/sync`, webhooks, and account deletion |
+| `REVENUECAT_V2_SECRET_KEY` | Secret Manager (`revenuecat-v2-secret-key`) | RevenueCat REST API v2 secret key for direct authenticated Web Billing management links (`GET /api/billing/manage`) |
+| `REVENUECAT_PROJECT_ID` | GitHub variable (`REVENUECAT_PROJECT_ID`) | RevenueCat project ID used by the REST API v2 client |
+| `REVENUECAT_WEBHOOK_AUTH` | Secret Manager (`revenuecat-webhook-auth`) | Bearer token verified on `POST /api/webhooks/revenuecat` |
+| `REVENUECAT_WEB_PUBLIC_KEY` | GitHub variable (`REVENUECAT_WEB_PUBLIC_KEY`) | RevenueCat Web Billing public API key exposed via `/api/auth-config` |
+
+1. **RevenueCat project:** Create the project, entitlement `premium`, and offering `default` with packages `$rc_monthly` and `$rc_annual`. Copy the project ID and store it in the GitHub repository variable `REVENUECAT_PROJECT_ID`.
+2. **Secret Manager secrets:** Create a REST API v1 secret key and a REST API v2 secret key (with permissions `customer_information:subscriptions:read_write` and read customers), plus a random webhook secret, and store them in Secret Manager:
    ```bash
    printf '%s' '<REVENUECAT_SECRET_KEY>' | gcloud secrets create revenuecat-secret-key --data-file=- --project=<project>
+   printf '%s' '<REVENUECAT_V2_SECRET_KEY>' | gcloud secrets create revenuecat-v2-secret-key --data-file=- --project=<project>
    openssl rand -hex 32 | tr -d '\n' | gcloud secrets create revenuecat-webhook-auth --data-file=- --project=<project>
    gcloud secrets add-iam-policy-binding revenuecat-secret-key --member=serviceAccount:<runtime-sa> --role=roles/secretmanager.secretAccessor --project=<project>
+   gcloud secrets add-iam-policy-binding revenuecat-v2-secret-key --member=serviceAccount:<runtime-sa> --role=roles/secretmanager.secretAccessor --project=<project>
    gcloud secrets add-iam-policy-binding revenuecat-webhook-auth --member=serviceAccount:<runtime-sa> --role=roles/secretmanager.secretAccessor --project=<project>
    ```
 3. **Webhook configuration:** In RevenueCat → Integrations → Webhooks, set endpoint URL to `<APP_URL>/api/webhooks/revenuecat` with `Authorization: Bearer <the-webhook-secret>`. Check that "Send test event" returns 200.
@@ -179,38 +204,83 @@ The script enables the APIs, creates the Artifact Registry repo, the deployer an
    - Use Stripe test card `4242 4242 4242 4242` (any valid future date, 3-digit CVC) in checkout to test successful subscriptions and trial activation.
    - Use card `4000 0000 0000 0002` to verify payment decline error handling.
 
+## Store compliance, legal pages and content reports
+
+### Legal pages and consent
+
+Static, self-contained HTML pages live in `public/privacy.html`, `public/terms.html`, and `public/delete-account.html` (viewable without sign-in). In production, `server.ts` serves them at `/privacy`, `/terms`, and `/delete-account` before the SPA wildcard; in dev, `legalUrl()` links to the `.html` files directly.
+
+- Footer links (**Privacy** and **Terms**, opening in a new tab) appear on `OnboardingPage`, `SignInScreen`, `PlansScreen`, and `AccountMenu`.
+- Learners must tick the 18+ and Terms/Privacy confirmation checkbox on onboarding (and restored users whose `me.consent?.termsVersion !== TERMS_VERSION` see a blocking `ConsentDialog`). Consent is persisted on `users/<uid>.consent` via `POST /api/account/consent` (and copied from guest to account on merge when the account has none).
+- Replace the draft legal text and every `[to confirm: …]` placeholder, then remove the `DRAFT – not yet reviewed` banners before launch.
+
+### Content reporting and model safety
+
+- Every AI tutor reply in text chat (`ChatInterface`) and live voice-call captions (`VoiceCallModal`) has a **Report** action opening `ReportDialog` (reporting during a call does not end the call).
+- `POST /api/report` validates the payload, stores `{ id, userId, sessionId, source, text, reason, comment, createdAt }` in the `reports` Firestore collection (or in-memory store in dev), and logs `[Report] New content report` with `{ reason, source }` only (never message text or user ID).
+- Guest reports are transferred to the signed-in account on merge (`POST /api/account/merge`), and all user reports are deleted on account deletion (`DELETE /api/account`).
+- Both `/api/chat` and `/api/live` pass explicit `safetySettings` (`BLOCK_MEDIUM_AND_ABOVE` for harassment, hate speech, sexually explicit, and dangerous content) and append safety instructions to the tutor system prompt. Blocked chat replies return HTTP 200 with a fixed Italian decline line (`BLOCKED_REPLY_TEXT`); real upstream failures still return 5xx.
+
+### Reviewing reports (owner setup)
+
+1. **Email alert:** In Cloud Logging, create a log-based alert matching `"[Report] New content report"` routed to your support email.
+2. **Review in Firestore:** Open Google Cloud Console → **Firestore → Data → `reports`** to inspect submitted reports.
+3. **Manual cleanup:** No TTL is configured on `reports`; delete each report document by hand once handled.
+
+### Google Play Console forms
+
+| Form | Answer |
+|---|---|
+| Privacy policy URL | `<APP_URL>/privacy` |
+| Account deletion URL | `<APP_URL>/delete-account` |
+| Data safety: collected | Name; email address; user IDs; messages (in-app messages / other user-generated content); voice or sound recordings (processed, not stored); purchase history; app interactions. Encrypted in transit: yes. Deletion can be requested: yes. Shared with third parties: no (service providers are processors). |
+| Target audience | 18 and over |
+| Content rating (IARC) | Answer honestly; note the app has AI-generated text and voice chat with an AI (not between users) |
+| Ads | No |
+| App access | "All features are available without credentials as a guest. To test Premium, sign in with any Google account and use a Play test card." Provide a demo account if the reviewer asks. |
+| AI-generated content | Yes; in-app reporting is available on every tutor reply |
+
 ## Project structure
 
 ```
-├── server.ts                  # Express server: chat, translate, TTS, STT, sessions, me, account, billing, health, metrics, Vite/static serving
-├── liveBridge.ts              # /api/live WebSocket bridge to Gemini Live: auth, call limits, heartbeat, resumption
+├── server.ts                  # Express server: chat, translate, TTS, STT, sessions, me, account, billing, report, health, metrics, Vite/static serving
+├── liveBridge.ts              # /api/live WebSocket bridge to Gemini Live: auth, call limits, safety settings, heartbeat, resumption
+├── public/                    # Web manifest, icons, and static legal pages (privacy.html, terms.html, delete-account.html)
 ├── src/
 │   ├── App.tsx                # App state, routing and dashboard layout
 │   ├── assets/emmanuele/      # Tutor portraits (resting and speaking)
 │   ├── components/
 │   │   ├── AccountMenu.tsx    # Account dialog: identity, plan, edit profile, sign out, delete account
+│   │   ├── ConsentCheckbox.tsx # Shared 18+ and Terms/Privacy checkbox
+│   │   ├── ConsentDialog.tsx  # Blocking consent modal for restored users
+│   │   ├── LegalLinks.tsx     # Footer Privacy & Terms links
+│   │   ├── ReportDialog.tsx   # Report-a-reply modal dialog
 │   │   ├── PlansScreen.tsx    # Full-screen paywall and subscription plan selection
+│   │   ├── PremiumEndedNotice.tsx # Notice when Premium expires while using a premium tutor
 │   │   ├── UsageMeter.tsx     # Daily usage meter & upgrade call-to-action
 │   │   ├── SignInScreen.tsx   # Sign-in screen: Google popup and magic link email form
-│   │   ├── OnboardingPage.tsx # Learner name, CEFR level and tutor picker
+│   │   ├── OnboardingPage.tsx # Learner name, CEFR level, tutor picker and consent
 │   │   ├── IconRail.tsx       # Left navigation rail
 │   │   ├── TopHeader.tsx      # Brand, conversation title, Text/Voice switch
-│   │   ├── ChatInterface.tsx  # Chat bubbles, quick replies and composer
+│   │   ├── ChatInterface.tsx  # Chat bubbles, report action, quick replies and composer
 │   │   ├── UtilityPanel.tsx   # Tutor profile, notebook and talking share
-│   │   ├── VoiceCallModal.tsx # Hands-free voice call with captions
-│   │   ├── DevSettingsDrawer.tsx
+│   │   ├── VoiceCallModal.tsx # Hands-free voice call with captions and report action
+│   │   ├── SettingsDialog.tsx # Learner settings: correction style, subtitles, auto-play, speaking speed
+│   │   ├── DevSettingsDrawer.tsx # Developer lab (dev mode or parliamo.devlab=1)
 │   │   ├── PersonaProfileModal.tsx
 │   │   ├── PersonaBadge.tsx
 │   │   └── UserBadge.tsx
-│   ├── data/personas.ts       # Emmanuele's persona, starter message and saved phrases
-│   ├── server/                # auth, accountStore, accountRoutes, billingRoutes, billingSync, identityAdmin, plans, revenueCat, usageStore, quota, sessionStore, rateLimiter, metrics
-│   ├── utils/apiClient.ts     # Authenticated API calls (get, post, delete) and ID token source
+│   ├── data/                  # brand.ts, legal.ts, personas.ts, personaPrompts.ts
+│   ├── server/                # appCheck, auth, accountStore, accountRoutes, billingRoutes, billingSync, firebaseAdmin, identityAdmin, modelSafety, personaAccess, plans, reportStore, reportRoutes, revenueCat, usageStore, quota, sessionStore, rateLimiter, metrics
+│   ├── utils/apiClient.ts     # Authenticated API calls (get, post, delete), ID token source, and App Check header/error handling
+│   ├── utils/appCheck.ts      # Client App Check token provider (web reCAPTCHA Enterprise + native seam)
 │   ├── utils/billing.ts       # Client billing interface and active adapter registry
 │   ├── utils/billingWeb.ts    # RevenueCat Web Billing adapter (@revenuecat/purchases-js)
 │   ├── utils/clientConfig.ts  # Client config loader (/api/auth-config)
 │   ├── utils/firebaseAuth.ts  # Client auth: anonymous, Google popup, email magic link, account merge
 │   ├── utils/learnerSession.ts # Remembers the learner session and links chat turns to it
-│   ├── utils/me.ts            # Client account /api/me fetching and typing
+│   ├── utils/legalUrl.ts      # Dev/prod URL helper for static legal pages
+│   ├── utils/me.ts            # Client account /api/me fetching, consent submission and typing
 │   ├── utils/speech.ts        # Gemini TTS playback, browser TTS fallback, speech recognition
 │   ├── utils/liveCall.ts      # Gemini Live call client: mic streaming, playback, heartbeat, reconnect
 │   └── types/index.ts

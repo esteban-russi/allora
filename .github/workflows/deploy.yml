@@ -71,17 +71,22 @@ jobs:
             GCP_PROJECT=${{ vars.GCP_PROJECT_ID }}
             SESSION_STORE=firestore
             QUOTAS_MODE=monitor
+            APP_CHECK_MODE=off
             FIREBASE_API_KEY=${{ vars.FIREBASE_API_KEY }}
             FIREBASE_APP_ID=${{ vars.FIREBASE_APP_ID }}
+            FIREBASE_APPCHECK_SITE_KEY=${{ vars.FIREBASE_APPCHECK_SITE_KEY }}
             GCP_REGION=eu
             GEMINI_CHAT_MODEL=gemini-3.5-flash
             GEMINI_TTS_MODEL=gemini-3.8-flash-lite-tts
             GEMINI_LIVE_MODEL=gemini-3.8-live
             TRUST_PROXY_HOPS=1
             RATE_LIMIT_PER_MINUTE=60
+            APP_URL=${{ vars.APP_URL }}
             REVENUECAT_WEB_PUBLIC_KEY=${{ vars.REVENUECAT_WEB_PUBLIC_KEY }}
+            REVENUECAT_PROJECT_ID=${{ vars.REVENUECAT_PROJECT_ID }}
           secrets: |-
             REVENUECAT_SECRET_KEY=revenuecat-secret-key:latest
+            REVENUECAT_V2_SECRET_KEY=revenuecat-v2-secret-key:latest
             REVENUECAT_WEBHOOK_AUTH=revenuecat-webhook-auth:latest
 
       - name: Smoke test

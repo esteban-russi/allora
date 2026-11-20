@@ -2,12 +2,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { fetchMe, type Me } from '../utils/me';
 import { postJson } from '../utils/apiClient';
-import type { Tier } from '../server/accountStore';
+import type { Consent, Tier } from '../server/accountStore';
 
 export interface UseAccountResult {
   me: Me | null;
   refresh: () => Promise<Me | null>;
   setUsage: (counter: 'chatMessages' | 'voiceSeconds' | 'helperRequests', used: number) => void;
+  setConsent: (consent: Consent) => void;
 }
 
 /**
@@ -47,6 +48,10 @@ export function useAccount(initialMe: Me | null = null): UseAccountResult {
     []
   );
 
+  const setConsent = useCallback((consent: Consent) => {
+    setMe((prev) => (prev ? { ...prev, consent } : null));
+  }, []);
+
   useEffect(() => {
     let mounted = true;
 
@@ -82,5 +87,5 @@ export function useAccount(initialMe: Me | null = null): UseAccountResult {
     };
   }, [refresh]);
 
-  return { me, refresh, setUsage };
+  return { me, refresh, setUsage, setConsent };
 }

@@ -1,13 +1,15 @@
-/** Account lifecycle routes: account merge and account deletion. */
+/** Account lifecycle routes: consent, account merge, and account deletion. */
 import { Router, type Request, type Response } from 'express';
 import type { SessionStore } from './sessionStore';
-import type { AccountStore } from './accountStore';
+import type { AccountStore, Consent } from './accountStore';
 import type { UsageStore } from './usageStore';
+import type { ReportStore } from './reportStore';
 import type { IdentityAdmin } from './identityAdmin';
 import type { AuthenticatedUser } from './auth';
 import { defaultSessionStore } from './defaultSessionStore';
 import { defaultAccountStore } from './defaultAccountStore';
 import { defaultUsageStore } from './defaultUsageStore';
+import { defaultReportStore } from './defaultReportStore';
 import { defaultIdentityAdmin } from './identityAdmin';
 import { verifyIdToken } from './auth';
 import { usageDay } from './usageStore';
@@ -19,6 +21,7 @@ export interface AccountRouterDeps {
   sessions?: SessionStore;
   accounts?: AccountStore;
   usage?: UsageStore;
+  reports?: ReportStore;
   identity?: IdentityAdmin;
   revenueCat?: RevenueCatClient | null;
   verifyToken?: (token: string) => Promise<AuthenticatedUser | null>;
@@ -26,6 +29,7 @@ export interface AccountRouterDeps {
 }
 
 const USAGE_COUNTERS = ['chatMessages', 'voiceSeconds', 'helperRequests'] as const;
+const MAX_TERMS_VERSION_LENGTH = 20;
 
 /**
  * Create Express router for /api/account endpoints.
@@ -41,9 +45,41 @@ export function createAccountRouter(deps: AccountRouterDeps = {}): Router {
   const sessions = deps.sessions ?? defaultSessionStore;
   const accounts = deps.accounts ?? defaultAccountStore;
   const usage = deps.usage ?? defaultUsageStore;
+  const reports = deps.reports ?? defaultReportStore;
   const identity = deps.identity ?? defaultIdentityAdmin;
   const verifyToken = deps.verifyToken ?? verifyIdToken;
   const now = deps.now ?? Date.now;
+
+  router.post('/consent', async (req: Request, res: Response) => {
+    const user = req.user;
+    if (!user) {
+      res.status(401).json({ error: 'UNAUTHORIZED' });
+      return;
+    }
+
+    const rawVersion = req.body && typeof req.body === 'object' ? req.body.termsVersion : undefined;
+    const termsVersion = typeof rawVersion === 'string' ? rawVersion.trim() : '';
+    if (!termsVersion || rawVersion.length > MAX_TERMS_VERSION_LENGTH) {
+      res.status(400).json({
+        error: `termsVersion must be a non-empty string of at most ${MAX_TERMS_VERSION_LENGTH} characters`
+      });
+      return;
+    }
+
+    const consent: Consent = {
+      termsVersion,
+      acceptedAt: new Date(now()).toISOString()
+    };
+
+    try {
+      await accounts.setConsent(user.userId, consent);
+      invalidateAccountCache(user.userId);
+      res.json({ consent });
+    } catch (err) {
+      console.error('[Account] Error storing consent:', summarizeError(err));
+      res.status(500).json({ error: 'Could not save consent' });
+    }
+  });
 
   router.post('/merge', async (req: Request, res: Response) => {
     const user = req.user;
@@ -76,6 +112,16 @@ export function createAccountRouter(deps: AccountRouterDeps = {}): Router {
         }
       }
       await usage.deleteAllUserUsage(guest.userId);
+      await reports.transferUserReports(guest.userId, user.userId);
+
+      const [targetAccount, guestAccount] = await Promise.all([
+        accounts.getAccount(user.userId),
+        accounts.getAccount(guest.userId)
+      ]);
+      if (targetAccount && !targetAccount.consent && guestAccount?.consent) {
+        await accounts.setConsent(user.userId, guestAccount.consent);
+        invalidateAccountCache(user.userId);
+      }
 
       await accounts.deleteAccount(guest.userId);
       invalidateAccountCache(guest.userId);
@@ -106,6 +152,7 @@ export function createAccountRouter(deps: AccountRouterDeps = {}): Router {
     try {
       await sessions.deleteAllUserData(userId);
       await usage.deleteAllUserUsage(userId);
+      await reports.deleteAllUserReports(userId);
       await accounts.deleteAccount(userId);
       invalidateAccountCache(userId);
 

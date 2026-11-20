@@ -12,12 +12,18 @@ import type { CefrLevel } from './src/types';
 import { attachLiveBridge, type LiveBridgeOptions } from './liveBridge';
 import { VertexCooldown, isPersistentVertexError, summarizeError } from './vertexCooldown';
 import { assertAuthConfig, authenticateHttpUser, isAuthEnforced } from './src/server/auth';
+import { requireAppCheck } from './src/server/appCheck';
 import { defaultSessionStore } from './src/server/defaultSessionStore';
 import { attachAccount } from './src/server/accountMiddleware';
 import { defaultAccountStore } from './src/server/defaultAccountStore';
 import { defaultUsageStore } from './src/server/defaultUsageStore';
 import { nextResetAt, usageDay } from './src/server/usageStore';
 import { requireQuota } from './src/server/quota';
+import {
+  canUsePersona,
+  PREMIUM_REQUIRED_BODY,
+  requirePersonaAccess
+} from './src/server/personaAccess';
 import {
   initializeLearnerSession,
   parseSavedPhrases,
@@ -35,6 +41,12 @@ import { scheduleMaintenance } from './src/server/maintenance';
 import type { FirebaseClientConfig } from './src/utils/firebaseAuth';
 import { createAccountRouter } from './src/server/accountRoutes';
 import { createBillingRouter, createRevenueCatWebhookRouter } from './src/server/billingRoutes';
+import { createReportRouter } from './src/server/reportRoutes';
+import {
+  BLOCKED_REPLY_TEXT,
+  isBlockedGeminiResponse,
+  MODEL_SAFETY_SETTINGS
+} from './src/server/modelSafety';
 import { BRAND } from './src/data/brand';
 
 dotenv.config();
@@ -43,6 +55,46 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+app.disable('x-powered-by');
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('X-Frame-Options', 'DENY');
+  if (process.env.NODE_ENV === 'production') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000');
+  }
+  next();
+});
+
+// Redirect browser page loads from secondary hosts (e.g. *.run.app) to APP_URL in production.
+// API, WebSocket and .well-known requests are never redirected.
+app.use((req, res, next) => {
+  if (process.env.NODE_ENV !== 'production' || req.method !== 'GET') return next();
+  const rawAppUrl = process.env.APP_URL?.trim();
+  if (!rawAppUrl) return next();
+
+  let canonical: URL;
+  try {
+    canonical = new URL(rawAppUrl);
+  } catch {
+    return next();
+  }
+  if (canonical.protocol !== 'http:' && canonical.protocol !== 'https:') return next();
+
+  if (
+    req.path === '/api' ||
+    req.path.startsWith('/api/') ||
+    req.path === '/.well-known' ||
+    req.path.startsWith('/.well-known/')
+  ) {
+    return next();
+  }
+
+  const requestHost = req.get('host')?.trim().toLowerCase();
+  if (!requestHost || requestHost === canonical.host.toLowerCase()) return next();
+
+  return res.redirect(308, `${canonical.origin}${req.originalUrl}`);
+});
 const PORT = process.env.PORT || 3000;
 
 // Configuration
@@ -75,7 +127,7 @@ app.set('trust proxy', TRUST_PROXY_HOPS);
 // Outer perimeter rate limiting per IP. Webhooks are left out: RevenueCat can send
 // bursts of events from a few IPs, and its secret is checked before any work is done.
 const RATE_LIMIT_PER_MINUTE = Number(process.env.RATE_LIMIT_PER_MINUTE) || 60;
-app.use(['/api/chat', '/api/translate', '/api/tts', '/api/stt', '/api/session', '/api/me', '/api/account', '/api/billing'], rateLimit({
+app.use(['/api/chat', '/api/translate', '/api/tts', '/api/stt', '/api/session', '/api/me', '/api/account', '/api/billing', '/api/report'], rateLimit({
   windowMs: 60_000,
   limit: RATE_LIMIT_PER_MINUTE,
   standardHeaders: 'draft-7',
@@ -172,28 +224,9 @@ async function generateContentWithFallback(requestConfig: any, isLearnerData = t
   }
 }
 
-// Health check endpoint with GCP, Model, Privacy, and Operational Metrics metadata
+// Public liveness check; operational details live on /api/metrics (operators only)
 app.get('/api/health', (_req, res) => {
-  res.json({
-    status: 'ok',
-    billing: Boolean(process.env.REVENUECAT_SECRET_KEY),
-    models: {
-      chat: CHAT_MODEL,
-      tts: TTS_MODEL,
-      live: LIVE_MODEL,
-    },
-    gcp: {
-      region: GCP_REGION,
-      hasGeminiKey: Boolean(process.env.GEMINI_API_KEY),
-      hasGcpProject: Boolean(GCP_PROJECT),
-      clients: {
-        vertexAi: Boolean(GCP_PROJECT),
-        aiStudio: Boolean(process.env.GEMINI_API_KEY),
-        cloudTts: Boolean(cloudTtsClient),
-        cloudSpeech: Boolean(cloudSpeechClient),
-      }
-    },
-  });
+  res.json({ status: 'ok' });
 });
 
 /**
@@ -212,7 +245,8 @@ export function buildFirebaseClientConfig(env: NodeJS.ProcessEnv = process.env):
   const projectId = env.GCP_PROJECT?.trim();
   if (!apiKey || !appId || !projectId) return null;
   const authDomain = env.FIREBASE_AUTH_DOMAIN?.trim() || `${projectId}.firebaseapp.com`;
-  return { apiKey, authDomain, projectId, appId };
+  const appCheckSiteKey = env.FIREBASE_APPCHECK_SITE_KEY?.trim() || null;
+  return { apiKey, authDomain, projectId, appId, appCheckSiteKey };
 }
 
 // Firebase web config is public by design; serving it at runtime keeps it out of the image build
@@ -229,9 +263,10 @@ app.get('/api/auth-config', (_req, res) => {
 // Webhook endpoints (not behind user authentication)
 app.use('/api/webhooks', createRevenueCatWebhookRouter());
 
-// Authentication and per-user rate limit middleware stack for billed routes
+// App Check, authentication, and per-user rate limit middleware stack for billed routes
 app.use(
-  ['/api/chat', '/api/translate', '/api/tts', '/api/stt', '/api/session', '/api/me', '/api/account', '/api/billing'],
+  ['/api/chat', '/api/translate', '/api/tts', '/api/stt', '/api/session', '/api/me', '/api/account', '/api/billing', '/api/report'],
+  requireAppCheck(),
   authenticateHttpUser(),
   createUserRateLimitMiddleware(defaultUserLimiter),
   attachAccount(defaultAccountStore)
@@ -255,12 +290,32 @@ export function canReadMetrics(userId: string): boolean {
   return admins.includes(userId);
 }
 
-// Operational metrics and privacy configuration: operators only, unlike /api/health
+// Operational metrics, runtime configuration, and privacy mode: operators only, unlike /api/health
 app.get('/api/metrics', authenticateHttpUser(), (req, res) => {
   if (!canReadMetrics(req.user!.userId)) {
     return res.status(403).json({ error: 'Metrics are restricted to operators' });
   }
-  res.json({ privacy: getPrivacyPolicyConfig(), metrics: defaultMetrics.getSummary() });
+  res.json({
+    billing: Boolean(process.env.REVENUECAT_SECRET_KEY),
+    models: {
+      chat: CHAT_MODEL,
+      tts: TTS_MODEL,
+      live: LIVE_MODEL,
+    },
+    gcp: {
+      region: GCP_REGION,
+      hasGeminiKey: Boolean(process.env.GEMINI_API_KEY),
+      hasGcpProject: Boolean(GCP_PROJECT),
+      clients: {
+        vertexAi: Boolean(GCP_PROJECT),
+        aiStudio: Boolean(process.env.GEMINI_API_KEY),
+        cloudTts: Boolean(cloudTtsClient),
+        cloudSpeech: Boolean(cloudSpeechClient),
+      }
+    },
+    privacy: getPrivacyPolicyConfig(),
+    metrics: defaultMetrics.getSummary()
+  });
 });
 
 // Learner profile and account metadata
@@ -278,6 +333,7 @@ app.get('/api/me', async (req, res) => {
       limits,
       usage,
       resetsAt,
+      consent: account.consent,
       subscription: account.subscription && {
         status: account.subscription.status,
         productId: account.subscription.productId,
@@ -299,6 +355,9 @@ app.use('/api/account', createAccountRouter());
 
 // Billing routes (subscription sync)
 app.use('/api/billing', createBillingRouter());
+
+// Content reporting route
+app.use('/api/report', createReportRouter());
 
 // Learner Session Endpoints (Session Continuity, Checkpointing, and GDPR Deletion)
 app.get('/api/session', async (req, res) => {
@@ -332,6 +391,9 @@ app.post('/api/session', async (req, res) => {
     }
     if (typeof personaId !== 'string' || !Object.hasOwn(PERSONA_PROMPTS, personaId)) {
       return res.status(400).json({ error: `Unknown personaId: ${String(personaId)}` });
+    }
+    if (!canUsePersona(req.account!.tier, personaId)) {
+      return res.status(403).json(PREMIUM_REQUIRED_BODY);
     }
     if (typeof learnerLevel !== 'string' || !Object.hasOwn(LEVEL_PROMPTS, learnerLevel)) {
       return res.status(400).json({ error: `learnerLevel must be one of ${Object.keys(LEVEL_PROMPTS).join(', ')}` });
@@ -401,7 +463,7 @@ app.delete('/api/session', async (req, res) => {
 });
 
 // Gemini Conversational Chat API with Italian pedagogical grammar analysis and session checkpointing
-app.post('/api/chat', requireQuota('chatMessages'), async (req, res) => {
+app.post('/api/chat', requirePersonaAccess(), requireQuota('chatMessages'), async (req, res) => {
 
   const startTime = Date.now();
   try {
@@ -458,6 +520,7 @@ app.post('/api/chat', requireQuota('chatMessages'), async (req, res) => {
       contents,
       config: {
         systemInstruction,
+        safetySettings: MODEL_SAFETY_SETTINGS,
         temperature: Math.min(Math.max(Number(temperature) || 0.7, 0.1), 1.2),
         responseMimeType: 'application/json',
         responseSchema: {
@@ -484,6 +547,21 @@ app.post('/api/chat', requireQuota('chatMessages'), async (req, res) => {
       }
     });
 
+    const usage = response.usageMetadata;
+    if (usage?.promptTokenCount !== undefined && usage.candidatesTokenCount !== undefined) {
+      defaultMetrics.recordChatTurn(usage.promptTokenCount, usage.candidatesTokenCount);
+    }
+
+    if (isBlockedGeminiResponse(response)) {
+      return res.json({
+        text: BLOCKED_REPLY_TEXT,
+        translation: '',
+        grammarNotes: [],
+        sessionId: session?.sessionId ?? null,
+        quota: res.locals.quota ?? null
+      });
+    }
+
     const parsed = parseModelJsonResponse(response.text, {
       text: 'Scusa, ho avuto un problema a capire. Puoi ripetere?',
       translation: 'Sorry, I had trouble understanding. Could you repeat that?',
@@ -509,11 +587,6 @@ app.post('/api/chat', requireQuota('chatMessages'), async (req, res) => {
       } catch (err) {
         console.error('[Session] Could not checkpoint chat turn:', summarizeError(err));
       }
-    }
-
-    const usage = response.usageMetadata;
-    if (usage?.promptTokenCount !== undefined && usage.candidatesTokenCount !== undefined) {
-      defaultMetrics.recordChatTurn(usage.promptTokenCount, usage.candidatesTokenCount);
     }
 
     // sessionId is null when the client's ID is unknown or expired, so it can start a new one
@@ -810,9 +883,9 @@ Return ONLY a valid JSON object matching this schema:
   }
 });
 
-// 404 handler for unknown API routes
-app.all('/api/*', (req, res) => {
-  res.status(404).json({ error: `API route not found: ${req.method} ${req.path}` });
+// 404 handler for unknown API routes (registered before the SPA fallback)
+app.use('/api', (_req, res) => {
+  res.status(404).json({ error: 'Not found' });
 });
 
 const CHAT_HISTORY_TURNS = 6;
@@ -822,7 +895,9 @@ const CHAT_HISTORY_TURNS = 6;
  *
  * The client's own recent history wins. When it has none, e.g. after the app was
  * restarted or a Live call fell back to turn-based, the session's saved checkpoint
- * turns are used so the tutor keeps the thread of the conversation.
+ * turns are used so the tutor keeps the thread of the conversation. If the last
+ * history turn duplicates the new user message, it is dropped so the model sees it
+ * only once.
  *
  * Args:
  *   history: Untrusted client history items (`{sender, text}`), possibly absent.
@@ -844,9 +919,14 @@ export function buildChatContents(
       )
     : [];
   const turns = clientTurns.length > 0 ? clientTurns : checkpointTurns;
+  const lastTurn = turns[turns.length - 1];
+  const priorTurns =
+    lastTurn?.sender === 'user' && lastTurn.text.trim() === userMessage.trim()
+      ? turns.slice(0, -1)
+      : turns;
 
   return [
-    ...turns.slice(-CHAT_HISTORY_TURNS).map((turn) => ({
+    ...priorTurns.slice(-CHAT_HISTORY_TURNS).map((turn) => ({
       role: turn.sender === 'user' ? ('user' as const) : ('model' as const),
       parts: [{ text: turn.text }]
     })),
@@ -889,6 +969,32 @@ export function buildLiveClientOptions(
   };
 }
 
+/** Mount production static asset and SPA routes with immutable caching for /assets and no-cache for index.html. */
+export function registerStaticRoutes(targetApp: express.Express, distDir: string): void {
+  targetApp.use(
+    '/assets',
+    express.static(path.join(distDir, 'assets'), { maxAge: '1y', immutable: true })
+  );
+  targetApp.use(
+    express.static(distDir, {
+      setHeaders: (res, filePath) => {
+        if (path.basename(filePath) === 'index.html') {
+          res.setHeader('Cache-Control', 'no-cache');
+        }
+      },
+    })
+  );
+  targetApp.get(['/privacy', '/terms', '/delete-account'], (req, res) => {
+    const page = req.path.replace(/^\/+|\/+$/g, '').toLowerCase();
+    res.setHeader('Cache-Control', 'no-cache');
+    res.sendFile(path.join(distDir, `${page}.html`));
+  });
+  targetApp.get('*', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache');
+    res.sendFile(path.join(distDir, 'index.html'));
+  });
+}
+
 // Setup Vite middleware in dev or static serving in production
 async function startServer() {
   assertAuthConfig();
@@ -904,10 +1010,7 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    app.use(express.static(path.join(__dirname, 'dist')));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.join(__dirname, 'dist', 'index.html'));
-    });
+    registerStaticRoutes(app, path.join(__dirname, 'dist'));
   }
 
   const server = app.listen(PORT, () => {

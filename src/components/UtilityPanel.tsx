@@ -104,7 +104,7 @@ export const UtilityPanel: React.FC<UtilityPanelProps> = ({
 
         {grammarHighlight ? (
           <div className="mt-3 p-4 rounded-[20px] bg-mint-tint border border-mint">
-            <p className="font-serif text-lg leading-snug text-ink">{grammarHighlight.wordOrPhrase}</p>
+            <p lang="it" className="font-serif text-lg leading-snug text-ink">{grammarHighlight.wordOrPhrase}</p>
             <p className="mt-1.5 text-sm leading-relaxed text-ink-soft">{grammarHighlight.explanation}</p>
           </div>
         ) : (
@@ -121,7 +121,7 @@ export const UtilityPanel: React.FC<UtilityPanelProps> = ({
                 key={phrase.id}
                 className="group relative pl-4 pr-10 py-3 rounded-[18px] bg-coral-tint border border-coral/15"
               >
-                <p className="font-serif text-[15px] font-semibold text-ink">{phrase.it}</p>
+                <p lang="it" className="font-serif text-[15px] font-semibold text-ink">{phrase.it}</p>
                 {phrase.en && <p className="text-xs text-ink-muted mt-0.5">{phrase.en}</p>}
                 <button
                   type="button"
@@ -135,7 +135,7 @@ export const UtilityPanel: React.FC<UtilityPanelProps> = ({
             ))}
           </ul>
         ) : (
-          <p className="mt-2 text-sm text-ink-muted">Tap Save on any message to keep a phrase here.</p>
+          <p className="mt-2 text-sm text-ink-muted">Tap Save on any reply to keep it here.</p>
         )}
       </section>
     </div>

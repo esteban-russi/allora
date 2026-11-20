@@ -70,4 +70,14 @@ describe('MetricsCollector', () => {
     expect(summary.chatTurns.avgEstimatedCostUsd).toBeCloseTo(0.00075, 6);
     expect(summary.liveLessons.completed).toBe(0);
   });
+
+  it('tracks App Check verification outcomes', () => {
+    const metrics = new MetricsCollector();
+    metrics.recordAppCheck('ok');
+    metrics.recordAppCheck('ok');
+    metrics.recordAppCheck('failed');
+    metrics.recordAppCheck('missing');
+
+    expect(metrics.getSummary().appCheck).toEqual({ ok: 2, failed: 1, missing: 1 });
+  });
 });

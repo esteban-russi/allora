@@ -2,6 +2,7 @@
 import type { ClientLearnerSession, ConversationTurn } from '../server/sessionStore';
 import type { CefrLevel, ChatMessage, GrammarNote, LearnerProfile, SavedPhrase } from '../types';
 import { getWithAuth, postJson } from './apiClient';
+import { readQuotaError, type QuotaError } from './quotaError';
 
 const STORAGE_KEY = 'parliamo.learnerSessionId';
 const CEFR_LEVELS: CefrLevel[] = ['A1', 'A2', 'B1', 'B2', 'C1'];
@@ -213,4 +214,99 @@ export async function postChat(request: ChatRequest): Promise<Response> {
     if (body && body.sessionId === null) rememberLearnerSessionId(null);
   }
   return res;
+}
+
+export type ChatReplyErrorReason = 'network' | 'server';
+
+export type ChatTurnResult =
+  | {
+      status: 'ok';
+      text: string;
+      translation: string;
+      grammarNotes: GrammarNote[];
+      quotaUsed?: number;
+    }
+  | { status: 'quota'; quota: QuotaError }
+  | { status: 'premium_required' }
+  | { status: 'error'; reason: ChatReplyErrorReason };
+
+/**
+ * True when an HTTP response is a 403 PREMIUM_REQUIRED refusal.
+ *
+ * Clones the response before reading so non-matching responses keep their unread body.
+ *
+ * Args:
+ *   res: Fetch Response object to check.
+ *
+ * Returns:
+ *   True when the status is 403 and the JSON body has `code: 'PREMIUM_REQUIRED'`.
+ */
+export async function isPremiumRequiredResponse(res: Response): Promise<boolean> {
+  if (res.status !== 403) return false;
+  try {
+    const data = await res.clone().json();
+    return Boolean(data && typeof data === 'object' && data.code === 'PREMIUM_REQUIRED');
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Build the learner-facing error message for a failed tutor reply.
+ *
+ * Args:
+ *   personaName: Display name of the tutor.
+ *   reason: Whether the network request failed or the server returned an error.
+ *
+ * Returns:
+ *   A short message blaming the connection only on network failures.
+ */
+export function formatReplyError(personaName: string, reason: ChatReplyErrorReason): string {
+  return reason === 'network'
+    ? `${personaName} couldn't reply. Check your connection.`
+    : `${personaName} couldn't reply. Something went wrong on our side.`;
+}
+
+/**
+ * Send a chat turn and classify the response as a tutor reply, quota limit, or failure.
+ *
+ * Args:
+ *   request: The chat body, without a sessionId.
+ *
+ * Returns:
+ *   The parsed reply, quota error, or an error marker distinguishing network vs server failures.
+ */
+export async function requestChatReply(request: ChatRequest): Promise<ChatTurnResult> {
+  let res: Response;
+  try {
+    res = await postChat(request);
+  } catch (err) {
+    console.warn('Chat reply request failed:', err);
+    return { status: 'error', reason: 'network' };
+  }
+
+  try {
+    const quota = await readQuotaError(res);
+    if (quota) return { status: 'quota', quota };
+
+    if (await isPremiumRequiredResponse(res)) {
+      return { status: 'premium_required' };
+    }
+
+    if (res.ok) {
+      const data = await res.json();
+      if (typeof data?.text === 'string' && data.text) {
+        return {
+          status: 'ok',
+          text: data.text,
+          translation: typeof data.translation === 'string' ? data.translation : '',
+          grammarNotes: Array.isArray(data.grammarNotes) ? data.grammarNotes : [],
+          quotaUsed: typeof data?.quota?.used === 'number' ? data.quota.used : undefined,
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('Chat reply response invalid:', err);
+  }
+  return { status: 'error', reason: 'server' };
 }

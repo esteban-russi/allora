@@ -6,10 +6,12 @@ import type { AccountStore } from './accountStore';
 import { defaultAccountStore } from './defaultAccountStore';
 import { tierFor } from './plans';
 import { createRevenueCatClient, type RevenueCatClient } from './revenueCat';
+import { createRevenueCatV2Client, type RevenueCatV2Client } from './revenueCatV2';
 import { syncSubscription } from './billingSync';
 
 export interface BillingRouterDeps {
   revenueCat?: RevenueCatClient | null;
+  revenueCatV2?: RevenueCatV2Client | null;
   accounts?: AccountStore;
   now?: () => number;
 }
@@ -70,6 +72,44 @@ export function createBillingRouter(deps: BillingRouterDeps = {}): Router {
     if (!secretKey) return null;
     return createRevenueCatClient(secretKey);
   };
+
+  const getV2Client = (): RevenueCatV2Client | null => {
+    if (deps.revenueCatV2 !== undefined) {
+      return deps.revenueCatV2;
+    }
+    const apiKey = process.env.REVENUECAT_V2_SECRET_KEY?.trim();
+    const projectId = process.env.REVENUECAT_PROJECT_ID?.trim();
+    if (!apiKey || !projectId) return null;
+    return createRevenueCatV2Client(apiKey, projectId);
+  };
+
+  router.get('/manage', async (req: Request, res: Response) => {
+    const revenueCatV2 = getV2Client();
+    if (!revenueCatV2) {
+      res.status(503).json({ code: 'BILLING_UNAVAILABLE' });
+      return;
+    }
+
+    const user = req.user;
+    if (!user || user.isAnonymous) {
+      res.status(403).json({ code: 'SIGN_IN_REQUIRED' });
+      return;
+    }
+
+    try {
+      const url = await revenueCatV2.getManagementUrl(user.userId);
+      if (!url) {
+        res.status(404).json({ code: 'NO_WEB_SUBSCRIPTION' });
+        return;
+      }
+
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ url });
+    } catch (err: unknown) {
+      console.error('[Billing] Management URL failed:', summarizeError(err));
+      res.status(502).json({ code: 'BILLING_UPSTREAM_ERROR' });
+    }
+  });
 
   router.post('/sync', async (req: Request, res: Response) => {
     const revenueCat = getClient();

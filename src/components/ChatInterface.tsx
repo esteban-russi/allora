@@ -1,12 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Bookmark, BookmarkCheck, Headphones, HelpCircle, Languages, Mic, Square, X } from 'lucide-react';
+import { Bookmark, BookmarkCheck, Flag, Headphones, HelpCircle, Languages, Mic, Square, X } from 'lucide-react';
 import { Persona, ChatMessage, DevSettings } from '../types';
 import { PersonaBadge } from './PersonaBadge';
 import { LimitReachedCard } from './LimitReachedCard';
+import { PremiumEndedNotice } from './PremiumEndedNotice';
+import { ReportDialog } from './ReportDialog';
 import { ITALIAN_PRACTICE_PHRASES } from '../data/personas';
 import { speechService, createSpeechRecognizer, AudioRecorder, transcribeAudioBlob } from '../utils/speech';
 import { readQuotaError, QuotaLimitError, type QuotaError } from '../utils/quotaError';
 import { postJson } from '../utils/apiClient';
+import { formatReplyError, type ChatReplyErrorReason } from '../utils/learnerSession';
 
 interface ChatInterfaceProps {
   persona: Persona;
@@ -19,11 +22,15 @@ interface ChatInterfaceProps {
   isAiGenerating?: boolean;
   draft?: string;
   onDraftChange?: (draft: string) => void;
+  failedReply?: { messageId: string; text: string; reason: ChatReplyErrorReason } | null;
+  onRetryReply?: () => void;
   limitReached?: QuotaError | null;
+  premiumEnded?: boolean;
   tier?: string;
   canUpgrade?: boolean;
   onSignIn?: () => void;
   onSeePlans?: () => void;
+  onContinueWithEmmanuele?: () => void;
 }
 
 const ACCENTS = ['à', 'è', 'é', 'ì', 'ò', 'ù'];
@@ -38,11 +45,15 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   isAiGenerating = false,
   draft,
   onDraftChange,
+  failedReply,
+  onRetryReply,
   limitReached,
+  premiumEnded = false,
   tier,
   canUpgrade,
   onSignIn,
-  onSeePlans
+  onSeePlans,
+  onContinueWithEmmanuele
 }) => {
   const [inputText, setInputText] = useState<string>(draft ?? '');
   const [visibleTranslations, setVisibleTranslations] = useState<Set<string>>(new Set());
@@ -52,6 +63,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [isHelpOpen, setIsHelpOpen] = useState<boolean>(false);
   const [listenLimitMsgId, setListenLimitMsgId] = useState<string | null>(null);
   const [translateLimitMsgId, setTranslateLimitMsgId] = useState<string | null>(null);
+  const [reportedText, setReportedText] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -273,11 +285,32 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
           const showTranslation = !!message.translation && visibleTranslations.has(message.id);
 
           if (isUser) {
+            const isFailed = failedReply?.messageId === message.id;
             return (
-              <div key={message.id} className="flex justify-end">
-                <div className="max-w-[85%] sm:max-w-[70%] px-5 py-3.5 rounded-[20px] rounded-br-md bg-mint-tint text-ink">
-                  <p className="font-serif text-[17px] sm:text-[19px] leading-snug">{message.text}</p>
+              <div key={message.id} className="space-y-1.5">
+                <div className="flex justify-end">
+                  <div className="max-w-[85%] sm:max-w-[70%] px-5 py-3.5 rounded-[20px] rounded-br-md bg-mint-tint text-ink">
+                    <p className="font-serif text-[17px] sm:text-[19px] leading-snug">{message.text}</p>
+                  </div>
                 </div>
+                {isFailed && (
+                  <div
+                    role="alert"
+                    className="flex items-center justify-end gap-3 text-xs text-coral-strong pr-1"
+                  >
+                    <span>{formatReplyError(persona.name, failedReply.reason)}</span>
+                    {onRetryReply && (
+                      <button
+                        type="button"
+                        onClick={onRetryReply}
+                        disabled={isAiGenerating}
+                        className="font-semibold text-cobalt hover:text-cobalt-strong underline underline-offset-2 disabled:opacity-50"
+                      >
+                        Try again
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             );
           }
@@ -286,7 +319,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             <div key={message.id} className="flex items-start gap-3 sm:gap-4">
               <PersonaBadge persona={persona} size="sm" speakingState={isPlaying ? 'speaking' : 'idle'} className="mt-1" />
               <div className="max-w-[85%] sm:max-w-[70%] px-5 pt-4 pb-3 rounded-[20px] rounded-bl-md bg-cobalt-tint text-ink">
-                <p className="font-serif text-[17px] sm:text-[19px] leading-snug">{message.text}</p>
+                <p lang="it" className="font-serif text-[17px] sm:text-[19px] leading-snug">{message.text}</p>
                 {showTranslation && (
                   <p className="mt-1.5 text-[13px] leading-relaxed text-ink-muted">{message.translation}</p>
                 )}
@@ -335,6 +368,18 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     {isSaved ? <BookmarkCheck className="w-4 h-4" aria-hidden="true" /> : <Bookmark className="w-4 h-4" aria-hidden="true" />}
                     {isSaved ? 'Saved' : 'Save'}
                   </button>
+                  <span className="w-px h-4 bg-cobalt/25 mx-1" aria-hidden="true" />
+                  <button
+                    type="button"
+                    onClick={() => setReportedText(message.text)}
+                    aria-label="Report this reply"
+                    className="group flex items-center gap-1.5 px-2 py-1 rounded-full text-ink-muted hover:text-coral-strong hover:bg-coral/10 focus-visible:text-coral-strong transition-colors"
+                  >
+                    <Flag className="w-4 h-4" aria-hidden="true" />
+                    <span className="max-w-0 overflow-hidden opacity-0 group-hover:max-w-16 group-hover:opacity-100 group-focus-visible:max-w-16 group-focus-visible:opacity-100 transition-all duration-150">
+                      Report
+                    </span>
+                  </button>
                 </div>
               </div>
             </div>
@@ -363,6 +408,15 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
           />
         )}
 
+        {premiumEnded && onContinueWithEmmanuele && (
+          <PremiumEndedNotice
+            tutorName={persona.name}
+            canUpgrade={canUpgrade ?? false}
+            onSeePlans={onSeePlans}
+            onContinueWithEmmanuele={onContinueWithEmmanuele}
+          />
+        )}
+
         <div ref={messagesEndRef} />
       </div>
 
@@ -373,6 +427,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             <button
               key={word}
               type="button"
+              lang="it"
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => insertQuickReply(word)}
               className="shrink-0 px-5 py-2 rounded-full bg-coral-tint border border-transparent hover:border-coral text-ink text-[15px] transition-colors"
@@ -411,7 +466,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                       }}
                       className="w-full text-left px-3 py-2 rounded-2xl hover:bg-cobalt-tint transition-colors"
                     >
-                      <span className="block font-serif text-[15px] text-ink">{phrase.it}</span>
+                      <span lang="it" className="block font-serif text-[15px] text-ink">{phrase.it}</span>
                       <span className="block text-xs text-ink-muted">{phrase.en}</span>
                     </button>
                   </li>
@@ -500,6 +555,13 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
           </div>
         </div>
       </div>
+
+      <ReportDialog
+        isOpen={reportedText !== null}
+        reportedText={reportedText ?? ''}
+        source="chat"
+        onClose={() => setReportedText(null)}
+      />
     </main>
   );
 };

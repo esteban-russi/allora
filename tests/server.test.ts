@@ -1,8 +1,12 @@
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import express from 'express';
 import request from 'supertest';
 import type { GoogleGenAI } from '@google/genai';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { VertexCooldown } from '../vertexCooldown';
-import { app, primaryAi, buildChatContents, buildFirebaseClientConfig, canReadMetrics, buildLiveClientOptions, cloudSttEncodingFor, parseModelJsonResponse, stripBase64DataUrlPrefix } from '../server';
+import { app, primaryAi, buildChatContents, buildFirebaseClientConfig, canReadMetrics, buildLiveClientOptions, cloudSttEncodingFor, parseModelJsonResponse, registerStaticRoutes, stripBase64DataUrlPrefix } from '../server';
 import { buildSystemInstruction, buildVoiceCallInstruction, LEVEL_PROMPTS, sanitizeLearnerName } from '../src/data/personaPrompts';
 
 describe('parseModelJsonResponse', () => {
@@ -52,27 +56,46 @@ describe('cloudSttEncodingFor', () => {
 });
 
 describe('GET /api/health', () => {
-  it('reports status without leaking the GCP project ID, metrics, or privacy config', async () => {
+  it('returns only status ok without exposing models, credentials, metrics, or privacy config', async () => {
     const res = await request(app).get('/api/health');
 
     expect(res.status).toBe(200);
-    expect(res.body.status).toBe('ok');
-    expect(res.body).toHaveProperty('billing');
-    expect(res.body.gcp).not.toHaveProperty('project');
-    expect(res.body).not.toHaveProperty('metrics');
-    expect(res.body).not.toHaveProperty('privacy');
+    expect(res.body).toEqual({ status: 'ok' });
   });
 });
 
 describe('GET /api/metrics', () => {
   afterEach(() => vi.unstubAllEnvs());
 
-  it('serves metrics and privacy mode in local development', async () => {
+  it('serves runtime config, privacy mode, and metrics in local development', async () => {
     const res = await request(app).get('/api/metrics').set('x-dev-user-id', 'local-dev');
 
     expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('billing');
+    expect(res.body.models).toEqual({
+      chat: expect.any(String),
+      tts: expect.any(String),
+      live: expect.any(String),
+    });
+    expect(res.body.gcp).toMatchObject({
+      region: expect.any(String),
+      hasGeminiKey: expect.any(Boolean),
+      hasGcpProject: expect.any(Boolean),
+      clients: {
+        vertexAi: expect.any(Boolean),
+        aiStudio: expect.any(Boolean),
+        cloudTts: expect.any(Boolean),
+        cloudSpeech: expect.any(Boolean),
+      },
+    });
+    expect(res.body.gcp).not.toHaveProperty('project');
     expect(res.body.privacy.mode).toBe('vertex_only');
     expect(res.body.metrics).toHaveProperty('ttfa');
+    expect(res.body.metrics.appCheck).toEqual({
+      ok: expect.any(Number),
+      failed: expect.any(Number),
+      missing: expect.any(Number),
+    });
   });
 
   it('restricts metrics to listed operators when auth is enforced', () => {
@@ -206,12 +229,143 @@ describe('request body limits', () => {
   });
 });
 
+describe('HTTP hardening', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('sets security headers and omits X-Powered-By and HSTS outside production', async () => {
+    vi.stubEnv('NODE_ENV', 'test');
+    const res = await request(app).get('/api/health');
+
+    expect(res.headers['x-powered-by']).toBeUndefined();
+    expect(res.headers['x-content-type-options']).toBe('nosniff');
+    expect(res.headers['referrer-policy']).toBe('strict-origin-when-cross-origin');
+    expect(res.headers['x-frame-options']).toBe('DENY');
+    expect(res.headers['strict-transport-security']).toBeUndefined();
+  });
+
+  it('sets Strict-Transport-Security in production', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    const res = await request(app).get('/api/health');
+
+    expect(res.headers['strict-transport-security']).toBe('max-age=31536000');
+  });
+
+  it('caches hashed /assets immutably and serves index.html with no-cache', async () => {
+    const tmpDist = fs.mkdtempSync(path.join(os.tmpdir(), 'allora-dist-'));
+    try {
+      fs.mkdirSync(path.join(tmpDist, 'assets'));
+      fs.writeFileSync(path.join(tmpDist, 'assets', 'app-123.js'), 'console.log(1);');
+      fs.writeFileSync(path.join(tmpDist, 'index.html'), '<!doctype html><html></html>');
+
+      const staticApp = express();
+      registerStaticRoutes(staticApp, tmpDist);
+
+      const assetRes = await request(staticApp).get('/assets/app-123.js');
+      expect(assetRes.status).toBe(200);
+      expect(assetRes.headers['cache-control']).toBe('public, max-age=31536000, immutable');
+
+      const rootRes = await request(staticApp).get('/');
+      expect(rootRes.status).toBe(200);
+      expect(rootRes.headers['cache-control']).toBe('no-cache');
+
+      const spaRes = await request(staticApp).get('/some/client/route');
+      expect(spaRes.status).toBe(200);
+      expect(spaRes.headers['cache-control']).toBe('no-cache');
+    } finally {
+      fs.rmSync(tmpDist, { recursive: true, force: true });
+    }
+  });
+
+  it('serves /privacy, /terms, and /delete-account from their static HTML files', async () => {
+    const tmpDist = fs.mkdtempSync(path.join(os.tmpdir(), 'allora-legal-'));
+    try {
+      fs.writeFileSync(path.join(tmpDist, 'index.html'), '<!doctype html><html><body>SPA</body></html>');
+      fs.writeFileSync(path.join(tmpDist, 'privacy.html'), '<!doctype html><html><body>Privacy</body></html>');
+      fs.writeFileSync(path.join(tmpDist, 'terms.html'), '<!doctype html><html><body>Terms</body></html>');
+      fs.writeFileSync(
+        path.join(tmpDist, 'delete-account.html'),
+        '<!doctype html><html><body>Delete Account</body></html>'
+      );
+
+      const staticApp = express();
+      registerStaticRoutes(staticApp, tmpDist);
+
+      for (const [route, marker] of [
+        ['/privacy', 'Privacy'],
+        ['/privacy/', 'Privacy'],
+        ['/terms', 'Terms'],
+        ['/delete-account', 'Delete Account'],
+      ] as const) {
+        const res = await request(staticApp).get(route);
+        expect(res.status).toBe(200);
+        expect(res.headers['cache-control']).toBe('no-cache');
+        expect(res.text).toContain(marker);
+        expect(res.text).not.toContain('SPA');
+      }
+    } finally {
+      fs.rmSync(tmpDist, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('canonical host redirect', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('redirects GET / on another host to APP_URL with 308 in production', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('APP_URL', 'https://app.example.com');
+
+    const res = await request(app)
+      .get('/?ref=old')
+      .set('Host', 'allora-xyz.a.run.app');
+
+    expect(res.status).toBe(308);
+    expect(res.headers.location).toBe('https://app.example.com/?ref=old');
+  });
+
+  it('never redirects /api/health or /.well-known requests', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('APP_URL', 'https://app.example.com');
+
+    const healthRes = await request(app)
+      .get('/api/health')
+      .set('Host', 'allora-xyz.a.run.app');
+    expect(healthRes.status).toBe(200);
+    expect(healthRes.body).toEqual({ status: 'ok' });
+
+    const wellKnownRes = await request(app)
+      .get('/.well-known/assetlinks.json')
+      .set('Host', 'allora-xyz.a.run.app');
+    expect(wellKnownRes.status).not.toBe(308);
+  });
+
+  it('does not redirect when APP_URL is unset or empty', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('APP_URL', '');
+
+    const emptyRes = await request(app)
+      .get('/')
+      .set('Host', 'allora-xyz.a.run.app');
+    expect(emptyRes.status).not.toBe(308);
+
+    delete process.env.APP_URL;
+    const unsetRes = await request(app)
+      .get('/')
+      .set('Host', 'allora-xyz.a.run.app');
+    expect(unsetRes.status).not.toBe(308);
+  });
+});
+
 describe('API 404 fallback', () => {
   it('returns structured JSON 404 for unknown /api routes', async () => {
-    const res = await request(app).get('/api/nonexistent-route');
-    expect(res.status).toBe(404);
-    expect(res.body).toHaveProperty('error');
-    expect(res.body.error).toMatch(/API route not found/);
+    const getRes = await request(app).get('/api/typo');
+    expect(getRes.status).toBe(404);
+    expect(getRes.headers['content-type']).toMatch(/application\/json/);
+    expect(getRes.body).toEqual({ error: 'Not found' });
+
+    const postRes = await request(app).post('/api/nonexistent-route');
+    expect(postRes.status).toBe(404);
+    expect(postRes.body).toEqual({ error: 'Not found' });
   });
 });
 
@@ -420,22 +574,57 @@ describe('buildChatContents', () => {
     expect(contents).toHaveLength(7);
     expect(contents[0].parts[0].text).toBe('m2');
   });
+
+  it('drops a trailing user turn that duplicates the new userMessage', () => {
+    const history = [
+      { sender: 'persona', text: 'Ciao! Come stai?' },
+      { sender: 'user', text: '  Bene, grazie!  ' }
+    ];
+    const contents = buildChatContents(history, [], 'Bene, grazie!');
+    expect(contents).toEqual([
+      { role: 'model', parts: [{ text: 'Ciao! Come stai?' }] },
+      { role: 'user', parts: [{ text: 'Bene, grazie!' }] }
+    ]);
+  });
+
+  it('keeps a trailing user turn when its text differs from userMessage', () => {
+    const history = [
+      { sender: 'persona', text: 'Ciao! Come stai?' },
+      { sender: 'user', text: 'Bene, grazie!' }
+    ];
+    const contents = buildChatContents(history, [], 'E tu?');
+    expect(contents).toEqual([
+      { role: 'model', parts: [{ text: 'Ciao! Come stai?' }] },
+      { role: 'user', parts: [{ text: 'Bene, grazie!' }] },
+      { role: 'user', parts: [{ text: 'E tu?' }] }
+    ]);
+  });
 });
 
 describe('buildFirebaseClientConfig', () => {
   const env = { FIREBASE_API_KEY: 'api-key', FIREBASE_APP_ID: '1:123:web:abc', GCP_PROJECT: 'demo' };
 
-  it('defaults the auth domain to the project firebaseapp.com domain', () => {
+  it('defaults the auth domain to the project firebaseapp.com domain and appCheckSiteKey to null', () => {
     expect(buildFirebaseClientConfig(env)).toEqual({
       apiKey: 'api-key',
       authDomain: 'demo.firebaseapp.com',
       projectId: 'demo',
-      appId: '1:123:web:abc'
+      appId: '1:123:web:abc',
+      appCheckSiteKey: null
     });
   });
 
-  it('uses FIREBASE_AUTH_DOMAIN when set', () => {
-    expect(buildFirebaseClientConfig({ ...env, FIREBASE_AUTH_DOMAIN: 'login.example' })?.authDomain).toBe('login.example');
+  it('uses FIREBASE_AUTH_DOMAIN and trims FIREBASE_APPCHECK_SITE_KEY when set', () => {
+    expect(
+      buildFirebaseClientConfig({
+        ...env,
+        FIREBASE_AUTH_DOMAIN: 'login.example',
+        FIREBASE_APPCHECK_SITE_KEY: '  6Le-site-key  '
+      })
+    ).toMatchObject({
+      authDomain: 'login.example',
+      appCheckSiteKey: '6Le-site-key'
+    });
   });
 
   it.each(['FIREBASE_API_KEY', 'FIREBASE_APP_ID', 'GCP_PROJECT'])('returns null without %s', (key) => {
@@ -459,6 +648,22 @@ describe('GET /api/auth-config', () => {
     const res = await request(app).get('/api/auth-config');
     expect(res.status).toBe(200);
     expect(res.body.billing).toEqual({ revenueCatWebKey: 'rc_pub_test123' });
+  });
+
+  it('serves firebase.appCheckSiteKey from FIREBASE_APPCHECK_SITE_KEY or null when unset', async () => {
+    vi.stubEnv('FIREBASE_API_KEY', 'api-key');
+    vi.stubEnv('FIREBASE_APP_ID', '1:123:web:abc');
+    vi.stubEnv('GCP_PROJECT', 'demo');
+    vi.stubEnv('FIREBASE_APPCHECK_SITE_KEY', '');
+
+    const unsetRes = await request(app).get('/api/auth-config');
+    expect(unsetRes.status).toBe(200);
+    expect(unsetRes.body.firebase.appCheckSiteKey).toBeNull();
+
+    vi.stubEnv('FIREBASE_APPCHECK_SITE_KEY', '  site-key-xyz  ');
+    const setRes = await request(app).get('/api/auth-config');
+    expect(setRes.status).toBe(200);
+    expect(setRes.body.firebase.appCheckSiteKey).toBe('site-key-xyz');
   });
 });
 
@@ -506,7 +711,28 @@ describe('GET /api/me', () => {
       helperRequests: 0
     });
     expect(typeof res.body.resetsAt).toBe('string');
+    expect(res.body.consent).toBeNull();
     expect(res.body.subscription).toBeNull();
+  });
+
+  it('returns stored consent on GET /api/me after POST /api/account/consent', async () => {
+    const before = await request(app)
+      .get('/api/me')
+      .set('x-dev-user-id', 'u-me-consent');
+    expect(before.status).toBe(200);
+    expect(before.body.consent).toBeNull();
+
+    const save = await request(app)
+      .post('/api/account/consent')
+      .set('x-dev-user-id', 'u-me-consent')
+      .send({ termsVersion: '2026-11' });
+    expect(save.status).toBe(200);
+
+    const after = await request(app)
+      .get('/api/me')
+      .set('x-dev-user-id', 'u-me-consent');
+    expect(after.status).toBe(200);
+    expect(after.body.consent).toEqual(save.body.consent);
   });
 });
 
@@ -572,5 +798,49 @@ describe('RevenueCat webhook rate limiting', () => {
       statuses.add(res.status);
     }
     expect(statuses.has(429)).toBe(false);
+  });
+});
+
+describe('App Check middleware wiring', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('rejects covered routes before auth when APP_CHECK_MODE=enforce', async () => {
+    vi.stubEnv('APP_CHECK_MODE', 'enforce');
+
+    const chatRes = await request(app)
+      .post('/api/chat')
+      .set('Authorization', 'Bearer bad-auth-token')
+      .send({});
+    expect(chatRes.status).toBe(401);
+    expect(chatRes.body).toEqual({
+      error: 'App verification failed',
+      code: 'APP_CHECK_REQUIRED'
+    });
+
+    const meRes = await request(app).get('/api/me');
+    expect(meRes.status).toBe(401);
+    expect(meRes.body.code).toBe('APP_CHECK_REQUIRED');
+  });
+
+  it('leaves public and webhook routes uncovered when APP_CHECK_MODE=enforce', async () => {
+    vi.stubEnv('APP_CHECK_MODE', 'enforce');
+
+    const health = await request(app).get('/api/health');
+    expect(health.status).toBe(200);
+
+    const authConfig = await request(app).get('/api/auth-config');
+    expect(authConfig.status).toBe(200);
+
+    const webhook = await request(app).post('/api/webhooks/revenuecat').send({});
+    expect(webhook.body?.code).not.toBe('APP_CHECK_REQUIRED');
+  });
+
+  it('allows covered routes without a token when APP_CHECK_MODE=monitor', async () => {
+    vi.stubEnv('APP_CHECK_MODE', 'monitor');
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const res = await request(app).post('/api/chat').send({});
+    expect(res.status).toBe(400);
+    warnSpy.mockRestore();
   });
 });

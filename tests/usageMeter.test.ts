@@ -13,6 +13,7 @@ describe('UsageMeter', () => {
     limits: { chatMessages: 15, voiceSeconds: 300, helperRequests: 100 },
     usage: { chatMessages: 7, voiceSeconds: 120, helperRequests: 10 },
     resetsAt: '2026-11-20T00:00:00.000Z',
+    consent: null,
     subscription: null
   };
 
@@ -24,6 +25,7 @@ describe('UsageMeter', () => {
     limits: { chatMessages: 300, voiceSeconds: 3600, helperRequests: 1000 },
     usage: { chatMessages: 42, voiceSeconds: 720, helperRequests: 50 },
     resetsAt: '2026-11-20T00:00:00.000Z',
+    consent: null,
     subscription: {
       status: 'active',
       productId: 'allora_pro_annual',

@@ -1,17 +1,16 @@
 /** Anonymous and federated Firebase sign-in for the browser client. */
 import { postJson, setAuthTokenProvider } from './apiClient';
+import { initAppCheck } from './appCheck';
 import { rememberLearnerSessionId } from './learnerSession';
-import { loadClientConfig } from './clientConfig';
+import {
+  loadClientConfig,
+  parseFirebaseClientConfig,
+  type FirebaseClientConfig
+} from './clientConfig';
+
+export { parseFirebaseClientConfig, type FirebaseClientConfig };
 
 export const EMAIL_FOR_SIGN_IN_KEY = 'parliamo.emailForSignIn';
-
-/** Public Firebase web config, served by `GET /api/auth-config`. */
-export interface FirebaseClientConfig {
-  apiKey: string;
-  authDomain: string;
-  projectId: string;
-  appId: string;
-}
 
 /** Result of a sign-in operation. */
 export type SignInResult =
@@ -36,28 +35,6 @@ export function setAuthInstanceForTesting(auth: any | null): void {
   authReady = auth ? Promise.resolve(auth) : null;
 }
 
-/**
- * Check that a value from the server is a usable Firebase config.
- *
- * Args:
- *   value: Parsed `firebase` field of the `/api/auth-config` response.
- *
- * Returns:
- *   The config, or null when it is missing or any field is not a non-empty string.
- */
-export function parseFirebaseClientConfig(value: unknown): FirebaseClientConfig | null {
-  if (!value || typeof value !== 'object') return null;
-  const config = value as Record<string, unknown>;
-  const fields = ['apiKey', 'authDomain', 'projectId', 'appId'] as const;
-  if (!fields.every((field) => typeof config[field] === 'string' && config[field] !== '')) return null;
-  return {
-    apiKey: config.apiKey as string,
-    authDomain: config.authDomain as string,
-    projectId: config.projectId as string,
-    appId: config.appId as string
-  };
-}
-
 async function fetchFirebaseConfig(): Promise<FirebaseClientConfig | null> {
   const { firebase } = await loadClientConfig();
   return firebase;
@@ -69,7 +46,9 @@ async function signInWithFirebase(config: FirebaseClientConfig): Promise<TokenGe
     import('firebase/app'),
     import('firebase/auth')
   ]);
-  const auth = getAuth(initializeApp(config));
+  const app = initializeApp(config);
+  initAppCheck(app, config.appCheckSiteKey ?? null);
+  const auth = getAuth(app);
   authInstance = auth;
   authReady = Promise.resolve(auth);
   // Reuse the anonymous account persisted on this device, so the learner keeps their sessions
@@ -120,7 +99,9 @@ async function ensureAuth(): Promise<any> {
         import('firebase/app'),
         import('firebase/auth')
       ]);
-      const auth = getAuth(initializeApp(config));
+      const app = initializeApp(config);
+      initAppCheck(app, config.appCheckSiteKey ?? null);
+      const auth = getAuth(app);
       authInstance = auth;
       await auth.authStateReady();
       return auth;

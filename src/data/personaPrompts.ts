@@ -17,6 +17,17 @@ export const PERSONA_VOICES: Record<string, string> = {
   emmanuele: 'Charon'
 };
 
+/** Persona IDs that require a Premium subscription. */
+export const PREMIUM_PERSONA_IDS: readonly string[] = [];
+
+/** True when the given persona id requires a Premium subscription. */
+export function isPremiumPersona(
+  id: string,
+  premiumIds: readonly string[] = PREMIUM_PERSONA_IDS
+): boolean {
+  return premiumIds.includes(id);
+}
+
 /** Correction strictness values accepted by the chat and voice-call endpoints. */
 export const GRAMMAR_STRICTNESS_LEVELS = ['conversational', 'tutor', 'strict'];
 
@@ -68,6 +79,14 @@ function buildTutorContext(options: InstructionOptions): string[] {
   ].filter(Boolean);
 }
 
+/** Safety guardrails appended to both chat and voice tutor system instructions. */
+export const SAFETY_INSTRUCTION =
+  'Stay in your role as a friendly Italian tutor. If the learner asks for sexual, ' +
+  'violent, hateful or dangerous content, or for medical, legal or financial advice, ' +
+  'decline briefly in Italian and steer back to language practice. If the learner ' +
+  'seems to be in distress, respond with care and suggest contacting local emergency ' +
+  'services or someone they trust.';
+
 /** Build the full server-owned system instruction for a persona, CEFR level, and grammar strictness. */
 export function buildSystemInstruction(options: InstructionOptions): string {
   return [
@@ -86,7 +105,9 @@ export function buildSystemInstruction(options: InstructionOptions): string {
     '      "category": "verb" | "idiom" | "grammar" | "vocabulary" | "cultural"',
     '    }',
     '  ]',
-    '}'
+    '}',
+    '',
+    SAFETY_INSTRUCTION
   ].join('\n');
 }
 
@@ -101,6 +122,8 @@ export function buildVoiceCallInstruction(options: InstructionOptions): string {
     ...buildTutorContext(options),
     'Questa è una telefonata: parla SEMPRE in italiano, con frasi brevi e naturali (una o due frasi per turno), poi lascia parlare lo studente.',
     'Se lo studente sbaglia, ripeti la frase corretta in modo naturale invece di spiegare la grammatica.',
-    'Non leggere mai ad alta voce simboli, elenchi o formattazione.'
+    'Non leggere mai ad alta voce simboli, elenchi o formattazione.',
+    '',
+    SAFETY_INSTRUCTION
   ].join('\n');
 }

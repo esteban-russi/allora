@@ -1,40 +1,126 @@
-import React, { useState } from 'react';
-import { ArrowRight, Check, MapPin, Sparkles } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { ArrowRight, Check, Lock, MapPin, Sparkles } from 'lucide-react';
 import { CefrLevel, LearnerProfile, Persona } from '../types';
 import { CEFR_LEVEL_OPTIONS, TUTORS } from '../data/personas';
 import { UserBadge } from './UserBadge';
+import { ConsentCheckbox } from './ConsentCheckbox';
+import { LegalLinks } from './LegalLinks';
+import { PersonaProfileModal } from './PersonaProfileModal';
 import { BRAND } from '../data/brand';
+import { TERMS_VERSION } from '../data/legal';
+import type { Consent, Tier } from '../server/accountStore';
+import { submitConsent } from '../utils/me';
 
-interface OnboardingPageProps {
+export type TutorSelectOutcome =
+  | { action: 'select'; tutorId: string }
+  | { action: 'see-plans'; tutorId: string }
+  | { action: 'noop' };
+
+/**
+ * Decide what happens when the learner selects a tutor card.
+ *
+ * Args:
+ *   tutor: Tutor card tapped.
+ *   tier: Current account tier.
+ *   canUpgrade: Whether billing / plans screen is available.
+ *
+ * Returns:
+ *   Whether to select the tutor, open plans for it, or ignore the tap.
+ */
+export function resolveTutorSelection(
+  tutor: Pick<Persona, 'id' | 'isPremium'>,
+  tier: Tier,
+  canUpgrade: boolean
+): TutorSelectOutcome {
+  if (!tutor.isPremium || tier === 'premium') {
+    return { action: 'select', tutorId: tutor.id };
+  }
+  if (!canUpgrade) {
+    return { action: 'noop' };
+  }
+  return { action: 'see-plans', tutorId: tutor.id };
+}
+
+export interface OnboardingPageProps {
   initialProfile?: LearnerProfile | null;
-  onComplete: (profile: LearnerProfile) => void;
+  initialTutorId?: string;
+  initialConsentAccepted?: boolean;
+  tier?: Tier;
+  canUpgrade?: boolean;
+  onSeePlans?: (tutorId: string) => void;
+  tutors?: readonly Persona[];
+  onComplete: (profile: LearnerProfile, consent?: Consent) => void;
   onLogin?: () => void;
 }
 
 export const OnboardingPage: React.FC<OnboardingPageProps> = ({
   initialProfile,
+  initialTutorId,
+  initialConsentAccepted = false,
+  tier = 'free',
+  canUpgrade = false,
+  onSeePlans,
+  tutors = TUTORS,
   onComplete,
   onLogin
 }) => {
   const [name, setName] = useState<string>(initialProfile?.name ?? '');
   const [level, setLevel] = useState<CefrLevel>(initialProfile?.level ?? 'A2');
   const [selectedTutorId, setSelectedTutorId] = useState<string>(
-    initialProfile?.personaId ?? TUTORS[0].id
+    initialTutorId ?? initialProfile?.personaId ?? tutors[0].id
   );
+  const [profileModalTutor, setProfileModalTutor] = useState<Persona | null>(null);
+  const [hasConsented, setHasConsented] = useState<boolean>(initialConsentAccepted);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [consentError, setConsentError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (initialTutorId) setSelectedTutorId(initialTutorId);
+  }, [initialTutorId]);
 
   const trimmedName = name.trim();
   const learnerInitial = (trimmedName.charAt(0) || '?').toUpperCase();
+  const fallbackTutor: Persona = tutors.find((t) => !t.isPremium) ?? tutors[0];
+  const candidateTutor = tutors.find((t) => t.id === selectedTutorId);
   const selectedTutor: Persona =
-    TUTORS.find((t) => t.id === selectedTutorId) ?? TUTORS[0];
+    candidateTutor && (!candidateTutor.isPremium || tier === 'premium')
+      ? candidateTutor
+      : fallbackTutor;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleTutorSelect = (tutor: Persona) => {
+    const outcome = resolveTutorSelection(tutor, tier, canUpgrade);
+    if (outcome.action === 'select') {
+      setSelectedTutorId(outcome.tutorId);
+    } else if (outcome.action === 'see-plans') {
+      onSeePlans?.(outcome.tutorId);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!trimmedName) return;
-    onComplete({
-      name: trimmedName,
-      level,
-      personaId: selectedTutor.id
-    });
+    if (!trimmedName || !hasConsented || isSubmitting) return;
+
+    let savedConsent: Consent | undefined;
+    if (!initialConsentAccepted) {
+      setIsSubmitting(true);
+      setConsentError(null);
+      const consent = await submitConsent(TERMS_VERSION);
+      setIsSubmitting(false);
+      if (!consent) {
+        setConsentError('Could not save your confirmation. Please try again.');
+        return;
+      }
+      savedConsent = consent;
+    }
+
+    onComplete(
+      {
+        name: trimmedName,
+        level,
+        personaId: selectedTutor.id
+      },
+      savedConsent
+    );
   };
 
   return (
@@ -68,7 +154,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
         >
           {/* Intro header */}
           <div className="space-y-2">
-            <p className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cobalt-tint text-cobalt text-xs font-semibold tracking-[0.06em] uppercase">
+            <p lang="it" className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cobalt-tint text-cobalt text-xs font-semibold tracking-[0.06em] uppercase">
               <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
               Benvenuto
             </p>
@@ -77,6 +163,10 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
             </h1>
             <p className="text-base text-ink-muted">
               Tell us your name, choose your Italian level so the conversation vocabulary adapts to you, and pick your tutor.
+            </p>
+            <p className="text-sm text-ink-soft">
+              {selectedTutor.name} is an AI character.{' '}
+              {selectedTutor.voiceGender === 'female' ? 'Her' : 'His'} replies can contain mistakes.
             </p>
           </div>
 
@@ -91,7 +181,7 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                   Step 1
                 </span>
                 <h2 id="onboarding-name-heading" className="font-serif text-xl text-ink mt-0.5">
-                  Come ti chiami? · What is your name?
+                  <span lang="it">Come ti chiami?</span> · What is your name?
                 </h2>
               </div>
               <UserBadge initial={learnerInitial} />
@@ -199,9 +289,11 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
                   Choose your tutor
                 </h2>
               </div>
-              <span className="text-xs text-ink-muted">
-                More regional tutors coming soon
-              </span>
+              {tutors.length <= 1 && (
+                <span className="text-xs text-ink-muted">
+                  More regional tutors coming soon
+                </span>
+              )}
             </div>
 
             <div
@@ -209,79 +301,159 @@ export const OnboardingPage: React.FC<OnboardingPageProps> = ({
               aria-labelledby="onboarding-tutor-heading"
               className="grid grid-cols-1 gap-3"
             >
-              {TUTORS.map((tutor) => {
+              {tutors.map((tutor) => {
                 const isSelected = selectedTutor.id === tutor.id;
+                const isLocked = tutor.isPremium && tier !== 'premium';
+                const isUnavailable = isLocked && !canUpgrade;
                 return (
-                  <button
+                  <div
                     key={tutor.id}
-                    type="button"
-                    role="radio"
-                    aria-checked={isSelected}
-                    onClick={() => setSelectedTutorId(tutor.id)}
-                    className={`w-full text-left p-4 sm:p-5 rounded-[20px] border-[1.5px] transition-all flex flex-col sm:flex-row items-start gap-4 ${
+                    className={`w-full p-4 sm:p-5 rounded-[20px] border-[1.5px] transition-all ${
                       isSelected
                         ? 'bg-cobalt-tint/60 border-cobalt shadow-soft'
-                        : 'bg-canvas border-line hover:border-cobalt/40'
+                        : isUnavailable
+                          ? 'bg-canvas border-line opacity-75'
+                          : 'bg-canvas border-line hover:border-cobalt/40'
                     }`}
                   >
-                    <img
-                      src={tutor.avatar.idle}
-                      alt=""
-                      className="w-16 h-20 rounded-2xl object-cover object-top bg-[#fbf3e6] shrink-0 ring-2 ring-cobalt"
-                    />
-                    <div className="flex-1 min-w-0 space-y-1.5">
-                      <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <div>
-                          <h3 className="font-serif text-xl font-semibold text-ink">
-                            {tutor.fullName}
-                          </h3>
-                          <p className="text-xs text-ink-muted flex items-center gap-1 mt-0.5">
-                            <MapPin className="w-3.5 h-3.5 text-coral shrink-0" aria-hidden="true" />
-                            <span>
-                              {tutor.role} · {tutor.city}, {tutor.region}
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={isSelected}
+                      aria-disabled={isUnavailable || undefined}
+                      onClick={() => handleTutorSelect(tutor)}
+                      className={`w-full text-left flex flex-col sm:flex-row items-start gap-4 focus:outline-none ${
+                        isUnavailable ? 'cursor-not-allowed' : 'cursor-pointer'
+                      }`}
+                    >
+                      <img
+                        src={tutor.avatar.idle}
+                        alt=""
+                        className="w-16 h-20 rounded-2xl object-cover object-top bg-[#fbf3e6] shrink-0 ring-2 ring-cobalt"
+                      />
+                      <div className="flex-1 min-w-0 space-y-1.5">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h3 className="font-serif text-xl font-semibold text-ink">
+                                {tutor.fullName}
+                              </h3>
+                              <span className="px-2 py-0.5 rounded-full bg-cobalt-tint border border-cobalt/20 text-cobalt text-[11px] font-semibold">
+                                AI tutor
+                              </span>
+                              {isUnavailable ? (
+                                <span className="px-2 py-0.5 rounded-full bg-surface border border-line text-ink-muted text-[11px] font-semibold">
+                                  Coming soon
+                                </span>
+                              ) : tutor.isPremium ? (
+                                <span
+                                  aria-label="Premium tutor"
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-coral-tint border border-coral/30 text-ink text-[11px] font-semibold"
+                                >
+                                  <Lock className="w-3 h-3 text-coral" aria-hidden="true" />
+                                  Premium
+                                </span>
+                              ) : null}
+                            </div>
+                            <p className="text-xs text-ink-muted flex items-center gap-1 mt-0.5">
+                              <MapPin className="w-3.5 h-3.5 text-coral shrink-0" aria-hidden="true" />
+                              <span>
+                                {tutor.role} · {tutor.city}, {tutor.region}
+                              </span>
+                            </p>
+                          </div>
+                          {isSelected && (
+                            <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-mint-tint border border-mint text-ink text-xs font-medium">
+                              <Check className="w-3.5 h-3.5 text-mint-strong" aria-hidden="true" />
+                              Selected
                             </span>
-                          </p>
+                          )}
                         </div>
-                        <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-mint-tint border border-mint text-ink text-xs font-medium">
-                          <Check className="w-3.5 h-3.5 text-mint-strong" aria-hidden="true" />
-                          Selected
-                        </span>
-                      </div>
 
-                      <p className="text-sm text-ink-soft leading-relaxed">
-                        {tutor.bio}
-                      </p>
+                        <p className="text-sm text-ink-soft leading-relaxed">
+                          {tutor.bio}
+                        </p>
 
-                      <div className="pt-1 flex flex-wrap gap-1.5">
-                        {tutor.topics.map((topic) => (
-                          <span
-                            key={topic}
-                            className="px-2.5 py-0.5 rounded-full bg-surface border border-line text-xs text-ink-muted"
-                          >
-                            {topic}
-                          </span>
-                        ))}
+                        <div className="pt-1 flex flex-wrap gap-1.5">
+                          {tutor.topics.map((topic) => (
+                            <span
+                              key={topic}
+                              className="px-2.5 py-0.5 rounded-full bg-surface border border-line text-xs text-ink-muted"
+                            >
+                              {topic}
+                            </span>
+                          ))}
+                        </div>
                       </div>
+                    </button>
+
+                    <div className="pt-3 mt-3 border-t border-line/60 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => setProfileModalTutor(tutor)}
+                        className="text-xs font-semibold text-cobalt hover:underline py-1 px-2 rounded-lg hover:bg-cobalt-tint transition-colors"
+                      >
+                        About {tutor.name}
+                      </button>
                     </div>
-                  </button>
+                  </div>
                 );
               })}
             </div>
           </section>
 
-          {/* Submit CTA */}
-          <div className="flex items-center justify-end pt-2 pb-6">
-            <button
-              type="submit"
-              disabled={!trimmedName}
-              className="w-full sm:w-auto h-13 px-8 rounded-full bg-cobalt hover:bg-cobalt-strong text-canvas text-base font-medium flex items-center justify-center gap-2 shadow-soft transition-colors disabled:opacity-50 disabled:hover:bg-cobalt"
-            >
-              <span>Inizia a parlare with {selectedTutor.name}</span>
-              <ArrowRight className="w-5 h-5" aria-hidden="true" />
-            </button>
+          {/* Age & terms confirmation + Submit CTA */}
+          <div className="space-y-4 pt-2 pb-6">
+            <div className="p-4 sm:p-5 rounded-[20px] bg-surface border border-line shadow-soft space-y-3">
+              <ConsentCheckbox
+                id="onboarding-consent-checkbox"
+                checked={hasConsented}
+                disabled={isSubmitting}
+                onChange={setHasConsented}
+              />
+              {consentError && (
+                <p
+                  role="alert"
+                  className="text-xs text-red-700 bg-red-50 p-2.5 rounded-xl border border-red-200"
+                >
+                  {consentError}
+                </p>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end">
+              <button
+                type="submit"
+                disabled={!trimmedName || !hasConsented || isSubmitting}
+                className="w-full sm:w-auto h-13 px-8 rounded-full bg-cobalt hover:bg-cobalt-strong text-canvas text-base font-medium flex items-center justify-center gap-2 shadow-soft transition-colors disabled:opacity-50 disabled:hover:bg-cobalt"
+              >
+                <span>
+                  {isSubmitting ? (
+                    'Starting…'
+                  ) : (
+                    <>
+                      <span lang="it">Inizia a parlare</span> with {selectedTutor.name}
+                    </>
+                  )}
+                </span>
+                <ArrowRight className="w-5 h-5" aria-hidden="true" />
+              </button>
+            </div>
           </div>
         </form>
       </main>
+
+      <footer className="py-4 px-5 border-t border-line bg-canvas">
+        <LegalLinks />
+      </footer>
+
+      {profileModalTutor && (
+        <PersonaProfileModal
+          persona={profileModalTutor}
+          isOpen={true}
+          onClose={() => setProfileModalTutor(null)}
+        />
+      )}
     </div>
   );
 };

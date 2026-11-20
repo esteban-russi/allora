@@ -112,6 +112,7 @@ describe('accountMiddleware', () => {
       upsertFromAuth: vi.fn().mockRejectedValue(new Error('Database unavailable')),
       getAccount: vi.fn(),
       setSubscription: vi.fn(),
+      setConsent: vi.fn(),
       deleteAccount: vi.fn()
     };
 

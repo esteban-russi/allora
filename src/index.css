@@ -31,8 +31,8 @@
   --color-coral-strong: #e03246;
   --color-coral-tint: #fff0f2;
 
-  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
-  --font-serif: 'Fraunces', 'Playfair Display', Georgia, serif;
+  --font-sans: 'Inter Variable', 'Inter', system-ui, -apple-system, sans-serif;
+  --font-serif: 'Fraunces Variable', 'Fraunces', 'Playfair Display', Georgia, serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 
   --radius-card: 24px;

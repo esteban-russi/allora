@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { 
   X, 
   Sliders, 
@@ -12,7 +12,7 @@ import {
   Play,
   Mic
 } from 'lucide-react';
-import { DevSettings, VoiceProvider, SttProvider, VoiceCallEngine } from '../types';
+import { DevSettings, SttProvider, VoiceCallEngine } from '../types';
 import { speechService } from '../utils/speech';
 import { EMMANUELE } from '../data/personas';
 import { useDialog } from '../hooks/useDialog';
@@ -34,6 +34,9 @@ export const DevSettingsDrawer: React.FC<DevSettingsDrawerProps> = ({
   activePersonaName
 }) => {
   const [localSettings, setLocalSettings] = useState<DevSettings>(settings);
+  useEffect(() => {
+    setLocalSettings(settings);
+  }, [settings]);
   const [copiedPayload, setCopiedPayload] = useState<boolean>(false);
   const [isTestingVoice, setIsTestingVoice] = useState<boolean>(false);
   const [testStatusMessage, setTestStatusMessage] = useState<string>('');
@@ -195,53 +198,34 @@ export const DevSettingsDrawer: React.FC<DevSettingsDrawerProps> = ({
             </div>
 
             <div className="grid grid-cols-1 gap-2" role="group" aria-label="Voice model provider">
-              {[
-                { 
-                  id: 'gcp_cloud_tts', 
-                  name: 'Google Cloud Text-to-Speech (Neural2 / Journey)', 
-                  desc: 'High-fidelity Italian neural voices via @google-cloud/text-to-speech on GCP.', 
+              {([
+                {
+                  id: 'gcp_cloud_tts',
+                  name: 'Google Cloud Text-to-Speech (Neural2 / Journey)',
+                  desc: 'High-fidelity Italian neural voices via @google-cloud/text-to-speech on GCP.',
                   badge: 'GCP CLOUD',
                   badgeColor: 'bg-emerald-600 text-white font-bold',
-                  isLive: true
                 },
-                { 
-                  id: 'gemini_live', 
-                  name: 'Google Gemini Native Audio (Server)', 
-                  desc: 'Server-side native audio synthesis via @google/genai.', 
+                {
+                  id: 'gemini_live',
+                  name: 'Google Gemini Native Audio (Server)',
+                  desc: 'Server-side native audio synthesis via @google/genai.',
                   badge: 'GEMINI AUDIO',
                   badgeColor: 'bg-cobalt text-white font-bold',
-                  isLive: true
                 },
-                { 
-                  id: 'browser_tts', 
-                  name: 'Local Web Speech API', 
-                  desc: 'Zero-latency browser synthesis (it-IT). Works offline.', 
+                {
+                  id: 'browser_tts',
+                  name: 'Local Web Speech API',
+                  desc: 'Zero-latency browser synthesis (it-IT). Works offline.',
                   badge: 'BROWSER LIVE',
                   badgeColor: 'bg-stone-200 text-slate-800 font-semibold',
-                  isLive: true
                 },
-                { 
-                  id: 'elevenlabs', 
-                  name: 'ElevenLabs Multilingual v2', 
-                  desc: 'Architectural parameter mock. Ready for ELEVENLABS_API_KEY.', 
-                  badge: 'MOCK SPEC',
-                  badgeColor: 'bg-cobalt-tint text-cobalt border border-line',
-                  isLive: false
-                },
-                { 
-                  id: 'openai_tts', 
-                  name: 'OpenAI Whisper + TTS-1 HD', 
-                  desc: 'Architectural parameter mock. Ready for OPENAI_API_KEY.', 
-                  badge: 'MOCK SPEC',
-                  badgeColor: 'bg-cobalt-tint text-cobalt border border-line',
-                  isLive: false
-                },
-              ].map(provider => {
+              ] as const).map(provider => {
                 const isSelected = localSettings.voiceProvider === provider.id;
                 return (
                   <button
                     key={provider.id}
-                    onClick={() => handleChange('voiceProvider', provider.id as VoiceProvider)}
+                    onClick={() => handleChange('voiceProvider', provider.id)}
                     aria-pressed={isSelected}
                     className={`w-full text-left p-3 rounded-2xl border transition-all ${
                       isSelected

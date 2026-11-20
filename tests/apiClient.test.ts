@@ -1,4 +1,5 @@
 /** Tests for the client's authenticated API helper. */
+import type { FirebaseApp } from 'firebase/app';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   deleteWithAuth,
@@ -6,12 +7,20 @@ import {
   getWithAuth,
   postJson,
   setAccountDeletedHandler,
+  setAppCheckFailedHandler,
   setAuthTokenProvider
 } from '../src/utils/apiClient';
+import {
+  initAppCheck,
+  resetAppCheckForTesting,
+  setNativeAppCheckProvider
+} from '../src/utils/appCheck';
 
 afterEach(() => {
   setAuthTokenProvider(async () => null);
   setAccountDeletedHandler(null);
+  setAppCheckFailedHandler(null);
+  resetAppCheckForTesting();
   vi.unstubAllGlobals();
 });
 
@@ -59,6 +68,42 @@ describe('getWithAuth', () => {
     const fetchMock = stubFetch();
     await getWithAuth('/api/session');
     expect(fetchMock).toHaveBeenCalledWith('/api/session', {});
+  });
+});
+
+describe('App Check header attachment', () => {
+  it('attaches X-Firebase-AppCheck on GET, POST, and DELETE when available', async () => {
+    const fetchMock = stubFetch();
+    setAuthTokenProvider(async () => 'id-token-123');
+    setNativeAppCheckProvider({ init: () => undefined, getToken: async () => 'ac-token-456' });
+    initAppCheck({} as FirebaseApp, null);
+
+    await getWithAuth('/api/me');
+    await postJson('/api/chat', { userMessage: 'Ciao' });
+    await deleteWithAuth('/api/account');
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/me', {
+      headers: { Authorization: 'Bearer id-token-123', 'X-Firebase-AppCheck': 'ac-token-456' }
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer id-token-123',
+        'X-Firebase-AppCheck': 'ac-token-456'
+      },
+      body: JSON.stringify({ userMessage: 'Ciao' })
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/account', {
+      method: 'DELETE',
+      headers: { Authorization: 'Bearer id-token-123', 'X-Firebase-AppCheck': 'ac-token-456' }
+    });
+  });
+
+  it('omits X-Firebase-AppCheck when App Check has no token', async () => {
+    const fetchMock = stubFetch();
+    await deleteWithAuth('/api/account');
+    expect(fetchMock).toHaveBeenCalledWith('/api/account', { method: 'DELETE', headers: {} });
   });
 });
 
@@ -122,6 +167,40 @@ describe('account deleted handling', () => {
     const handler = vi.fn();
     setAccountDeletedHandler(handler);
 
+    await getWithAuth('/api/me');
+
+    expect(handler).not.toHaveBeenCalled();
+  });
+});
+
+describe('App Check required handling', () => {
+  function stubFetchStatus(status: number, body: unknown) {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(body), { status }));
+    vi.stubGlobal('fetch', fetchMock);
+    return fetchMock;
+  }
+
+  it('calls the handler on 401 APP_CHECK_REQUIRED across GET, POST, and DELETE even without an auth token', async () => {
+    stubFetchStatus(401, { error: 'App verification failed', code: 'APP_CHECK_REQUIRED' });
+    const handler = vi.fn();
+    setAppCheckFailedHandler(handler);
+
+    const res = await getWithAuth('/api/me');
+    await postJson('/api/chat', {});
+    await deleteWithAuth('/api/account');
+
+    expect(handler).toHaveBeenCalledTimes(3);
+    expect(await res.json()).toEqual({ error: 'App verification failed', code: 'APP_CHECK_REQUIRED' });
+  });
+
+  it('ignores other 401 codes and non-401 responses', async () => {
+    const handler = vi.fn();
+    setAppCheckFailedHandler(handler);
+
+    stubFetchStatus(401, { code: 'AUTH_TOKEN_INVALID' });
+    await getWithAuth('/api/me');
+
+    stubFetchStatus(403, { code: 'APP_CHECK_REQUIRED' });
     await getWithAuth('/api/me');
 
     expect(handler).not.toHaveBeenCalled();

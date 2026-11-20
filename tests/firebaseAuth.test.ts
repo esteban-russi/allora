@@ -41,8 +41,26 @@ afterEach(() => {
 });
 
 describe('parseFirebaseClientConfig', () => {
-  it('accepts a complete config', () => {
-    expect(parseFirebaseClientConfig({ ...CONFIG, extra: 'dropped' })).toEqual(CONFIG);
+  it('accepts a complete config and defaults omitted appCheckSiteKey to null', () => {
+    expect(parseFirebaseClientConfig({ ...CONFIG, extra: 'dropped' })).toEqual({
+      ...CONFIG,
+      appCheckSiteKey: null
+    });
+  });
+
+  it('preserves trimmed optional appCheckSiteKey and normalizes blank or invalid values to null', () => {
+    expect(parseFirebaseClientConfig({ ...CONFIG, appCheckSiteKey: '  6Le-key  ' })).toEqual({
+      ...CONFIG,
+      appCheckSiteKey: '6Le-key'
+    });
+    expect(parseFirebaseClientConfig({ ...CONFIG, appCheckSiteKey: '   ' })).toEqual({
+      ...CONFIG,
+      appCheckSiteKey: null
+    });
+    expect(parseFirebaseClientConfig({ ...CONFIG, appCheckSiteKey: 123 })).toEqual({
+      ...CONFIG,
+      appCheckSiteKey: null
+    });
   });
 
   it.each([null, undefined, 'config', { ...CONFIG, apiKey: '' }, { ...CONFIG, appId: 42 }])(

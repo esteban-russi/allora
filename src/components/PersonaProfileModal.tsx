@@ -17,7 +17,7 @@ interface PersonaProfileModalProps {
   persona: Persona;
   isOpen: boolean;
   onClose: () => void;
-  onStartVideoCall: () => void;
+  onStartVideoCall?: () => void;
 }
 
 export const PersonaProfileModal: React.FC<PersonaProfileModalProps> = ({
@@ -66,10 +66,13 @@ export const PersonaProfileModal: React.FC<PersonaProfileModalProps> = ({
               speakingState={isPlayingAudio ? 'speaking' : 'idle'}
             />
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h3 id="persona-profile-title" className="font-serif text-2xl leading-tight">{persona.fullName}</h3>
                 <span className="text-xs bg-cobalt text-canvas px-2.5 py-0.5 rounded-full font-semibold">
                   {persona.cefrLevel}
+                </span>
+                <span className="text-[11px] bg-surface text-cobalt border border-cobalt/20 px-2 py-0.5 rounded-full font-semibold">
+                  AI tutor
                 </span>
               </div>
               <p className="text-sm text-ink-muted">{persona.role}</p>
@@ -98,7 +101,7 @@ export const PersonaProfileModal: React.FC<PersonaProfileModalProps> = ({
             <div className="text-[11px] uppercase tracking-wider text-cobalt font-bold mb-1">
               Motto & Philosophy
             </div>
-            <p className="font-serif text-lg italic text-ink">
+            <p lang="it" className="font-serif text-lg italic text-ink">
               &ldquo;{persona.nativeSaying}&rdquo;
             </p>
             <p className="text-xs text-ink-muted mt-1">
@@ -163,19 +166,21 @@ export const PersonaProfileModal: React.FC<PersonaProfileModalProps> = ({
 
         </div>
 
-        {/* Modal Actions (Only Video Call button, standard audio call removed) */}
-        <div className="p-4 border-t border-line bg-canvas flex items-center justify-end gap-3">
-          <button
-            onClick={() => {
-              onClose();
-              onStartVideoCall();
-            }}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-cobalt hover:bg-cobalt-strong text-white font-bold text-xs transition-transform active:scale-95 "
-          >
-            <AudioLines className="w-4 h-4" />
-            <span>Start voice call</span>
-          </button>
-        </div>
+        {/* Modal Actions (shown when opened from an active conversation) */}
+        {onStartVideoCall && (
+          <div className="p-4 border-t border-line bg-canvas flex items-center justify-end gap-3">
+            <button
+              onClick={() => {
+                onClose();
+                onStartVideoCall();
+              }}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-cobalt hover:bg-cobalt-strong text-white font-bold text-xs transition-transform active:scale-95 "
+            >
+              <AudioLines className="w-4 h-4" />
+              <span>Start voice call</span>
+            </button>
+          </div>
+        )}
 
       </div>
     </div>

@@ -6,14 +6,16 @@ import { createAccountRouter } from '../src/server/accountRoutes';
 import { InMemorySessionStore, initializeLearnerSession } from '../src/server/sessionStore';
 import { InMemoryAccountStore } from '../src/server/accountStore';
 import { InMemoryUsageStore, usageDay } from '../src/server/usageStore';
+import { InMemoryReportStore } from '../src/server/reportStore';
 import { authenticateHttpUser, verifyIdToken } from '../src/server/auth';
-import { attachAccount } from '../src/server/accountMiddleware';
+import { attachAccount, invalidateAccountCache } from '../src/server/accountMiddleware';
 import type { IdentityAdmin } from '../src/server/identityAdmin';
 
 describe('POST /api/account/merge', () => {
   let sessionStore: InMemorySessionStore;
   let accountStore: InMemoryAccountStore;
   let usageStore: InMemoryUsageStore;
+  let reportStore: InMemoryReportStore;
   let mockIdentity: IdentityAdmin;
   let mockRevenueCat: { getSubscriber: any; deleteSubscriber: any };
   let clock: number;
@@ -24,6 +26,7 @@ describe('POST /api/account/merge', () => {
     sessionStore = new InMemorySessionStore(undefined, () => clock);
     accountStore = new InMemoryAccountStore(() => clock);
     usageStore = new InMemoryUsageStore();
+    reportStore = new InMemoryReportStore();
     mockIdentity = {
       deleteUser: vi.fn().mockResolvedValue(undefined),
       userExists: vi.fn().mockResolvedValue(true)
@@ -43,6 +46,7 @@ describe('POST /api/account/merge', () => {
         sessions: sessionStore,
         accounts: accountStore,
         usage: usageStore,
+        reports: reportStore,
         identity: mockIdentity,
         revenueCat: mockRevenueCat,
         verifyToken: verifyIdToken,
@@ -114,8 +118,28 @@ describe('POST /api/account/merge', () => {
     expect(guestUsage.helperRequests).toBe(0);
   });
 
-  it('deletes guest account record and calls identity.deleteUser', async () => {
+  it('deletes guest account record, transfers guest reports to target user, and calls identity.deleteUser', async () => {
     await accountStore.upsertFromAuth({ userId: 'anon-g', isAnonymous: true });
+    await reportStore.addReport({
+      id: 'rep_guest',
+      userId: 'anon-g',
+      sessionId: null,
+      source: 'chat',
+      text: 'Guest report',
+      reason: 'harmful',
+      comment: '',
+      createdAt: '2026-11-18T09:00:00.000Z'
+    });
+    await reportStore.addReport({
+      id: 'rep_target',
+      userId: 'u1',
+      sessionId: null,
+      source: 'chat',
+      text: 'Target report',
+      reason: 'inaccurate',
+      comment: '',
+      createdAt: '2026-11-18T09:00:00.000Z'
+    });
 
     const res = await request(app)
       .post('/api/account/merge')
@@ -124,6 +148,10 @@ describe('POST /api/account/merge', () => {
 
     expect(res.status).toBe(200);
     expect(await accountStore.getAccount('anon-g')).toBeNull();
+    expect(reportStore.getUserReports('anon-g')).toEqual([]);
+    const targetReports = reportStore.getUserReports('u1');
+    expect(targetReports).toHaveLength(2);
+    expect(targetReports.map((r) => r.id)).toEqual(expect.arrayContaining(['rep_guest', 'rep_target']));
     expect(mockIdentity.deleteUser).toHaveBeenCalledWith('anon-g');
   });
 
@@ -153,6 +181,38 @@ describe('POST /api/account/merge', () => {
     expect(resSame.body).toEqual({ code: 'INVALID_GUEST_TOKEN' });
   });
 
+  it('copies guest consent to the target account when target has no consent', async () => {
+    const guestConsent = { termsVersion: '2026-11', acceptedAt: '2026-11-18T09:50:00.000Z' };
+    await accountStore.upsertFromAuth({ userId: 'anon-g', isAnonymous: true });
+    await accountStore.setConsent('anon-g', guestConsent);
+    await accountStore.upsertFromAuth({ userId: 'u1', isAnonymous: false });
+
+    const res = await request(app)
+      .post('/api/account/merge')
+      .set('Authorization', 'Bearer dev-token:u1')
+      .send({ guestIdToken: 'dev-token:anon-g' });
+
+    expect(res.status).toBe(200);
+    expect((await accountStore.getAccount('u1'))?.consent).toEqual(guestConsent);
+  });
+
+  it('keeps target account consent when target already has one', async () => {
+    const targetConsent = { termsVersion: '2026-11', acceptedAt: '2026-11-17T08:00:00.000Z' };
+    const guestConsent = { termsVersion: '2026-11', acceptedAt: '2026-11-18T09:50:00.000Z' };
+    await accountStore.upsertFromAuth({ userId: 'anon-g', isAnonymous: true });
+    await accountStore.setConsent('anon-g', guestConsent);
+    await accountStore.upsertFromAuth({ userId: 'u1', isAnonymous: false });
+    await accountStore.setConsent('u1', targetConsent);
+
+    const res = await request(app)
+      .post('/api/account/merge')
+      .set('Authorization', 'Bearer dev-token:u1')
+      .send({ guestIdToken: 'dev-token:anon-g' });
+
+    expect(res.status).toBe(200);
+    expect((await accountStore.getAccount('u1'))?.consent).toEqual(targetConsent);
+  });
+
   it('rejects anonymous caller with 403 SIGN_IN_REQUIRED', async () => {
     const res = await request(app)
       .post('/api/account/merge')
@@ -164,10 +224,83 @@ describe('POST /api/account/merge', () => {
   });
 });
 
+describe('POST /api/account/consent', () => {
+  let accountStore: InMemoryAccountStore;
+  let clock: number;
+  let app: express.Express;
+
+  beforeEach(() => {
+    clock = Date.parse('2026-11-18T10:00:00.000Z');
+    accountStore = new InMemoryAccountStore(() => clock);
+    invalidateAccountCache('u-consent');
+    invalidateAccountCache('anon-consent');
+    invalidateAccountCache('u-bad-consent');
+
+    app = express();
+    app.use(express.json());
+    app.use(authenticateHttpUser());
+    app.use(attachAccount(accountStore, { cacheMs: 0 }));
+    app.use(
+      '/api/account',
+      createAccountRouter({
+        accounts: accountStore,
+        now: () => clock
+      })
+    );
+  });
+
+  it('stores consent with server time for a signed-in user', async () => {
+    const res = await request(app)
+      .post('/api/account/consent')
+      .set('Authorization', 'Bearer dev-token:u-consent')
+      .send({ termsVersion: '2026-11' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      consent: { termsVersion: '2026-11', acceptedAt: '2026-11-18T10:00:00.000Z' }
+    });
+    expect((await accountStore.getAccount('u-consent'))?.consent).toEqual({
+      termsVersion: '2026-11',
+      acceptedAt: '2026-11-18T10:00:00.000Z'
+    });
+  });
+
+  it('works for anonymous guest users', async () => {
+    const res = await request(app)
+      .post('/api/account/consent')
+      .set('Authorization', 'Bearer dev-token:anon-consent')
+      .send({ termsVersion: '2026-11' });
+
+    expect(res.status).toBe(200);
+    expect((await accountStore.getAccount('anon-consent'))?.consent).toEqual({
+      termsVersion: '2026-11',
+      acceptedAt: '2026-11-18T10:00:00.000Z'
+    });
+  });
+
+  it.each([
+    {},
+    { termsVersion: '' },
+    { termsVersion: '   ' },
+    { termsVersion: 202611 },
+    { termsVersion: null },
+    { termsVersion: 'a'.repeat(21) }
+  ])('returns 400 for invalid body %j', async (body) => {
+    const res = await request(app)
+      .post('/api/account/consent')
+      .set('Authorization', 'Bearer dev-token:u-bad-consent')
+      .send(body);
+
+    expect(res.status).toBe(400);
+    expect((await accountStore.getAccount('u-bad-consent'))?.consent).toBeNull();
+  });
+});
+
 describe('DELETE /api/account', () => {
   let sessionStore: InMemorySessionStore;
   let accountStore: InMemoryAccountStore;
   let usageStore: InMemoryUsageStore;
+  let reportStore: InMemoryReportStore;
   let mockIdentity: IdentityAdmin;
   let mockRevenueCat: { getSubscriber: any; deleteSubscriber: any };
   let clock: number;
@@ -178,6 +311,7 @@ describe('DELETE /api/account', () => {
     sessionStore = new InMemorySessionStore(undefined, () => clock);
     accountStore = new InMemoryAccountStore(() => clock);
     usageStore = new InMemoryUsageStore();
+    reportStore = new InMemoryReportStore();
     mockIdentity = {
       deleteUser: vi.fn().mockResolvedValue(undefined),
       userExists: vi.fn().mockResolvedValue(true)
@@ -197,6 +331,7 @@ describe('DELETE /api/account', () => {
         sessions: sessionStore,
         accounts: accountStore,
         usage: usageStore,
+        reports: reportStore,
         identity: mockIdentity,
         revenueCat: mockRevenueCat,
         verifyToken: verifyIdToken,
@@ -205,11 +340,21 @@ describe('DELETE /api/account', () => {
     );
   });
 
-  it('deletes sessions, usage, account and identity, returning hadActiveSubscription: false for free', async () => {
+  it('deletes sessions, usage, reports, account and identity, returning hadActiveSubscription: false for free', async () => {
     const day = usageDay(clock);
     const session = initializeLearnerSession({ userId: 'u1' });
     await sessionStore.createOrUpdateSession(session);
     await usageStore.add('u1', day, 'chatMessages', 5);
+    await reportStore.addReport({
+      id: 'rep_del',
+      userId: 'u1',
+      sessionId: session.sessionId,
+      source: 'chat',
+      text: 'Reported reply',
+      reason: 'harmful',
+      comment: '',
+      createdAt: '2026-11-18T09:00:00.000Z'
+    });
     await accountStore.upsertFromAuth({ userId: 'u1', isAnonymous: false });
 
     const res = await request(app)
@@ -222,6 +367,7 @@ describe('DELETE /api/account', () => {
     expect(await sessionStore.getSession(session.sessionId, 'u1')).toBeNull();
     const usage = await usageStore.getUsage('u1', day);
     expect(usage.chatMessages).toBe(0);
+    expect(reportStore.getUserReports('u1')).toEqual([]);
     expect(await accountStore.getAccount('u1')).toBeNull();
     expect(mockIdentity.deleteUser).toHaveBeenCalledWith('u1');
     expect(mockRevenueCat.deleteSubscriber).toHaveBeenCalledWith('u1');

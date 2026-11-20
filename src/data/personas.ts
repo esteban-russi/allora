@@ -1,5 +1,5 @@
 import { CefrLevel, ChatMessage, Persona, SavedPhrase } from '../types';
-import { PERSONA_PROMPTS, PERSONA_VOICES } from './personaPrompts';
+import { isPremiumPersona, PERSONA_PROMPTS, PERSONA_VOICES } from './personaPrompts';
 import emmanueleIdle from '../assets/emmanuele/neutral.webp';
 import emmanueleSpeaking from '../assets/emmanuele/talking.webp';
 
@@ -28,7 +28,8 @@ export const EMMANUELE: Persona = {
   voiceGender: 'male',
   sampleAudioText: 'Salve, amico! Sono Emmanuele. Oggi Roma è piena di gente. Raccontami qualcosa di te!',
   sampleAudioTranslation: 'Hello, friend! I am Emmanuele. Rome is full of people today. Tell me something about yourself!',
-  personaPrompt: PERSONA_PROMPTS.emmanuele
+  personaPrompt: PERSONA_PROMPTS.emmanuele,
+  isPremium: isPremiumPersona('emmanuele')
 };
 
 export const TUTORS: Persona[] = [EMMANUELE];
@@ -149,10 +150,7 @@ export const INITIAL_MESSAGES: ChatMessage[] = [
   }
 ];
 
-export const INITIAL_SAVED_PHRASES: SavedPhrase[] = [
-  { id: 'sp-1', it: 'Che bello!', en: 'How lovely!' },
-  { id: 'sp-2', it: 'fine settimana', en: 'weekend' }
-];
+export const INITIAL_SAVED_PHRASES: SavedPhrase[] = [];
 
 export const ITALIAN_PRACTICE_PHRASES = [
   { it: 'Io lavoro in un ufficio.', en: 'I work in an office.' },

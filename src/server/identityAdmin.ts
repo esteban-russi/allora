@@ -1,6 +1,6 @@
 /** Firebase Auth identity administration, handling server-side user deletion. */
-import { getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
+import { getAdminApp } from './firebaseAdmin';
 
 export interface IdentityAdmin {
   /**
@@ -51,21 +51,10 @@ export function createIdentityAdmin(env: NodeJS.ProcessEnv = process.env): Ident
     };
   }
 
-  let initialized = false;
-  const ensureApp = () => {
-    if (!initialized) {
-      if (getApps().length === 0) {
-        initializeApp({ projectId });
-      }
-      initialized = true;
-    }
-  };
-
   return {
     async deleteUser(userId: string): Promise<void> {
-      ensureApp();
       try {
-        await getAuth().deleteUser(userId);
+        await getAuth(getAdminApp(env)).deleteUser(userId);
       } catch (err) {
         if ((err as { code?: string })?.code === 'auth/user-not-found') {
           return;
@@ -75,9 +64,8 @@ export function createIdentityAdmin(env: NodeJS.ProcessEnv = process.env): Ident
     },
 
     async userExists(userId: string): Promise<boolean> {
-      ensureApp();
       try {
-        await getAuth().getUser(userId);
+        await getAuth(getAdminApp(env)).getUser(userId);
         return true;
       } catch (err) {
         if ((err as { code?: string })?.code === 'auth/user-not-found') {

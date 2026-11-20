@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { EMMANUELE, INITIAL_MESSAGES, INITIAL_SAVED_PHRASES, TUTORS, createInitialMessages } from './data/personas';
-import { generatePersonaFallbackMessage } from './data/fallbacks';
 import { ChatMessage, DevSettings, GrammarNote, LearnerProfile, Persona, SavedPhrase } from './types';
 import { ChatInterface } from './components/ChatInterface';
 import { VoiceCallModal } from './components/VoiceCallModal';
 import { DevSettingsDrawer } from './components/DevSettingsDrawer';
+import { SettingsDialog, isDevLabEnabled } from './components/SettingsDialog';
 import { PersonaProfileModal } from './components/PersonaProfileModal';
 import { IconRail } from './components/IconRail';
 import { TopHeader } from './components/TopHeader';
@@ -13,19 +13,23 @@ import { OnboardingPage } from './components/OnboardingPage';
 import { SignInScreen } from './components/SignInScreen';
 import { MagicLinkEmailForm } from './components/MagicLinkEmailForm';
 import { AccountMenu } from './components/AccountMenu';
+import { ConsentDialog } from './components/ConsentDialog';
 import { LimitReachedCard } from './components/LimitReachedCard';
+import { isTutorLockedForTier } from './components/PremiumEndedNotice';
 import { PlansScreen } from './components/PlansScreen';
+import { TERMS_VERSION } from './data/legal';
+import type { Consent } from './server/accountStore';
 import { getBilling, setBilling } from './utils/billing';
 import { loadClientConfig } from './utils/clientConfig';
 import { createWebBilling } from './utils/billingWeb';
 import { useDialog } from './hooks/useDialog';
 import { useAccount } from './hooks/useAccount';
 import { speechService } from './utils/speech';
-import { setAccountDeletedHandler } from './utils/apiClient';
+import { setAccountDeletedHandler, setAppCheckFailedHandler } from './utils/apiClient';
 import { completeMagicLink, EMAIL_FOR_SIGN_IN_KEY, isMagicLink, signOutToGuest } from './utils/firebaseAuth';
-import { ACCOUNT_DELETED_NOTICE, MERGE_FAILED_NOTICE, showNotice } from './utils/notice';
-import { loadLearnerSession, postChat, saveLearnerSettings, startLearnerSession, toChatMessages } from './utils/learnerSession';
-import { readQuotaError, type QuotaError } from './utils/quotaError';
+import { ACCOUNT_DELETED_NOTICE, APP_CHECK_FAILED_NOTICE, MERGE_FAILED_NOTICE, showNotice } from './utils/notice';
+import { loadLearnerSession, requestChatReply, saveLearnerSettings, startLearnerSession, toChatMessages, type ChatReplyErrorReason } from './utils/learnerSession';
+import type { QuotaError } from './utils/quotaError';
 import type { ClientLearnerSession } from './server/sessionStore';
 
 const countWords = (text: string) => text.trim().split(/\s+/).filter(Boolean).length;
@@ -39,9 +43,16 @@ export default function App() {
   // A sign-in link waiting for the learner to confirm which email it was sent to
   const [pendingMagicLinkUrl, setPendingMagicLinkUrl] = useState<string | null>(null);
 
-  const { me, refresh: refreshAccount, setUsage } = useAccount();
+  const { me, refresh: refreshAccount, setUsage, setConsent } = useAccount();
+  const hasCurrentConsent = me?.consent?.termsVersion === TERMS_VERSION;
+  const needsConsent = Boolean(me && !hasCurrentConsent);
   const [limitReached, setLimitReached] = useState<QuotaError | null>(null);
+  const [premiumEnded, setPremiumEnded] = useState<boolean>(false);
+  const [failedReply, setFailedReply] = useState<{ messageId: string; text: string; reason: ChatReplyErrorReason } | null>(null);
   const [chatDraft, setChatDraft] = useState<string>('');
+  // Premium tutor tapped in onboarding before signing in / subscribing
+  const [pendingTutorId, setPendingTutorId] = useState<string | null>(null);
+  const [selectedOnboardingTutorId, setSelectedOnboardingTutorId] = useState<string | null>(null);
 
   const emailRef = useRef<string | null>(null);
   emailRef.current = me?.email ?? null;
@@ -71,6 +82,7 @@ export default function App() {
   const [isCallOpen, setIsCallOpen] = useState<boolean>(false);
 
   // Modals & drawers
+  const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [isDevLabOpen, setIsDevLabOpen] = useState<boolean>(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
   const [isNotebookDrawerOpen, setIsNotebookDrawerOpen] = useState<boolean>(false);
@@ -123,6 +135,7 @@ export default function App() {
       ...createInitialMessages(tutor, profile.name, profile.level),
       ...toChatMessages(session.checkpointTurns, tutor.id)
     ]);
+    setFailedReply(null);
     setSavedPhrases(session.progress.savedPhrases);
     if (GRAMMAR_STRICTNESS.includes(session.grammarStrictness as DevSettings['grammarStrictness'])) {
       setDevSettings((prev) => ({ ...prev, grammarStrictness: session.grammarStrictness as DevSettings['grammarStrictness'] }));
@@ -134,6 +147,21 @@ export default function App() {
     const session = await loadLearnerSession();
     if (session) {
       applySession(session);
+    }
+    if (pendingTutorId) {
+      if (updatedMe?.tier === 'premium') {
+        setSelectedOnboardingTutorId(pendingTutorId);
+        setPendingTutorId(null);
+        setScreen('onboarding');
+      } else if (getBilling().isAvailable()) {
+        setScreen('plans');
+      } else {
+        setPendingTutorId(null);
+        setScreen('onboarding');
+      }
+      return;
+    }
+    if (session) {
       if (mode === 'after-onboarding' && getBilling().isAvailable() && updatedMe?.tier !== 'premium') {
         setScreen('plans');
       } else {
@@ -153,6 +181,27 @@ export default function App() {
     }
   };
 
+  const handleSeePlansForTutor = (tutorId: string) => {
+    setPendingTutorId(tutorId);
+    if (!me || me.isAnonymous) {
+      setScreen('signin-login');
+    } else {
+      setScreen('plans');
+    }
+  };
+
+  const handlePlansDone = (purchased = false) => {
+    if (pendingTutorId) {
+      if (purchased || me?.tier === 'premium') {
+        setSelectedOnboardingTutorId(pendingTutorId);
+      }
+      setPendingTutorId(null);
+      setScreen('onboarding');
+      return;
+    }
+    setScreen('app');
+  };
+
   // Start over as a new guest: blank profile, conversation and notebook, back to onboarding,
   // where the guest is offered sign-in again after finishing it
   const resetToGuest = () => {
@@ -164,12 +213,17 @@ export default function App() {
     setMessages(INITIAL_MESSAGES);
     setSavedPhrases(INITIAL_SAVED_PHRASES);
     setLimitReached(null);
+    setPremiumEnded(false);
+    setFailedReply(null);
     setChatDraft('');
+    setPendingTutorId(null);
+    setSelectedOnboardingTutorId(null);
     void refreshAccount();
     setScreen('onboarding');
   };
 
-  // The account was deleted in another tab or on another device: sign this tab out too
+  // The account was deleted in another tab or on another device: sign this tab out too.
+  // Also surface a notice if App Check rejects a request.
   useEffect(() => {
     setAccountDeletedHandler(() => {
       signOutToGuest()
@@ -179,7 +233,13 @@ export default function App() {
           showNotice(ACCOUNT_DELETED_NOTICE);
         });
     });
-    return () => setAccountDeletedHandler(null);
+    setAppCheckFailedHandler(() => {
+      showNotice(APP_CHECK_FAILED_NOTICE);
+    });
+    return () => {
+      setAccountDeletedHandler(null);
+      setAppCheckFailedHandler(null);
+    };
   }, []);
 
   // Leave the sign-in link's URL, so a reload does not try to use the one-time code again
@@ -270,6 +330,17 @@ export default function App() {
     }
   }, [limitReached, me?.tier]);
 
+  // Show the Premium-ended notice on load if the active tutor is premium while the user is not,
+  // and clear it once the learner re-subscribes or switches to a free tutor.
+  useEffect(() => {
+    if (!learnerProfile || screen !== 'app') return;
+    if (isTutorLockedForTier(persona, me?.tier)) {
+      setPremiumEnded(true);
+    } else if (!persona.isPremium || me?.tier === 'premium') {
+      setPremiumEnded(false);
+    }
+  }, [learnerProfile, screen, persona, me?.tier]);
+
   const updateSavedPhrases = (next: SavedPhrase[]) => {
     setSavedPhrases(next);
     if (learnerProfile) {
@@ -286,12 +357,16 @@ export default function App() {
     });
   };
 
-  const handleCompleteOnboarding = (profile: LearnerProfile) => {
+  const handleCompleteOnboarding = (profile: LearnerProfile, consent?: Consent) => {
     const selectedTutor = TUTORS.find((t) => t.id === profile.personaId) ?? EMMANUELE;
     // Only a guest's first onboarding offers sign-in; a profile edit goes back to the chat
     const isFirstOnboarding = learnerProfile === null;
+    if (consent) setConsent(consent);
     setLearnerProfile(profile);
+    setPendingTutorId(null);
+    setSelectedOnboardingTutorId(null);
     setMessages(createInitialMessages(selectedTutor, profile.name, profile.level));
+    setFailedReply(null);
     // A new profile starts a new conversation; the notebook carries over
     void startLearnerSession({ profile, grammarStrictness: devSettings.grammarStrictness, savedPhrases });
     if (me?.isAnonymous && isFirstOnboarding) {
@@ -299,6 +374,62 @@ export default function App() {
     } else {
       setScreen('app');
     }
+  };
+
+  const requestTutorReply = async (text: string, messageId: string, history: ChatMessage[]) => {
+    setIsAiGenerating(true);
+
+    const result = await requestChatReply({
+      personaId: persona.id,
+      history,
+      userMessage: text,
+      temperature: devSettings.temperature,
+      grammarStrictness: devSettings.grammarStrictness,
+      learnerLevel: learnerProfile?.level ?? 'A2',
+      learnerName: learnerProfile?.name
+    });
+
+    if (result.status === 'quota') {
+      setMessages((prev) => prev.filter((m) => m.id !== messageId));
+      setFailedReply(null);
+      setChatDraft(text);
+      setLimitReached(result.quota);
+      setIsAiGenerating(false);
+      return;
+    }
+
+    if (result.status === 'premium_required') {
+      setMessages((prev) => prev.filter((m) => m.id !== messageId));
+      setFailedReply(null);
+      setChatDraft(text);
+      setPremiumEnded(true);
+      setIsAiGenerating(false);
+      void refreshAccount();
+      return;
+    }
+
+    if (result.status === 'ok') {
+      if (result.quotaUsed !== undefined) {
+        setUsage('chatMessages', result.quotaUsed);
+      }
+      const aiMessage: ChatMessage = {
+        id: `b-${Date.now()}`,
+        sender: 'persona',
+        personaId: persona.id,
+        text: result.text,
+        translation: result.translation,
+        grammarNotes: result.grammarNotes,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+      setMessages((prev) => [...prev, aiMessage]);
+      setFailedReply(null);
+      speakIfAutoPlay(aiMessage.text);
+      setIsAiGenerating(false);
+      return;
+    }
+
+    setFailedReply({ messageId, text, reason: result.reason });
+    setIsAiGenerating(false);
   };
 
   // Handle student sending message in chat with real server Gemini API integration
@@ -312,62 +443,19 @@ export default function App() {
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
-    const updated = [...messages, userMsg];
-    setMessages(updated);
-    setIsAiGenerating(true);
+    const history = messages.slice(-6);
+    setFailedReply(null);
+    setMessages((prev) => [...prev, userMsg]);
+    await requestTutorReply(text, userMsg.id, history);
+  };
 
-    try {
-      const res = await postChat({
-        personaId: persona.id,
-        history: updated.slice(-6),
-        userMessage: text,
-        temperature: devSettings.temperature,
-        grammarStrictness: devSettings.grammarStrictness,
-        learnerLevel: learnerProfile?.level ?? 'A2',
-        learnerName: learnerProfile?.name
-      });
-
-      const quota = await readQuotaError(res);
-      if (quota) {
-        setMessages((prev) => prev.filter((m) => m.id !== userMsg.id));
-        setChatDraft(text);
-        setLimitReached(quota);
-        setIsAiGenerating(false);
-        return;
-      }
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data?.quota && typeof data.quota.used === 'number') {
-          setUsage('chatMessages', data.quota.used);
-        }
-        if (data.text) {
-          const aiMessage: ChatMessage = {
-            id: `b-${Date.now()}`,
-            sender: 'persona',
-            personaId: persona.id,
-            text: data.text,
-            translation: data.translation || '',
-            grammarNotes: data.grammarNotes || [],
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-          };
-          setMessages((prev) => [...prev, aiMessage]);
-          speakIfAutoPlay(aiMessage.text);
-          setIsAiGenerating(false);
-          return;
-        }
-      }
-    } catch (err) {
-      console.warn('Server Gemini call error, using local fallback generator:', err);
-    }
-
-    // Local fallback generator if server is offline
-    setTimeout(() => {
-      const fallbackResponse = generatePersonaFallbackMessage(persona, text);
-      setMessages((prev) => [...prev, fallbackResponse]);
-      speakIfAutoPlay(fallbackResponse.text);
-      setIsAiGenerating(false);
-    }, 500);
+  const handleRetryReply = async () => {
+    if (!failedReply || isAiGenerating) return;
+    const { messageId, text } = failedReply;
+    const msgIndex = messages.findIndex((m) => m.id === messageId);
+    const history = (msgIndex === -1 ? messages : messages.slice(0, msgIndex)).slice(-6);
+    setFailedReply(null);
+    await requestTutorReply(text, messageId, history);
   };
 
   const handleSavePhrase = (message: ChatMessage) => {
@@ -387,9 +475,32 @@ export default function App() {
     }
   };
 
+  const handleContinueWithEmmanuele = () => {
+    const nextProfile: LearnerProfile = {
+      name: learnerProfile?.name ?? '',
+      level: learnerProfile?.level ?? 'A2',
+      personaId: EMMANUELE.id
+    };
+    setPremiumEnded(false);
+    setLimitReached(null);
+    setFailedReply(null);
+    setLearnerProfile(nextProfile);
+    setMessages(createInitialMessages(EMMANUELE, nextProfile.name, nextProfile.level));
+    setDevSettings((prev) => ({ ...prev, voiceId: EMMANUELE.voiceId }));
+    void startLearnerSession({
+      profile: nextProfile,
+      grammarStrictness: devSettings.grammarStrictness,
+      savedPhrases
+    });
+  };
+
   const startCall = async () => {
     setIsNotebookDrawerOpen(false);
     const m = await refreshAccount();
+    if (isTutorLockedForTier(persona, m?.tier ?? me?.tier)) {
+      setPremiumEnded(true);
+      return;
+    }
     if (m && m.usage.voiceSeconds >= m.limits.voiceSeconds) {
       setLimitReached({
         counter: 'voiceSeconds',
@@ -454,7 +565,10 @@ export default function App() {
       <SignInScreen
         mode="login"
         onSignedIn={() => handleSignedIn('login')}
-        onSkip={() => setScreen('onboarding')}
+        onSkip={() => {
+          setPendingTutorId(null);
+          setScreen('onboarding');
+        }}
       />
     );
   }
@@ -463,7 +577,7 @@ export default function App() {
     return (
       <PlansScreen
         me={me}
-        onDone={() => setScreen('app')}
+        onDone={handlePlansDone}
         onNeedSignIn={() => setScreen('signin-login')}
         refreshAccount={refreshAccount}
       />
@@ -474,18 +588,32 @@ export default function App() {
     return (
       <OnboardingPage
         initialProfile={learnerProfile}
+        initialTutorId={selectedOnboardingTutorId ?? undefined}
+        initialConsentAccepted={hasCurrentConsent}
+        tier={me?.tier ?? 'guest'}
+        canUpgrade={getBilling().isAvailable()}
+        onSeePlans={handleSeePlansForTutor}
         onComplete={handleCompleteOnboarding}
         onLogin={me?.isAnonymous ? () => setScreen('signin-login') : undefined}
       />
     );
   }
 
+  const devLabEnabled = isDevLabEnabled();
+
+  const handleSaveSettings = (updated: DevSettings) => {
+    setDevSettings(updated);
+    if (learnerProfile && updated.grammarStrictness !== devSettings.grammarStrictness) {
+      void saveLearnerSettings({ profile: learnerProfile, grammarStrictness: updated.grammarStrictness, savedPhrases });
+    }
+  };
+
   return (
     <div className="h-dvh w-full flex overflow-hidden bg-canvas text-ink">
       <IconRail
         learnerInitial={learnerInitial}
         onOpenNotebook={openNotebook}
-        onOpenVoiceLab={() => setIsDevLabOpen(true)}
+        onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenAccount={() => setIsAccountMenuOpen(true)}
       />
 
@@ -512,11 +640,15 @@ export default function App() {
               isAiGenerating={isAiGenerating}
               draft={chatDraft}
               onDraftChange={setChatDraft}
+              failedReply={failedReply}
+              onRetryReply={handleRetryReply}
               limitReached={limitReached}
+              premiumEnded={premiumEnded}
               tier={me?.tier ?? 'guest'}
-              canUpgrade={getBilling().isAvailable() && me?.tier === 'free'}
+              canUpgrade={getBilling().isAvailable() && me?.tier !== 'premium'}
               onSignIn={() => setScreen('signin-login')}
-              onSeePlans={() => setScreen('plans')}
+              onSeePlans={() => setScreen(me?.isAnonymous ? 'signin-login' : 'plans')}
+              onContinueWithEmmanuele={handleContinueWithEmmanuele}
             />
           </div>
 
@@ -551,6 +683,10 @@ export default function App() {
           devSettings={devSettings}
           learnerProfile={learnerProfile}
           onEndCall={() => setIsCallOpen(false)}
+          onPremiumRequired={() => {
+            setPremiumEnded(true);
+            void refreshAccount();
+          }}
           onLimitReached={async () => {
             const m = await refreshAccount();
             if (m) {
@@ -605,18 +741,30 @@ export default function App() {
         </div>
       )}
 
-      <DevSettingsDrawer
-        isOpen={isDevLabOpen}
-        onClose={() => setIsDevLabOpen(false)}
+      <SettingsDialog
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
         settings={devSettings}
-        onSaveSettings={(updated) => {
-          setDevSettings(updated);
-          if (learnerProfile && updated.grammarStrictness !== devSettings.grammarStrictness) {
-            void saveLearnerSettings({ profile: learnerProfile, grammarStrictness: updated.grammarStrictness, savedPhrases });
-          }
-        }}
-        activePersonaName={persona.fullName}
+        onSaveSettings={handleSaveSettings}
+        onOpenDevLab={
+          devLabEnabled
+            ? () => {
+                setIsSettingsOpen(false);
+                setIsDevLabOpen(true);
+              }
+            : undefined
+        }
       />
+
+      {devLabEnabled && (
+        <DevSettingsDrawer
+          isOpen={isDevLabOpen}
+          onClose={() => setIsDevLabOpen(false)}
+          settings={devSettings}
+          onSaveSettings={handleSaveSettings}
+          activePersonaName={persona.fullName}
+        />
+      )}
 
       <PersonaProfileModal
         persona={persona}
@@ -644,6 +792,8 @@ export default function App() {
         onSignedOut={resetToGuest}
         onAccountDeleted={resetToGuest}
       />
+
+      <ConsentDialog isOpen={needsConsent} onAccepted={setConsent} />
     </div>
   );
 }

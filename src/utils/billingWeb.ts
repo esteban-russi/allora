@@ -3,7 +3,7 @@
  */
 import type { Offering, Package, PricingPhase, Purchases } from '@revenuecat/purchases-js';
 import type { Billing, PlanId, PlanOffer, PurchaseResult } from './billing';
-import { postJson } from './apiClient';
+import { getWithAuth, postJson } from './apiClient';
 
 /** The SDK's `Purchases` class (its static side), as exported by `@revenuecat/purchases-js`. */
 type PurchasesStatic = typeof import('@revenuecat/purchases-js').Purchases;
@@ -158,6 +158,18 @@ export function createWebBilling(apiKey: string, deps?: WebBillingDeps): Billing
     },
 
     async manageUrl(userId: string): Promise<string | null> {
+      try {
+        const res = await getWithAuth('/api/billing/manage');
+        if (res.status === 200) {
+          const data = (await res.json()) as { url?: unknown };
+          if (typeof data?.url === 'string' && data.url.length > 0) {
+            return data.url;
+          }
+        }
+      } catch {
+        // Fall back to the SDK managementURL on network or parse errors.
+      }
+
       try {
         const purchases = await getSdk(userId);
         const info = await purchases.getCustomerInfo();

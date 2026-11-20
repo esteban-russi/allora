@@ -9,6 +9,14 @@ export interface ReconnectStats {
 
 export type ReconnectOutcome = 'resumed' | 'restarted' | 'turn_based_fallback';
 
+export interface AppCheckStats {
+  ok: number;
+  failed: number;
+  missing: number;
+}
+
+export type AppCheckOutcome = 'ok' | 'failed' | 'missing';
+
 export interface MetricsSummary {
   ttfa: {
     samples: number;
@@ -37,6 +45,8 @@ export interface MetricsSummary {
     count: number;
     avgEstimatedCostUsd: number;
   };
+  /** Firebase App Check verification outcomes. */
+  appCheck: AppCheckStats;
 }
 
 // Rough list-price estimates for a cost trend line, not billing figures; update them
@@ -70,6 +80,11 @@ export class MetricsCollector {
   };
   private liveLessonAudioSec: number[] = [];
   private chatTurnCostsUsd: number[] = [];
+  private appCheckStats: AppCheckStats = {
+    ok: 0,
+    failed: 0,
+    missing: 0
+  };
 
   /**
    * Record Time to First Audio (TTFA) latency.
@@ -134,6 +149,16 @@ export class MetricsCollector {
     if (Number.isFinite(cost) && cost >= 0) pushBounded(this.chatTurnCostsUsd, cost);
   }
 
+  /**
+   * Record the outcome of an App Check verification attempt.
+   *
+   * Args:
+   *   outcome: Whether the token verified ('ok'), failed ('failed'), or was absent ('missing').
+   */
+  recordAppCheck(outcome: AppCheckOutcome): void {
+    this.appCheckStats[outcome]++;
+  }
+
   private calculatePercentile(samples: number[], p: number): number {
     if (samples.length === 0) return 0;
     const sorted = [...samples].sort((a, b) => a - b);
@@ -179,7 +204,8 @@ export class MetricsCollector {
       chatTurns: {
         count: this.chatTurnCostsUsd.length,
         avgEstimatedCostUsd: roundUsd(average(this.chatTurnCostsUsd))
-      }
+      },
+      appCheck: { ...this.appCheckStats }
     };
   }
 }

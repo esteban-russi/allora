@@ -1,4 +1,5 @@
 /** Authenticated API access for the browser client: one token source for fetch and Live calls. */
+import { getAppCheckToken } from './appCheck';
 
 /** Returns the signed-in user's current ID token, or null when signed out. */
 export type AuthTokenProvider = () => Promise<string | null>;
@@ -8,7 +9,11 @@ let tokenProvider: AuthTokenProvider = async () => null;
 /** Error code the server sends once the account behind a still-valid token was deleted. */
 export const ACCOUNT_DELETED_CODE = 'ACCOUNT_DELETED';
 
+/** Error code the server sends when App Check verification fails or is missing. */
+export const APP_CHECK_REQUIRED_CODE = 'APP_CHECK_REQUIRED';
+
 let accountDeletedHandler: (() => void) | null = null;
+let appCheckFailedHandler: (() => void) | null = null;
 
 /**
  * Register what happens when the server reports this account as deleted.
@@ -21,17 +26,33 @@ export function setAccountDeletedHandler(handler: (() => void) | null): void {
 }
 
 /**
- * Call the account-deleted handler when a response says the account is gone.
+ * Register what happens when the server rejects a request with `APP_CHECK_REQUIRED`.
  *
- * A reply for a token this tab has already replaced (for example after it signed
- * out to a guest itself) is ignored, so it does not sign the new guest out.
+ * Args:
+ *   handler: Called once per rejected response; null stops listening.
  */
-async function notifyIfAccountDeleted(res: Response, token: string | null): Promise<void> {
-  if (res.status !== 401 || !token || !accountDeletedHandler) return;
+export function setAppCheckFailedHandler(handler: (() => void) | null): void {
+  appCheckFailedHandler = handler;
+}
+
+/**
+ * Inspect a 401 response for `APP_CHECK_REQUIRED` or `ACCOUNT_DELETED` and notify handlers.
+ *
+ * For `ACCOUNT_DELETED`, a reply for a token this tab has already replaced (for example
+ * after it signed out to a guest itself) is ignored so it does not sign the new guest out.
+ */
+async function handleAuthError(res: Response, token: string | null): Promise<void> {
+  if (res.status !== 401) return;
+  if (!appCheckFailedHandler && (!token || !accountDeletedHandler)) return;
   const body = await res.clone().json().catch(() => null);
-  if (body?.code !== ACCOUNT_DELETED_CODE) return;
-  if ((await getAuthToken()) !== token) return;
-  accountDeletedHandler?.();
+  if (body?.code === APP_CHECK_REQUIRED_CODE) {
+    appCheckFailedHandler?.();
+    return;
+  }
+  if (body?.code === ACCOUNT_DELETED_CODE && token && accountDeletedHandler) {
+    if ((await getAuthToken()) !== token) return;
+    accountDeletedHandler?.();
+  }
 }
 
 /**
@@ -63,7 +84,26 @@ export async function getAuthToken(): Promise<string | null> {
 }
 
 /**
- * GET an API route with the user's ID token attached.
+ * Build auth and App Check headers for an outbound API request.
+ *
+ * Args:
+ *   extra: Additional headers to include (e.g. `Content-Type`).
+ *
+ * Returns:
+ *   The bearer ID token (for account-deleted checks) and headers map.
+ */
+async function authHeaders(
+  extra: Record<string, string> = {}
+): Promise<{ token: string | null; headers: Record<string, string> }> {
+  const [token, appCheckToken] = await Promise.all([getAuthToken(), getAppCheckToken()]);
+  const headers: Record<string, string> = { ...extra };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (appCheckToken) headers['X-Firebase-AppCheck'] = appCheckToken;
+  return { token, headers };
+}
+
+/**
+ * GET an API route with the user's ID token and App Check token attached.
  *
  * Args:
  *   path: API path, e.g. `/api/session`.
@@ -72,14 +112,14 @@ export async function getAuthToken(): Promise<string | null> {
  *   The fetch Response; callers check `res.ok`.
  */
 export async function getWithAuth(path: string): Promise<Response> {
-  const token = await getAuthToken();
-  const res = await fetch(path, token ? { headers: { Authorization: `Bearer ${token}` } } : {});
-  await notifyIfAccountDeleted(res, token);
+  const { token, headers } = await authHeaders();
+  const res = await fetch(path, Object.keys(headers).length > 0 ? { headers } : {});
+  await handleAuthError(res, token);
   return res;
 }
 
 /**
- * POST a JSON body to an API route with the user's ID token attached.
+ * POST a JSON body to an API route with the user's ID token and App Check token attached.
  *
  * Args:
  *   path: API path, e.g. `/api/chat`.
@@ -89,16 +129,14 @@ export async function getWithAuth(path: string): Promise<Response> {
  *   The fetch Response; callers check `res.ok` as before.
  */
 export async function postJson(path: string, body: unknown): Promise<Response> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const token = await getAuthToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
+  const { token, headers } = await authHeaders({ 'Content-Type': 'application/json' });
   const res = await fetch(path, { method: 'POST', headers, body: JSON.stringify(body) });
-  await notifyIfAccountDeleted(res, token);
+  await handleAuthError(res, token);
   return res;
 }
 
 /**
- * DELETE an API route with the user's ID token attached.
+ * DELETE an API route with the user's ID token and App Check token attached.
  *
  * Args:
  *   path: API path, e.g. `/api/account`.
@@ -107,11 +145,8 @@ export async function postJson(path: string, body: unknown): Promise<Response> {
  *   The fetch Response; callers check `res.ok`.
  */
 export async function deleteWithAuth(path: string): Promise<Response> {
-  const token = await getAuthToken();
-  const res = await fetch(path, {
-    method: 'DELETE',
-    headers: token ? { Authorization: `Bearer ${token}` } : {}
-  });
-  await notifyIfAccountDeleted(res, token);
+  const { token, headers } = await authHeaders();
+  const res = await fetch(path, { method: 'DELETE', headers });
+  await handleAuthError(res, token);
   return res;
 }

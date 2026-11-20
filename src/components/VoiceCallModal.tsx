@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { ChevronLeft, Keyboard, Lightbulb, Mic, MicOff, PhoneOff, Repeat2, Snail, X } from 'lucide-react';
+import { ChevronLeft, Flag, Keyboard, Lightbulb, Mic, MicOff, PhoneOff, Repeat2, Snail, X } from 'lucide-react';
 import { Persona, CharacterSpeakingState, DevSettings, LearnerProfile, VoiceCallEngine } from '../types';
 import { PersonaBadge } from './PersonaBadge';
+import { ReportDialog } from './ReportDialog';
 import { speechService, createSpeechRecognizer, AudioRecorder, transcribeAudioBlob } from '../utils/speech';
 import { LiveCall } from '../utils/liveCall';
 import { ITALIAN_PRACTICE_PHRASES } from '../data/personas';
-import { generateCallFallback } from '../data/fallbacks';
 import { useDialog } from '../hooks/useDialog';
 import { postJson } from '../utils/apiClient';
-import { getLearnerSessionId, postChat, rememberLearnerSessionId } from '../utils/learnerSession';
+import { formatReplyError, getLearnerSessionId, rememberLearnerSessionId, requestChatReply } from '../utils/learnerSession';
 import { readQuotaError, QuotaLimitError } from '../utils/quotaError';
 
 interface VoiceCallModalProps {
@@ -17,6 +17,7 @@ interface VoiceCallModalProps {
   learnerProfile?: LearnerProfile | null;
   onEndCall: () => void;
   onLimitReached?: () => void;
+  onPremiumRequired?: () => void;
 }
 
 interface CallExchange {
@@ -55,7 +56,8 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
   devSettings,
   learnerProfile,
   onEndCall,
-  onLimitReached
+  onLimitReached,
+  onPremiumRequired
 }) => {
   const [callStatus, setCallStatus] = useState<'connecting' | 'connected'>('connecting');
   const [callDurationSec, setCallDurationSec] = useState<number>(0);
@@ -64,6 +66,8 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
   const [showSubtitles, setShowSubtitles] = useState<boolean>(devSettings.subtitlesEnabled);
   const [showPromptAssistance, setShowPromptAssistance] = useState<boolean>(false);
   const [speakingState, setSpeakingState] = useState<CharacterSpeakingState>('idle');
+  const [callError, setCallError] = useState<string | null>(null);
+  const [reportedText, setReportedText] = useState<string | null>(null);
   
   // Live transcript of the learner and the call's spoken lines
   const [liveUserTranscript, setLiveUserTranscript] = useState<string>('');
@@ -151,6 +155,7 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
 
   // Handle persona speaking with Gemini TTS & subtitles (stable callback)
   const handlePersonaSpeak = useCallback(async (text: string, translation: string) => {
+    setCallError(null);
     isAiSpeakingRef.current = true;
     setSpeakingState('speaking');
     setLiveUserTranscript('');
@@ -202,6 +207,7 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
       audioRecorderRef.current = null;
     }
 
+    setCallError(null);
     setSpeakingState('thinking');
 
     const currentSec = Math.floor((Date.now() - startTimeRef.current) / 1000);
@@ -218,39 +224,39 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
     setLiveUserTranscript('');
     activeTranscriptRef.current = '';
 
-    try {
-      const res = await postChat({
-        personaId: personaRef.current.id,
-        // The server reads `sender`; call exchanges name it `speaker`
-        history: dialogueHistoryRef.current.slice(-4).map(({ speaker, text }) => ({ sender: speaker, text })),
-        userMessage: trimmed,
-        temperature: devSettingsRef.current.temperature,
-        grammarStrictness: devSettingsRef.current.grammarStrictness,
-        learnerLevel: learnerProfileRef.current?.level ?? 'A2',
-        learnerName: learnerProfileRef.current?.name
-      });
+    const result = await requestChatReply({
+      personaId: personaRef.current.id,
+      // The server reads `sender`; call exchanges name it `speaker`
+      history: dialogueHistoryRef.current.slice(-4).map(({ speaker, text }) => ({ sender: speaker, text })),
+      userMessage: trimmed,
+      temperature: devSettingsRef.current.temperature,
+      grammarStrictness: devSettingsRef.current.grammarStrictness,
+      learnerLevel: learnerProfileRef.current?.level ?? 'A2',
+      learnerName: learnerProfileRef.current?.name
+    });
 
-      const quota = await readQuotaError(res);
-      if (quota) {
-        speechService.stopSpeaking();
-        onEndCall();
-        onLimitReached?.();
-        return;
-      }
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data.text) {
-          handlePersonaSpeakRef.current(data.text, data.translation || '');
-          return;
-        }
-      }
-    } catch (err) {
-      console.warn('Live call AI reply failed, using native fallback:', err);
+    if (result.status === 'quota') {
+      speechService.stopSpeaking();
+      onEndCall();
+      onLimitReached?.();
+      return;
     }
 
-    const fallback = generateCallFallback(personaRef.current, trimmed);
-    handlePersonaSpeakRef.current(fallback.it, fallback.en);
+    if (result.status === 'premium_required') {
+      speechService.stopSpeaking();
+      onEndCall();
+      onPremiumRequired?.();
+      return;
+    }
+
+    if (result.status === 'ok') {
+      handlePersonaSpeakRef.current(result.text, result.translation);
+      return;
+    }
+
+    setCallError(formatReplyError(personaRef.current.name, result.reason));
+    isAiSpeakingRef.current = false;
+    setSpeakingState('listening');
   }, []);
 
   // Continuous hands-free live speech recognition loop (Cloud STT / Browser STT)
@@ -659,13 +665,33 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
               </span>
               <span className="text-lg font-semibold">{statusLabel}</span>
             </div>
+
+            {callError && (
+              <div
+                role="alert"
+                className="mt-4 w-full px-4 py-3 rounded-2xl bg-coral-tint border border-coral/25 text-coral-strong text-sm text-center"
+              >
+                {callError}
+              </div>
+            )}
           </div>
 
           {showSubtitles && (
             <div className="mt-6 space-y-3">
               {personaLine && (
                 <div className="px-5 py-4 rounded-[20px] rounded-bl-md bg-cobalt-tint">
-                  <p className="font-serif text-[19px] leading-snug">{personaLine.text}</p>
+                  <div className="flex items-start justify-between gap-2">
+                    <p lang="it" className="font-serif text-[19px] leading-snug flex-1">{personaLine.text}</p>
+                    <button
+                      type="button"
+                      onClick={() => setReportedText(personaLine.text)}
+                      aria-label="Report this reply"
+                      className="shrink-0 flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium text-ink-muted hover:text-coral-strong hover:bg-coral/10 transition-colors"
+                    >
+                      <Flag className="w-3.5 h-3.5" aria-hidden="true" />
+                      <span>Report</span>
+                    </button>
+                  </div>
                   {personaLine.translation && (
                     <p className="mt-1.5 text-[13px] text-ink-muted">{personaLine.translation}</p>
                   )}
@@ -703,7 +729,7 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
                       }}
                       className="w-full text-left px-3 py-2 rounded-2xl hover:bg-cobalt-tint transition-colors"
                     >
-                      <span className="block font-serif text-[15px]">{item.it}</span>
+                      <span lang="it" className="block font-serif text-[15px]">{item.it}</span>
                       <span className="block text-xs text-ink-muted">{item.en}</span>
                     </button>
                   </li>
@@ -792,6 +818,13 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
           </button>
         </div>
       </div>
+
+      <ReportDialog
+        isOpen={reportedText !== null}
+        reportedText={reportedText ?? ''}
+        source="call"
+        onClose={() => setReportedText(null)}
+      />
     </div>
   );
 };

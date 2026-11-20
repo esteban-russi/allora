@@ -3,13 +3,17 @@ import { Check, ShieldCheck, Sparkles } from 'lucide-react';
 import type { Me } from '../utils/me';
 import { getBilling, type PlanId, type PlanOffer } from '../utils/billing';
 import { PLAN_LIMITS } from '../server/plans';
+import { LegalLinks } from './LegalLinks';
 import { BRAND } from '../data/brand';
+import { TUTORS } from '../data/personas';
+import type { Persona } from '../types';
 
 export interface PlansScreenProps {
   me: Me;
-  onDone: () => void;
+  onDone: (purchased?: boolean) => void;
   onNeedSignIn: () => void;
   refreshAccount?: () => Promise<Me | null>;
+  tutors?: readonly Persona[];
 }
 
 /** Full-screen paywall and subscription plan selection. */
@@ -17,7 +21,8 @@ export const PlansScreen: React.FC<PlansScreenProps> = ({
   me,
   onDone,
   onNeedSignIn,
-  refreshAccount
+  refreshAccount,
+  tutors = TUTORS
 }) => {
   const [offers, setOffers] = useState<PlanOffer[]>([]);
   const [selectedPlan, setSelectedPlan] = useState<PlanId>('annual');
@@ -96,8 +101,8 @@ export const PlansScreen: React.FC<PlansScreenProps> = ({
     try {
       const restored = await getBilling().restore(me.userId);
       if (restored) {
-        if (refreshAccount) await refreshAccount();
-        onDone();
+        const fresh = refreshAccount ? await refreshAccount() : null;
+        onDone(fresh ? fresh.tier === 'premium' : true);
       } else {
         setPurchaseError('No active subscriptions found to restore.');
       }
@@ -114,6 +119,7 @@ export const PlansScreen: React.FC<PlansScreenProps> = ({
 
   const callMins = Math.round(me.limits.voiceSeconds / 60);
   const premiumCallMins = Math.round(PLAN_LIMITS.premium.voiceSeconds / 60);
+  const premiumTutors = tutors.filter((t) => t.isPremium);
 
   if (isSuccess) {
     return (
@@ -133,7 +139,7 @@ export const PlansScreen: React.FC<PlansScreenProps> = ({
           <div className="pt-4">
             <button
               type="button"
-              onClick={onDone}
+              onClick={() => onDone(true)}
               className="w-full h-12 flex items-center justify-center rounded-2xl bg-cobalt hover:bg-cobalt-strong text-canvas font-semibold text-base transition-colors shadow-soft"
             >
               Start practising
@@ -193,6 +199,31 @@ export const PlansScreen: React.FC<PlansScreenProps> = ({
               call minutes daily
             </span>
           </div>
+          {premiumTutors.length > 0 && (
+            <div className="flex items-start gap-3">
+              <span className="w-5 h-5 mt-0.5 rounded-full bg-cobalt-tint text-cobalt flex items-center justify-center shrink-0">
+                <Check className="w-3.5 h-3.5" aria-hidden="true" />
+              </span>
+              <div className="space-y-1.5">
+                <span className="font-semibold text-ink">All tutors</span>
+                <div className="flex flex-wrap items-center gap-2">
+                  {premiumTutors.map((tutor) => (
+                    <span
+                      key={tutor.id}
+                      className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-surface border border-line text-xs text-ink"
+                    >
+                      <img
+                        src={tutor.avatar.idle}
+                        alt=""
+                        className="w-5 h-5 rounded-full object-cover object-top bg-[#fbf3e6] shrink-0"
+                      />
+                      <span>{tutor.name}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Loading / Error / Plans */}
@@ -207,7 +238,7 @@ export const PlansScreen: React.FC<PlansScreenProps> = ({
             </p>
             <button
               type="button"
-              onClick={onDone}
+              onClick={() => onDone(false)}
               className="h-11 px-5 rounded-xl border border-line text-sm font-semibold text-ink hover:bg-surface-tint"
             >
               Continue with the free plan
@@ -280,7 +311,7 @@ export const PlansScreen: React.FC<PlansScreenProps> = ({
                 <button
                   type="button"
                   disabled={isPurchasing || isRestoring}
-                  onClick={onDone}
+                  onClick={() => onDone(false)}
                   className="hover:text-ink transition-colors underline"
                 >
                   Continue with the free plan
@@ -295,20 +326,19 @@ export const PlansScreen: React.FC<PlansScreenProps> = ({
                 </button>
               </div>
 
-              <div className="pt-2 text-center space-y-1">
+              <div className="pt-2 text-center">
                 <p className="text-[11px] text-ink-faint flex items-center justify-center gap-1">
                   <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
                   <span>Renews automatically. Cancel any time.</span>
-                </p>
-                <p className="text-[11px] text-ink-faint space-x-2">
-                  <a href="/terms" className="underline hover:text-ink">Terms of Service</a>
-                  <span>·</span>
-                  <a href="/privacy" className="underline hover:text-ink">Privacy Policy</a>
                 </p>
               </div>
             </div>
           </div>
         )}
+
+        <footer className="pt-4 border-t border-line">
+          <LegalLinks />
+        </footer>
       </div>
     </div>
   );
