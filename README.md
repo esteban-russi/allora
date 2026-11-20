@@ -2,7 +2,7 @@
 
 Learn conversational Italian by talking to people, not flashcards.
 
-The name, short name, premium plan name and support email live in `src/data/brand.ts`;
+The name, short name, premium plan name and support email live in `src/config/brand.ts`;
 `index.html` gets the name at build time and `public/manifest.webmanifest` carries it by hand. The
 GitHub repository, Cloud Run service and Artifact Registry repository are named `allora`. The GCP
 project, the runtime service account and the `parliamo.*` browser storage keys keep the old
@@ -20,13 +20,13 @@ Emmanuele has a hand-written persona prompt, a native saying, a sample greeting,
 
 ### Premium tutors and adding a tutor
 
-Premium can unlock extra tutors while Emmanuele stays free for everyone (`PREMIUM_PERSONA_IDS` in `src/data/personaPrompts.ts` starts empty until owner-supplied tutors are added):
+Premium can unlock extra tutors while Emmanuele stays free for everyone (`PREMIUM_PERSONA_IDS` in `src/product/data/personaPrompts.ts` starts empty until owner-supplied tutors are added):
 
-- **How the lock works:** `src/data/personaPrompts.ts` exports `PREMIUM_PERSONA_IDS` and `isPremiumPersona(id)` (used to derive `Persona.isPremium`). On the server, `src/server/personaAccess.ts` enforces access on `POST /api/session` (create and update) and ahead of `requireQuota` on `POST /api/chat` with HTTP 403 `{ code: 'PREMIUM_REQUIRED' }`, and `liveBridge.ts` rejects `/api/live` upgrades with HTTP 403 `PREMIUM_REQUIRED`. `/api/tts` stays unrestricted so anyone can preview tutor voice samples.
+- **How the lock works:** `src/product/data/personaPrompts.ts` exports `PREMIUM_PERSONA_IDS` and `isPremiumPersona(id)` (used to derive `Persona.isPremium`). On the server, `src/product/server/personaAccess.ts` enforces access on `POST /api/session` (create and update) and ahead of `requireQuota` on `POST /api/chat` with HTTP 403 `{ code: 'PREMIUM_REQUIRED' }`, and `src/product/server/liveBridge.ts` rejects `/api/live` upgrades with HTTP 403 `PREMIUM_REQUIRED`. `/api/tts` stays unrestricted so anyone can preview tutor voice samples.
 - **Client behaviour:** Locked tutors appear in `OnboardingPage` with a **Premium** lock tag (or **Coming soon** with `aria-disabled` when billing is unavailable) and an **About `<name>`** preview button opening `PersonaProfileModal`. Tapping a locked tutor sends guests through sign-in first, opens `PlansScreen`, and selects the chosen tutor after purchase. `PlansScreen` adds **All tutors** (names and small portraits) once at least one premium tutor exists. If Premium expires while using a premium tutor, the conversation is kept and `PremiumEndedNotice` offers **See plans** or **Continue with Emmanuele**.
 - **Adding a premium tutor (files & owner content):**
   - **Owner content needed per tutor:** `id`, name, full name, age, city, region, role; bio, 4 topics, `dailyContext`, `dialectSpecialty`, `cefrLevel`/`levelLabel`, native saying + translation; Italian persona prompt; Gemini prebuilt voice name + `voiceGender` (`male`/`female`) and sample audio text + translation; starter messages and quick replies per CEFR level; two original `.webp` portraits (resting and speaking, matching `src/assets/emmanuele/`).
-  - **Files to update:** place portraits in `src/assets/<id>/`; add the prompt to `PERSONA_PROMPTS`, voice to `PERSONA_VOICES`, and ID to `PREMIUM_PERSONA_IDS` in `src/data/personaPrompts.ts`; define the `Persona` (with `isPremium: isPremiumPersona('<id>')`), append it to `TUTORS`, and update `createInitialMessages` in `src/data/personas.ts`. Then test text chat and a Live voice call at A1 and C1.
+  - **Files to update:** place portraits in `src/assets/<id>/`; add the prompt to `PERSONA_PROMPTS`, voice to `PERSONA_VOICES`, and ID to `PREMIUM_PERSONA_IDS` in `src/product/data/personaPrompts.ts`; define the `Persona` (with `isPremium: isPremiumPersona('<id>')`), append it to `TUTORS`, and update `createInitialMessages` in `src/product/data/personas.ts`. Then test text chat and a Live voice call at A1 and C1.
 
 ## Design
 
@@ -111,9 +111,9 @@ The billed API routes (`/api/chat`, `/api/translate`, `/api/tts`, `/api/stt`, `/
 
 **Authentication.** Billed routes and the Live socket need a Firebase Auth or Google Identity ID token. HTTP requests send it as `Authorization: Bearer <token>`; Live calls send it as the WebSocket subprotocol `auth, <token>`, never in the URL. Tokens are checked against Google's certificates, and their audience must be `GCP_PROJECT` (Firebase) or `GOOGLE_CLIENT_ID` (Google Identity). Auth is enforced when `NODE_ENV=production` or `ENFORCE_AUTH=true`, and the server refuses to start without one of those audiences. Locally, requests without a token run as a dev user (`x-dev-user-id` header or `devUserId` query) and `dev-token:<id>` tokens are accepted.
 
-On load the client signs the learner in anonymously with Firebase (`src/utils/firebaseAuth.ts`), using the public web config from `GET /api/auth-config`, and the same anonymous account is reused on that device. That needs `FIREBASE_API_KEY` and `FIREBASE_APP_ID` set on the server and Anonymous sign-in enabled in the Firebase project `GCP_PROJECT`; without them, the client sends no token, which only works when auth is not enforced. Anyone can create anonymous accounts, so the per-IP limits remain the backstop against abuse.
+On load the client signs the learner in anonymously with Firebase (`src/platform/client/firebaseAuth.ts`), using the public web config from `GET /api/auth-config`, and the same anonymous account is reused on that device. That needs `FIREBASE_API_KEY` and `FIREBASE_APP_ID` set on the server and Anonymous sign-in enabled in the Firebase project `GCP_PROJECT`; without them, the client sends no token, which only works when auth is not enforced. Anyone can create anonymous accounts, so the per-IP limits remain the backstop against abuse.
 
-**App Check.** Billed API routes and the `/api/live` WebSocket upgrade can require a Firebase App Check token (`X-Firebase-AppCheck` header on HTTP, or `appcheck, <token>` after `auth, <token>` in `Sec-WebSocket-Protocol`), verified via `firebase-admin/app-check`. `APP_CHECK_MODE` defaults to `off`; `monitor` verifies and records `appCheck: { ok, failed, missing }` counters in `/api/metrics` without blocking; `enforce` rejects invalid or missing tokens with HTTP 401 (`APP_CHECK_REQUIRED`) and prompts the learner to reload or update the app. Public routes (`/api/health`, `/api/auth-config`, `/api/webhooks/revenuecat`, static files) are uncovered. On web, the client lazily initializes reCAPTCHA Enterprise when `FIREBASE_APPCHECK_SITE_KEY` is served via `/api/auth-config`; native Android Play Integrity connects through `setNativeAppCheckProvider` in `src/utils/appCheck.ts`.
+**App Check.** Billed API routes and the `/api/live` WebSocket upgrade can require a Firebase App Check token (`X-Firebase-AppCheck` header on HTTP, or `appcheck, <token>` after `auth, <token>` in `Sec-WebSocket-Protocol`), verified via `firebase-admin/app-check`. `APP_CHECK_MODE` defaults to `off`; `monitor` verifies and records `appCheck: { ok, failed, missing }` counters in `/api/metrics` without blocking; `enforce` rejects invalid or missing tokens with HTTP 401 (`APP_CHECK_REQUIRED`) and prompts the learner to reload or update the app. Public routes (`/api/health`, `/api/auth-config`, `/api/webhooks/revenuecat`, static files) are uncovered. On web, the client lazily initializes reCAPTCHA Enterprise when `FIREBASE_APPCHECK_SITE_KEY` is served via `/api/auth-config`; native Android Play Integrity connects through `setNativeAppCheckProvider` in `src/platform/client/appCheck.ts`.
 
 **Sign-in, merging and account deletion.** Learners can upgrade from guest to an authenticated account using Google popup sign-in or an email magic link (`sendSignInLinkToEmail`). Upon signing in, `POST /api/account/merge` moves the guest's session and daily usage over to the account (unless the account already has active sessions, in which case guest sessions are discarded), deletes the guest `users` record, and deletes the anonymous Firebase user. `DELETE /api/account` deletes the learner's sessions, usage, and account documents, and permanently deletes their Firebase Auth user via `firebase-admin` (notifying the user if an active store subscription exists).
 
@@ -242,47 +242,41 @@ Static, self-contained HTML pages live in `public/privacy.html`, `public/terms.h
 
 ## Project structure
 
+`src/` is split into three layers so the parts any paid AI app needs can be reused without the Italian tutor:
+
+- **`src/platform/`**: what you would reuse for another app: auth, accounts and consent, RevenueCat billing, tiers and daily quotas, rate limiting, App Check, content reports, metrics, the Gemini client helper, and the sign-in, account and legal UI.
+- **`src/product/`**: the Italian tutor: chat, speech and session routes, the Live voice bridge, personas and prompts, learner sessions, and the tutor UI.
+- **`src/config/`**: per-app values both layers read: `brand.ts` (name, plan name, support email, tagline) and `legal.ts` (terms version).
+
+Platform code may import only `src/platform` and `src/config`, never `src/product`; `tests/architecture.test.ts` fails if it does. Where platform code needs app data it takes it as a dependency instead: `createAccountRouter({ sessions })` receives the session store, `scheduleMaintenance` accepts any store with `purgeExpiredSessions`, and `setSignOutCleanup` lets the app clear its own browser data on sign-out (wired in `src/main.tsx`). `server.ts` and `src/App.tsx` are where the two layers are wired together.
+
+To start another app from this one, copy the repository, replace `src/product/` and `src/config/`, and rewire `server.ts` and `src/App.tsx`.
+
 ```
-├── server.ts                  # Express server: chat, translate, TTS, STT, sessions, me, account, billing, report, health, metrics, Vite/static serving
-├── liveBridge.ts              # /api/live WebSocket bridge to Gemini Live: auth, call limits, safety settings, heartbeat, resumption
-├── public/                    # Web manifest, icons, and static legal pages (privacy.html, terms.html, delete-account.html)
+├── server.ts                      # Wiring: security headers, rate limits, auth stack, routers, /api/me, /api/metrics, static serving, Live bridge
+├── public/                        # Web manifest, icons, and static legal pages (privacy.html, terms.html, delete-account.html)
 ├── src/
-│   ├── App.tsx                # App state, routing and dashboard layout
-│   ├── assets/emmanuele/      # Tutor portraits (resting and speaking)
-│   ├── components/
-│   │   ├── AccountMenu.tsx    # Account dialog: identity, plan, edit profile, sign out, delete account
-│   │   ├── ConsentCheckbox.tsx # Shared 18+ and Terms/Privacy checkbox
-│   │   ├── ConsentDialog.tsx  # Blocking consent modal for restored users
-│   │   ├── LegalLinks.tsx     # Footer Privacy & Terms links
-│   │   ├── ReportDialog.tsx   # Report-a-reply modal dialog
-│   │   ├── PlansScreen.tsx    # Full-screen paywall and subscription plan selection
-│   │   ├── PremiumEndedNotice.tsx # Notice when Premium expires while using a premium tutor
-│   │   ├── UsageMeter.tsx     # Daily usage meter & upgrade call-to-action
-│   │   ├── SignInScreen.tsx   # Sign-in screen: Google popup and magic link email form
-│   │   ├── OnboardingPage.tsx # Learner name, CEFR level, tutor picker and consent
-│   │   ├── IconRail.tsx       # Left navigation rail
-│   │   ├── TopHeader.tsx      # Brand, conversation title, Text/Voice switch
-│   │   ├── ChatInterface.tsx  # Chat bubbles, report action, quick replies and composer
-│   │   ├── UtilityPanel.tsx   # Tutor profile, notebook and talking share
-│   │   ├── VoiceCallModal.tsx # Hands-free voice call with captions and report action
-│   │   ├── SettingsDialog.tsx # Learner settings: correction style, subtitles, auto-play, speaking speed
-│   │   ├── DevSettingsDrawer.tsx # Developer lab (dev mode or parliamo.devlab=1)
-│   │   ├── PersonaProfileModal.tsx
-│   │   ├── PersonaBadge.tsx
-│   │   └── UserBadge.tsx
-│   ├── data/                  # brand.ts, legal.ts, personas.ts, personaPrompts.ts
-│   ├── server/                # appCheck, auth, accountStore, accountRoutes, billingRoutes, billingSync, firebaseAdmin, identityAdmin, modelSafety, personaAccess, plans, reportStore, reportRoutes, revenueCat, usageStore, quota, sessionStore, rateLimiter, metrics
-│   ├── utils/apiClient.ts     # Authenticated API calls (get, post, delete), ID token source, and App Check header/error handling
-│   ├── utils/appCheck.ts      # Client App Check token provider (web reCAPTCHA Enterprise + native seam)
-│   ├── utils/billing.ts       # Client billing interface and active adapter registry
-│   ├── utils/billingWeb.ts    # RevenueCat Web Billing adapter (@revenuecat/purchases-js)
-│   ├── utils/clientConfig.ts  # Client config loader (/api/auth-config)
-│   ├── utils/firebaseAuth.ts  # Client auth: anonymous, Google popup, email magic link, account merge
-│   ├── utils/learnerSession.ts # Remembers the learner session and links chat turns to it
-│   ├── utils/legalUrl.ts      # Dev/prod URL helper for static legal pages
-│   ├── utils/me.ts            # Client account /api/me fetching, consent submission and typing
-│   ├── utils/speech.ts        # Gemini TTS playback, browser TTS fallback, speech recognition
-│   ├── utils/liveCall.ts      # Gemini Live call client: mic streaming, playback, heartbeat, reconnect
-│   └── types/index.ts
+│   ├── App.tsx                    # Composes screens and dashboard layout from the hooks below
+│   ├── main.tsx                   # Entry point: fonts, anonymous sign-in, sign-out cleanup
+│   ├── assets/emmanuele/          # Tutor portraits (resting and speaking)
+│   ├── config/                    # brand.ts, legal.ts
+│   ├── platform/
+│   │   ├── server/                # auth, appCheck, accountMiddleware, accountRoutes, accountStore (+ Firestore), billingRoutes, billingSync,
+│   │   │                          # revenueCat(V2), plans, quota, usageStore (+ Firestore), rateLimiter, reportRoutes, reportStore, metrics,
+│   │   │                          # maintenance, modelSafety, privacyAndPolicy, firebaseAdmin, identityAdmin, genAi, vertexCooldown
+│   │   ├── client/                # apiClient, appCheck, billing, billingWeb, clientConfig, firebaseAuth, legalUrl, me, notice, quotaError
+│   │   ├── hooks/                 # useAccount, useDialog, useLimitReached, useWebBilling
+│   │   └── components/            # AccountMenu, ConsentCheckbox, ConsentDialog, LegalLinks, LimitReachedCard, MagicLinkEmailForm,
+│   │                              # NoticeToast, SignInScreen, UsageMeter
+│   └── product/
+│       ├── server/                # chatRoutes, speechRoutes, sessionRoutes, sessionStore (+ Firestore), personaAccess,
+│       │                          # liveBridge (/api/live WebSocket bridge to Gemini Live)
+│       ├── client/                # learnerSession, liveCall, speech
+│       ├── hooks/                 # useTutorChat, useScreenFlow, useConversationStats
+│       ├── components/            # ChatInterface, VoiceCallModal, OnboardingPage, PlansScreen, UtilityPanel, TopHeader, IconRail,
+│       │                          # SettingsDialog, DevSettingsDrawer, PersonaProfileModal, PersonaBadge, PremiumEndedNotice,
+│       │                          # ReportDialog, UserBadge
+│       ├── data/                  # personas.ts, personaPrompts.ts
+│       └── types.ts
 └── index.html
 ```
