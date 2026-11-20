@@ -1,9 +1,12 @@
 /** Top header bar with branding, tab or tutor title, conversation mode toggle, and desktop avatar. */
 import React from 'react';
+import { ChevronLeft } from 'lucide-react';
 import { CefrLevel, Persona } from '../types';
 import { UserBadge } from './UserBadge';
 import { BRAND } from '../../config/brand';
 import type { AppTab } from './BottomTabBar';
+import { ChatHabitIndicator } from './ChatHabitIndicator';
+import type { HabitSummary } from '../server/habitStore';
 
 interface TopHeaderProps {
   activeTab?: AppTab;
@@ -14,6 +17,8 @@ interface TopHeaderProps {
   onSelectVoice: () => void;
   onOpenNotebook?: () => void;
   onOpenAccount?: () => void;
+  onOpenConversations?: () => void;
+  habits?: HabitSummary | null;
 }
 
 const TAB_TITLES: Record<AppTab, string> = {
@@ -30,7 +35,9 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   learnerLevel,
   mode,
   onSelectVoice,
-  onOpenAccount
+  onOpenAccount,
+  onOpenConversations,
+  habits
 }) => {
   const isChatTab = activeTab === 'chat';
   const isHomeTab = activeTab === 'home';
@@ -39,9 +46,28 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
 
   return (
     <header className="h-16 shrink-0 grid grid-cols-[auto_1fr_auto] sm:grid-cols-[1fr_auto_1fr] items-center gap-2 sm:gap-3 px-4 md:px-6 bg-canvas border-b border-line sm:border-b-0">
-      <span className="font-serif text-[24px] sm:text-[26px] leading-none font-semibold tracking-tight text-cobalt">
-        {BRAND.shortName}
-      </span>
+      {isChatTab && onOpenConversations ? (
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onOpenConversations}
+            aria-label="All conversations"
+            className="min-h-[48px] min-w-[48px] flex items-center justify-center -ml-2 rounded-full hover:bg-surface text-cobalt font-medium text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-cobalt/40"
+          >
+            <span className="flex items-center gap-0.5">
+              <ChevronLeft className="w-5 h-5" aria-hidden="true" />
+              <span className="hidden sm:inline">All chats</span>
+            </span>
+          </button>
+          <span className="hidden sm:inline font-serif text-[24px] leading-none font-semibold tracking-tight text-cobalt">
+            {BRAND.shortName}
+          </span>
+        </div>
+      ) : (
+        <span className="font-serif text-[24px] sm:text-[26px] leading-none font-semibold tracking-tight text-cobalt">
+          {BRAND.shortName}
+        </span>
+      )}
 
       {/* Title on phones (< sm) */}
       <div className="flex sm:hidden items-center justify-center min-w-0 px-2">
@@ -78,7 +104,9 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
         )}
       </div>
 
-      <div className="col-start-3 flex items-center justify-end gap-2 sm:gap-4">
+      <div className="col-start-3 flex items-center justify-end gap-2 sm:gap-3">
+        {isChatTab && <ChatHabitIndicator initialHabits={habits} />}
+
         {/* Text/Voice switch: kept in Chat header */}
         {isChatTab ? (
           <div

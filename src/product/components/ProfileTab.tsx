@@ -21,11 +21,15 @@ import { getBilling } from '../../platform/client/billing';
 import { openManageSubscriptionTab } from '../../platform/components/AccountMenu';
 import { LearningSettingsControls } from './LearningSettingsControls';
 import { UsageMeter } from '../../platform/components/UsageMeter';
+import type { HabitGoal, HabitReminder, HabitSummary } from '../server/habitStore';
 
 export interface ProfileTabProps {
   learnerProfile: LearnerProfile;
   devSettings: DevSettings;
   onSaveSettings: (settings: DevSettings) => void;
+  habits?: HabitSummary | null;
+  onSaveHabitGoal?: (goal: HabitGoal) => void;
+  onSaveReminder?: (reminder: HabitReminder) => void;
   onOpenDevLab?: () => void;
   me: Me | null;
   onEditProfile: () => void;
@@ -40,6 +44,9 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
   learnerProfile,
   devSettings,
   onSaveSettings,
+  habits,
+  onSaveHabitGoal,
+  onSaveReminder,
   onOpenDevLab,
   me,
   onEditProfile,
@@ -177,6 +184,10 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
         <LearningSettingsControls
           settings={devSettings}
           onSaveSettings={onSaveSettings}
+          habitGoal={habits?.goal}
+          onSaveHabitGoal={onSaveHabitGoal}
+          reminder={habits?.reminder}
+          onSaveReminder={onSaveReminder}
           onOpenDevLab={onOpenDevLab}
         />
       </section>

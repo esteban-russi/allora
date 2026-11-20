@@ -35,8 +35,12 @@ import { speechService } from './product/client/speech';
 import { setAccountDeletedHandler, setAppCheckFailedHandler } from './platform/client/apiClient';
 import { completeMagicLink, EMAIL_FOR_SIGN_IN_KEY, isMagicLink, signOutToGuest } from './platform/client/firebaseAuth';
 import { ACCOUNT_DELETED_NOTICE, APP_CHECK_FAILED_NOTICE, MERGE_FAILED_NOTICE, showNotice } from './platform/client/notice';
-import { loadLearnerSession, saveLearnerSettings, startLearnerSession, toChatMessages } from './product/client/learnerSession';
-import type { ClientLearnerSession } from './product/server/sessionStore';
+import { loadLearnerSession, saveLearnerSettings, startLearnerSession, toChatMessages, createConversation, deleteSessionById, fetchSessionById, fetchSessionList, getLearnerSessionId, rememberLearnerSessionId } from './product/client/learnerSession';
+import type { ClientLearnerSession, SessionSummary } from './product/server/sessionStore';
+import { ConversationListScreen } from './product/components/ConversationListScreen';
+import { NewConversationSheet } from './product/components/NewConversationSheet';
+import { fetchHabits, subscribeHabits, updateHabitSettings } from './product/client/habitsClient';
+import type { HabitGoal, HabitReminder, HabitSummary } from './product/server/habitStore';
 
 const GRAMMAR_STRICTNESS: DevSettings['grammarStrictness'][] = ['conversational', 'tutor', 'strict'];
 
@@ -87,6 +91,15 @@ export default function App() {
   const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
   const [profileModalPersona, setProfileModalPersona] = useState<Persona>(persona);
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState<boolean>(false);
+  const [isConversationsOpen, setIsConversationsOpen] = useState<boolean>(false);
+  const [isNewConversationOpen, setIsNewConversationOpen] = useState<boolean>(false);
+  const [sessionSummaries, setSessionSummaries] = useState<SessionSummary[]>([]);
+  const [habits, setHabits] = useState<HabitSummary | null>(null);
+
+  useEffect(() => {
+    void fetchHabits();
+    return subscribeHabits(setHabits);
+  }, []);
 
   // Experimental Dev Settings (Defaulting to real Gemini Live server TTS)
   const [devSettings, setDevSettings] = useState<DevSettings>({
@@ -133,7 +146,7 @@ export default function App() {
     const profile: LearnerProfile = { name: session.learnerName, level: session.learnerLevel, personaId: tutor.id };
     setLearnerProfile(profile);
     chat.resetConversation([
-      ...createInitialMessages(tutor, profile.name, profile.level),
+      ...createInitialMessages(tutor, profile.name, profile.level, session.topic),
       ...toChatMessages(session.checkpointTurns, tutor.id)
     ]);
     setSavedPhrases(session.progress.savedPhrases);
@@ -283,7 +296,10 @@ export default function App() {
     }
   };
 
-  const handleCompleteOnboarding = (profile: LearnerProfile, consent?: Consent) => {
+  const handleCompleteOnboarding = (profile: LearnerProfile, consent?: Consent, habitGoal?: HabitGoal) => {
+    if (habitGoal) {
+      void updateHabitSettings({ goal: habitGoal });
+    }
     const selectedTutor = TUTORS.find((t) => t.id === profile.personaId) ?? EMMANUELE;
     const isFirstOnboarding = learnerProfile === null;
     if (consent) setConsent(consent);
@@ -379,6 +395,85 @@ export default function App() {
   const closeSettings = () => {
     setIsSettingsOpen(false);
     closeOverlay('settings');
+  };
+
+  const openConversations = () => {
+    pushScreen('screen:conversations', () => setIsConversationsOpen(false));
+    setIsConversationsOpen(true);
+    void fetchSessionList().then(setSessionSummaries);
+  };
+
+  const closeConversations = () => {
+    closeScreen('screen:conversations');
+    setIsConversationsOpen(false);
+  };
+
+  const openNewConversation = () => {
+    pushOverlay('new-conversation', () => setIsNewConversationOpen(false));
+    setIsNewConversationOpen(true);
+  };
+
+  const closeNewConversation = () => {
+    closeOverlay('new-conversation');
+    setIsNewConversationOpen(false);
+  };
+
+  const handleSelectSession = async (sessionId: string) => {
+    const session = await fetchSessionById(sessionId);
+    if (session) {
+      applySession(session);
+      rememberLearnerSessionId(session.sessionId);
+    }
+    closeConversations();
+    selectTab('chat');
+  };
+
+  const handleDeleteSession = async (sessionId: string) => {
+    await deleteSessionById(sessionId);
+    const updated = await fetchSessionList();
+    setSessionSummaries(updated);
+    const activeId = getLearnerSessionId();
+    if (!activeId || activeId === sessionId) {
+      if (updated.length > 0) {
+        const next = await fetchSessionById(updated[0].sessionId);
+        if (next) applySession(next);
+      } else if (learnerProfile) {
+        void startLearnerSession({ profile: learnerProfile, grammarStrictness: devSettings.grammarStrictness, savedPhrases });
+      }
+    }
+  };
+
+  const handleStartNewConversation = async (personaId: string, topicId: string) => {
+    const tutor = TUTORS.find((t) => t.id === personaId) ?? EMMANUELE;
+    const nextProfile: LearnerProfile = {
+      name: learnerProfile?.name ?? '',
+      level: learnerProfile?.level ?? 'A2',
+      personaId: tutor.id
+    };
+    setLearnerProfile(nextProfile);
+    const session = await createConversation({
+      personaId,
+      topic: topicId,
+      learnerName: nextProfile.name,
+      learnerLevel: nextProfile.level,
+      grammarStrictness: devSettings.grammarStrictness,
+      savedPhrases
+    });
+    if (session) {
+      applySession(session);
+    } else {
+      chat.resetConversation(createInitialMessages(tutor, nextProfile.name, nextProfile.level, topicId));
+    }
+    if (isConversationsOpen) closeConversations();
+    selectTab('chat');
+  };
+
+  const handleSaveHabitGoal = (goal: HabitGoal) => {
+    void updateHabitSettings({ goal });
+  };
+
+  const handleSaveReminder = (reminder: HabitReminder) => {
+    void updateHabitSettings({ reminder });
   };
 
   const openDevLab = () => {
@@ -568,6 +663,8 @@ export default function App() {
           mode={isCallOpen ? 'voice' : 'text'}
           onSelectVoice={startCall}
           onOpenAccount={openAccountMenu}
+          onOpenConversations={openConversations}
+          habits={habits}
         />
 
         <div className="flex-1 min-h-0 flex gap-5 lg:pr-5 lg:pb-5">
@@ -581,51 +678,66 @@ export default function App() {
                 talkingShare={talkingShare}
                 tier={me?.tier ?? 'guest'}
                 canUpgrade={getBilling().isAvailable() && me?.tier !== 'premium'}
+                habits={habits}
                 onNavigateToChat={() => selectTab('chat')}
                 onNavigateToNotebook={() => selectTab('notebook')}
                 onStartVoiceCall={() => void startCall()}
                 onSelectTutor={handleSelectTutor}
                 onSeePlansForTutor={handleSeePlansForTutor}
                 onOpenTutorProfile={(t) => openProfileModal(t)}
+                onOpenNewConversation={openNewConversation}
                 headingRef={homeHeadingRef}
               />
             </div>
           )}
 
           {activeTab === 'chat' && (
-            <>
-              <div id="chat" className={`flex-1 min-w-0 flex ${isComposerFocused ? 'pb-0' : 'pb-16 md:pb-0'}`}>
-                <ChatInterface
-                  persona={persona}
-                  messages={messages}
-                  devSettings={devSettings}
-                  savedPhraseIds={savedPhrases.map((p) => p.id)}
-                  onSendMessage={chat.sendMessage}
-                  onSavePhrase={handleSavePhrase}
-                  isAiGenerating={chat.isAiGenerating}
-                  draft={chat.draft}
-                  onDraftChange={chat.setDraft}
-                  failedReply={chat.failedReply}
-                  onRetryReply={chat.retryReply}
-                  limitReached={limitReached}
-                  premiumEnded={premiumEnded}
-                  tier={me?.tier ?? 'guest'}
-                  canUpgrade={getBilling().isAvailable() && me?.tier !== 'premium'}
-                  onSignIn={navigateToSignIn}
-                  onSeePlans={() => {
-                    if (me?.isAnonymous) navigateToSignIn();
-                    else navigateToPlans();
-                  }}
-                  onContinueWithEmmanuele={handleContinueWithEmmanuele}
-                  onComposerFocus={() => setIsComposerFocused(true)}
-                  onComposerBlur={() => setIsComposerFocused(false)}
+            isConversationsOpen ? (
+              <div className="flex-1 min-w-0 flex">
+                <ConversationListScreen
+                  sessions={sessionSummaries}
+                  activeSessionId={getLearnerSessionId()}
+                  onSelectSession={(id) => void handleSelectSession(id)}
+                  onDeleteSession={handleDeleteSession}
+                  onOpenNewConversation={openNewConversation}
+                  onBack={closeConversations}
                 />
               </div>
+            ) : (
+              <>
+                <div id="chat" className={`flex-1 min-w-0 flex ${isComposerFocused ? 'pb-0' : 'pb-16 md:pb-0'}`}>
+                  <ChatInterface
+                    persona={persona}
+                    messages={messages}
+                    devSettings={devSettings}
+                    savedPhraseIds={savedPhrases.map((p) => p.id)}
+                    onSendMessage={chat.sendMessage}
+                    onSavePhrase={handleSavePhrase}
+                    isAiGenerating={chat.isAiGenerating}
+                    draft={chat.draft}
+                    onDraftChange={chat.setDraft}
+                    failedReply={chat.failedReply}
+                    onRetryReply={chat.retryReply}
+                    limitReached={limitReached}
+                    premiumEnded={premiumEnded}
+                    tier={me?.tier ?? 'guest'}
+                    canUpgrade={getBilling().isAvailable() && me?.tier !== 'premium'}
+                    onSignIn={navigateToSignIn}
+                    onSeePlans={() => {
+                      if (me?.isAnonymous) navigateToSignIn();
+                      else navigateToPlans();
+                    }}
+                    onContinueWithEmmanuele={handleContinueWithEmmanuele}
+                    onComposerFocus={() => setIsComposerFocused(true)}
+                    onComposerBlur={() => setIsComposerFocused(false)}
+                  />
+                </div>
 
-              <div className="hidden lg:block w-[360px] xl:w-[380px] shrink-0">
-                <UtilityPanel {...panelProps} notebookHeadingRef={notebookHeadingRef} />
-              </div>
-            </>
+                <div className="hidden lg:block w-[360px] xl:w-[380px] shrink-0">
+                  <UtilityPanel {...panelProps} notebookHeadingRef={notebookHeadingRef} />
+                </div>
+              </>
+            )
           )}
 
           {activeTab === 'notebook' && (
@@ -646,6 +758,9 @@ export default function App() {
                 learnerProfile={learnerProfile}
                 devSettings={devSettings}
                 onSaveSettings={handleSaveSettings}
+                habits={habits}
+                onSaveHabitGoal={handleSaveHabitGoal}
+                onSaveReminder={handleSaveReminder}
                 onOpenDevLab={devLabEnabled ? openDevLab : undefined}
                 me={me}
                 onEditProfile={navigateToEditProfile}
@@ -788,6 +903,15 @@ export default function App() {
       />
 
       <ConsentDialog isOpen={needsConsent} onAccepted={setConsent} />
+
+      <NewConversationSheet
+        isOpen={isNewConversationOpen}
+        onClose={closeNewConversation}
+        tier={me?.tier ?? 'guest'}
+        canUpgrade={getBilling().isAvailable() && me?.tier !== 'premium'}
+        onSeePlansForTutor={handleSeePlansForTutor}
+        onStartConversation={(personaId, topicId) => void handleStartNewConversation(personaId, topicId)}
+      />
     </div>
   );
 }

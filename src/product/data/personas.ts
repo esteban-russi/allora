@@ -1,4 +1,5 @@
 import { CefrLevel, ChatMessage, Persona, SavedPhrase } from '../types';
+import { getTopicById } from './topics';
 import { isPremiumPersona, PERSONA_PROMPTS, PERSONA_VOICES } from './personaPrompts';
 import emmanueleIdle from '../../assets/emmanuele/neutral.webp';
 import emmanueleSpeaking from '../../assets/emmanuele/talking.webp';
@@ -74,9 +75,31 @@ export const CEFR_LEVEL_OPTIONS: CefrLevelOption[] = [
   }
 ];
 
-export function createInitialMessages(persona: Persona, learnerName: string, level: CefrLevel): ChatMessage[] {
+export function createInitialMessages(
+  persona: Persona,
+  learnerName: string,
+  level: CefrLevel,
+  topicId?: string
+): ChatMessage[] {
   const cleanName = learnerName.trim() || 'amico';
   const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  if (topicId && topicId !== 'free_chat') {
+    const topic = getTopicById(topicId);
+    if (topic && topic.firstLine) {
+      return [
+        {
+          id: `init-${topic.id}-${Date.now()}`,
+          sender: 'persona',
+          personaId: persona.id,
+          text: topic.firstLine.text,
+          translation: topic.firstLine.translation,
+          grammarNotes: [],
+          timestamp
+        }
+      ];
+    }
+  }
 
   const greetingsByLevel: Record<CefrLevel, { text: string; translation: string; noteWord: string; noteExplanation: string }> = {
     A1: {

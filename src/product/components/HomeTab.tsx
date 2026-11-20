@@ -7,10 +7,13 @@ import {
   Info,
   Lock,
   MapPin,
-  MessageSquare
+  MessageSquare,
+  MessageSquarePlus
 } from 'lucide-react';
 import type { ChatMessage, LearnerProfile, Persona, SavedPhrase } from '../types';
 import { TUTORS } from '../data/personas';
+import { TodayHabitCard } from './TodayHabitCard';
+import type { HabitSummary } from '../server/habitStore';
 
 export function getItalianGreeting(date: Date = new Date()): string {
   const hour = date.getHours();
@@ -25,12 +28,14 @@ export interface HomeTabProps {
   talkingShare: number;
   tier: string;
   canUpgrade: boolean;
+  habits?: HabitSummary | null;
   onNavigateToChat: () => void;
   onNavigateToNotebook: () => void;
   onStartVoiceCall: () => void;
   onSelectTutor: (tutor: Persona) => void;
   onSeePlansForTutor: (tutorId: string) => void;
   onOpenTutorProfile: (tutor: Persona) => void;
+  onOpenNewConversation?: () => void;
   headingRef?: React.Ref<HTMLHeadingElement>;
 }
 
@@ -39,44 +44,59 @@ export const HomeTab: React.FC<HomeTabProps> = ({
   persona,
   messages,
   savedPhrases,
-  talkingShare,
+  talkingShare: _talkingShare,
   tier,
   canUpgrade,
+  habits,
   onNavigateToChat,
   onNavigateToNotebook,
   onStartVoiceCall,
   onSelectTutor,
   onSeePlansForTutor,
   onOpenTutorProfile,
+  onOpenNewConversation,
   headingRef
 }) => {
   const greeting = getItalianGreeting();
   const lastTutorMessage = [...messages].reverse().find((m) => m.sender === 'persona');
-  const messagesSent = messages.filter((m) => m.sender === 'user').length;
   const latestPhrase = savedPhrases.length > 0 ? savedPhrases[0] : null;
 
   return (
     <div className="h-full w-full overflow-y-auto px-4 sm:px-6 py-6 pb-24 md:pb-8 max-w-2xl mx-auto space-y-6">
       {/* Greeting Header */}
-      <header className="space-y-1">
-        <div className="flex items-center gap-2 flex-wrap">
-          <h1
-            ref={headingRef}
-            tabIndex={-1}
-            className="font-serif text-2xl sm:text-3xl font-semibold text-ink focus:outline-none"
-          >
-            {greeting}, {learnerProfile.name}
-          </h1>
-          <span
-            title={`Italian level ${learnerProfile.level}`}
-            className="px-2.5 py-0.5 rounded-full bg-cobalt-tint text-cobalt text-xs font-semibold font-mono-data"
-          >
-            {learnerProfile.level}
-          </span>
+      <header className="flex items-center justify-between gap-3">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1
+              ref={headingRef}
+              tabIndex={-1}
+              className="font-serif text-2xl sm:text-3xl font-semibold text-ink focus:outline-none"
+            >
+              {greeting}, {learnerProfile.name}
+            </h1>
+            <span
+              title={`Italian level ${learnerProfile.level}`}
+              className="px-2.5 py-0.5 rounded-full bg-cobalt-tint text-cobalt text-xs font-semibold font-mono-data"
+            >
+              {learnerProfile.level}
+            </span>
+          </div>
+          <p className="text-xs sm:text-sm text-ink-muted">
+            Pronto a praticare il tuo italiano oggi?
+          </p>
         </div>
-        <p className="text-xs sm:text-sm text-ink-muted">
-          Pronto a praticare il tuo italiano oggi?
-        </p>
+
+        {onOpenNewConversation && (
+          <button
+            type="button"
+            onClick={onOpenNewConversation}
+            aria-label="New conversation"
+            className="min-h-[48px] px-3.5 rounded-full bg-cobalt-tint text-cobalt hover:bg-cobalt/20 font-semibold text-xs sm:text-sm flex items-center gap-1.5 focus:outline-none focus:ring-2 focus:ring-cobalt/40 shrink-0"
+          >
+            <MessageSquarePlus className="w-4 h-4" aria-hidden="true" />
+            <span className="hidden sm:inline">New chat</span>
+          </button>
+        )}
       </header>
 
       {/* Primary Card: Continue with Tutor */}
@@ -164,45 +184,8 @@ export const HomeTab: React.FC<HomeTabProps> = ({
         </button>
       </section>
 
-      {/* Today Card */}
-      <section
-        aria-labelledby="today-heading"
-        className="p-5 rounded-[24px] bg-surface border border-line shadow-soft space-y-3"
-      >
-        <div className="flex items-center justify-between">
-          <h2 id="today-heading" className="text-xs font-semibold tracking-[0.08em] uppercase text-ink-muted">
-            Today
-          </h2>
-          <span className="text-xs font-medium text-ink-muted">
-            {new Date().toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
-          </span>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div className="p-3.5 rounded-2xl bg-canvas border border-line">
-            <div className="font-serif text-2xl font-bold text-ink">
-              {messagesSent}
-            </div>
-            <div className="text-xs text-ink-muted mt-0.5">
-              {messagesSent === 1 ? 'Message sent' : 'Messages sent'}
-            </div>
-          </div>
-          <div className="p-3.5 rounded-2xl bg-canvas border border-line">
-            <div className="font-serif text-2xl font-bold text-ink">
-              {talkingShare}%
-            </div>
-            <div className="text-xs text-ink-muted mt-0.5">
-              Your talking share
-            </div>
-          </div>
-        </div>
-
-        {messagesSent === 0 && (
-          <p className="text-xs text-ink-muted pt-1">
-            No messages sent today yet. Send your first message to get started!
-          </p>
-        )}
-      </section>
+      {/* Today Habit Card */}
+      <TodayHabitCard habits={habits ?? null} />
 
       {/* Notebook Teaser */}
       <section aria-labelledby="notebook-teaser-heading">

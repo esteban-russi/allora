@@ -10,6 +10,7 @@ import { useDialog } from '../../platform/hooks/useDialog';
 import { postJson } from '../../platform/client/apiClient';
 import { formatReplyError, getLearnerSessionId, rememberLearnerSessionId, requestChatReply } from '../client/learnerSession';
 import { readQuotaError, QuotaLimitError } from '../../platform/client/quotaError';
+import { celebrateGoalMet } from '../client/habitsClient';
 
 interface VoiceCallModalProps {
   persona: Persona;
@@ -93,6 +94,8 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
 
   const dialogueHistoryRef = useRef<CallExchange[]>(dialogueHistory);
   dialogueHistoryRef.current = dialogueHistory;
+
+  const goalMetStreakRef = useRef<number | null>(null);
 
   // Gemini Live by default; switches to turn-based for the rest of the call if Live fails
   const [engine, setEngine] = useState<VoiceCallEngine>(devSettings.voiceCallEngine);
@@ -432,6 +435,9 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
         },
         onUserTranscript: setLiveUserTranscript,
         onPersonaTranscript: setLivePersonaTranscript,
+        onGoalMet: (habits) => {
+          goalMetStreakRef.current = habits?.currentStreak ?? 1;
+        },
         onTurnComplete: (userText, personaText) => {
           if (userText) addExchange('user', userText, 'Student voice input');
           if (personaText) {
@@ -526,6 +532,10 @@ export const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
     }, 1800);
 
     return () => {
+      if (goalMetStreakRef.current !== null) {
+        celebrateGoalMet(goalMetStreakRef.current);
+        goalMetStreakRef.current = null;
+      }
       clearInterval(ringInterval);
       clearTimeout(connectTimeout);
       if (timerRef.current) clearInterval(timerRef.current);
