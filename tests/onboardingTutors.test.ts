@@ -2,10 +2,10 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { OnboardingPage, resolveTutorSelection } from '../src/components/OnboardingPage';
-import { PersonaProfileModal } from '../src/components/PersonaProfileModal';
-import { EMMANUELE } from '../src/data/personas';
-import type { Persona } from '../src/types';
+import { OnboardingPage, resolveTutorSelection } from '../src/product/components/OnboardingPage';
+import { PersonaProfileModal } from '../src/product/components/PersonaProfileModal';
+import { EMMANUELE } from '../src/product/data/personas';
+import type { Persona } from '../src/product/types';
 
 const TEST_PREMIUM_TUTOR: Persona = {
   ...EMMANUELE,

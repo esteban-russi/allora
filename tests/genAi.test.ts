@@ -1,7 +1,7 @@
 import type { GoogleGenAI } from '@google/genai';
 import { describe, expect, it } from 'vitest';
-import { buildLiveClientOptions, parseModelJsonResponse } from '../src/server/genAi';
-import { VertexCooldown } from '../src/server/vertexCooldown';
+import { buildLiveClientOptions, parseModelJsonResponse } from '../src/platform/server/genAi';
+import { VertexCooldown } from '../src/platform/server/vertexCooldown';
 
 describe('parseModelJsonResponse', () => {
   it('parses pure JSON correctly', () => {

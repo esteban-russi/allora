@@ -7,7 +7,7 @@ import {
   decodeJwt,
   extractTokenFromRequest,
   verifyIdToken
-} from '../src/server/auth';
+} from '../src/platform/server/auth';
 
 describe('decodeJwt', () => {
   it('correctly decodes standard Base64URL JWT', () => {

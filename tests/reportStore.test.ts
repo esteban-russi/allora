@@ -1,5 +1,5 @@
 /** Tests for InMemoryReportStore using the shared contract. */
-import { InMemoryReportStore } from '../src/server/reportStore';
+import { InMemoryReportStore } from '../src/platform/server/reportStore';
 import { runReportStoreContract } from './helpers/reportStoreContract';
 
 runReportStoreContract('InMemoryReportStore', () => {

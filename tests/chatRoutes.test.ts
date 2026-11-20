@@ -1,8 +1,8 @@
 import request from 'supertest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { app } from '../server';
-import { buildChatContents } from '../src/server/chatRoutes';
-import { primaryAi } from '../src/server/genAi';
+import { buildChatContents } from '../src/product/server/chatRoutes';
+import { primaryAi } from '../src/platform/server/genAi';
 
 describe('POST /api/chat validation', () => {
   const valid = { personaId: 'emmanuele', userMessage: 'Ciao!' };

@@ -5,7 +5,7 @@ import express from 'express';
 import request from 'supertest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { app, buildFirebaseClientConfig, canReadMetrics, registerStaticRoutes } from '../server';
-import { buildSystemInstruction, buildVoiceCallInstruction, LEVEL_PROMPTS, sanitizeLearnerName } from '../src/data/personaPrompts';
+import { buildSystemInstruction, buildVoiceCallInstruction, LEVEL_PROMPTS, sanitizeLearnerName } from '../src/product/data/personaPrompts';
 
 describe('GET /api/health', () => {
   it('returns only status ok without exposing models, credentials, metrics, or privacy config', async () => {

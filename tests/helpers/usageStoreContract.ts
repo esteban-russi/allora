@@ -4,7 +4,7 @@ import {
   nextResetAt,
   usageDay,
   type UsageStore
-} from '../../src/server/usageStore';
+} from '../../src/platform/server/usageStore';
 
 export type UsageStoreFactory = () => UsageStore;
 

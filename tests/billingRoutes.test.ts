@@ -2,11 +2,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { createBillingRouter, createRevenueCatWebhookRouter } from '../src/server/billingRoutes';
-import { InMemoryAccountStore } from '../src/server/accountStore';
-import type { RevenueCatClient } from '../src/server/revenueCat';
-import type { RevenueCatV2Client } from '../src/server/revenueCatV2';
-import type { AuthenticatedUser } from '../src/server/auth';
+import { createBillingRouter, createRevenueCatWebhookRouter } from '../src/platform/server/billingRoutes';
+import { InMemoryAccountStore } from '../src/platform/server/accountStore';
+import type { RevenueCatClient } from '../src/platform/server/revenueCat';
+import type { RevenueCatV2Client } from '../src/platform/server/revenueCatV2';
+import type { AuthenticatedUser } from '../src/platform/server/auth';
 
 describe('POST /api/billing/sync', () => {
   const nowMs = Date.parse('2026-11-19T12:00:00.000Z');

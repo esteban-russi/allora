@@ -1,6 +1,6 @@
 /** Tests for shared per-user usage limits and concurrent call management. */
 import { describe, expect, it } from 'vitest';
-import { UserRateLimiter, createUserRateLimitMiddleware } from '../src/server/rateLimiter';
+import { UserRateLimiter, createUserRateLimitMiddleware } from '../src/platform/server/rateLimiter';
 import type { Request, Response } from 'express';
 
 describe('UserRateLimiter', () => {

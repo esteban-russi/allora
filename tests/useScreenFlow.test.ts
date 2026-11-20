@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { stepAfterPlans, stepAfterSignIn, type SignInOutcome } from '../src/hooks/useScreenFlow';
+import { stepAfterPlans, stepAfterSignIn, type SignInOutcome } from '../src/product/hooks/useScreenFlow';
 
 const outcome = (overrides: Partial<SignInOutcome> = {}): SignInOutcome => ({
   mode: 'login',

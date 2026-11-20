@@ -2,7 +2,7 @@
 import fs from 'fs';
 import path from 'path';
 import { describe, expect, it } from 'vitest';
-import { BRAND } from '../src/data/brand';
+import { BRAND } from '../src/config/brand';
 
 const rootDir = path.resolve(__dirname, '..');
 const publicDir = path.join(rootDir, 'public');

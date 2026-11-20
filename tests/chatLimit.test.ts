@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { formatReplyError, requestChatReply, rememberLearnerSessionId } from '../src/utils/learnerSession';
-import { ChatInterface } from '../src/components/ChatInterface';
-import { EMMANUELE } from '../src/data/personas';
-import type { ChatMessage, DevSettings } from '../src/types';
+import { formatReplyError, requestChatReply, rememberLearnerSessionId } from '../src/product/client/learnerSession';
+import { ChatInterface } from '../src/product/components/ChatInterface';
+import { EMMANUELE } from '../src/product/data/personas';
+import type { ChatMessage, DevSettings } from '../src/product/types';
 import { installFakeBrowser } from './helpers/fakeBrowser';
 
 const baseSettings: DevSettings = {

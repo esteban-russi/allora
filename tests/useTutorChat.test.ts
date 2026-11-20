@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { CHAT_HISTORY_LENGTH, retryHistory } from '../src/hooks/useTutorChat';
-import type { ChatMessage } from '../src/types';
+import { CHAT_HISTORY_LENGTH, retryHistory } from '../src/product/hooks/useTutorChat';
+import type { ChatMessage } from '../src/product/types';
 
 const messages: ChatMessage[] = Array.from({ length: 10 }, (_, i) => ({
   id: `m${i}`,

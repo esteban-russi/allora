@@ -1,6 +1,6 @@
 /** Tests for loadClientConfig utility. */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { loadClientConfig, resetClientConfigCache } from '../src/utils/clientConfig';
+import { loadClientConfig, resetClientConfigCache } from '../src/platform/client/clientConfig';
 
 describe('loadClientConfig', () => {
   beforeEach(() => {

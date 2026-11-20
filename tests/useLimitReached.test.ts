@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { limitClearDelayMs } from '../src/hooks/useLimitReached';
-import type { QuotaError } from '../src/utils/quotaError';
+import { limitClearDelayMs } from '../src/platform/hooks/useLimitReached';
+import type { QuotaError } from '../src/platform/client/quotaError';
 
 const NOW = Date.parse('2026-11-20T12:00:00.000Z');
 const limit = (overrides: Partial<QuotaError> = {}): QuotaError => ({

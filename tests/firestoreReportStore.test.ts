@@ -6,7 +6,7 @@ import {
   FirestoreReportStore,
   REPORTS_COLLECTION,
   type Report
-} from '../src/server/reportStore';
+} from '../src/platform/server/reportStore';
 import { runReportStoreContract } from './helpers/reportStoreContract';
 
 describe('FirestoreReportStore (unit)', () => {

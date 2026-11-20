@@ -9,12 +9,12 @@ import {
   setAccountDeletedHandler,
   setAppCheckFailedHandler,
   setAuthTokenProvider
-} from '../src/utils/apiClient';
+} from '../src/platform/client/apiClient';
 import {
   initAppCheck,
   resetAppCheckForTesting,
   setNativeAppCheckProvider
-} from '../src/utils/appCheck';
+} from '../src/platform/client/appCheck';
 
 afterEach(() => {
   setAuthTokenProvider(async () => null);

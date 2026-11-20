@@ -1,8 +1,8 @@
 /** Tests for scheduled retention and limiter cleanup. */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { scheduleMaintenance } from '../src/server/maintenance';
-import { InMemorySessionStore, initializeLearnerSession } from '../src/server/sessionStore';
-import { UserRateLimiter } from '../src/server/rateLimiter';
+import { scheduleMaintenance } from '../src/platform/server/maintenance';
+import { InMemorySessionStore, initializeLearnerSession } from '../src/product/server/sessionStore';
+import { UserRateLimiter } from '../src/platform/server/rateLimiter';
 
 afterEach(() => vi.useRealTimers());
 

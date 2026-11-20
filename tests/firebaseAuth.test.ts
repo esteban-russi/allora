@@ -1,6 +1,6 @@
 /** Tests for anonymous and federated Firebase sign-in on the client. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getAuthToken, setAuthTokenProvider } from '../src/utils/apiClient';
+import { getAuthToken, setAuthTokenProvider } from '../src/platform/client/apiClient';
 import {
   completeMagicLink,
   EMAIL_FOR_SIGN_IN_KEY,
@@ -14,8 +14,8 @@ import {
   signOutToGuest,
   startAnonymousAuth,
   type FirebaseClientConfig
-} from '../src/utils/firebaseAuth';
-import { getLearnerSessionId, rememberLearnerSessionId } from '../src/utils/learnerSession';
+} from '../src/platform/client/firebaseAuth';
+import { getLearnerSessionId, rememberLearnerSessionId } from '../src/product/client/learnerSession';
 
 const CONFIG: FirebaseClientConfig = {
   apiKey: 'api-key',

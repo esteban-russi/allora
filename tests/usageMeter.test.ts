@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { UsageMeter } from '../src/components/UsageMeter';
-import type { Me } from '../src/utils/me';
+import { UsageMeter } from '../src/platform/components/UsageMeter';
+import type { Me } from '../src/platform/client/me';
 
 describe('UsageMeter', () => {
   const freeMe: Me = {

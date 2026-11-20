@@ -2,13 +2,13 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { AccountMenu } from '../src/components/AccountMenu';
-import { LegalLinks } from '../src/components/LegalLinks';
-import { OnboardingPage } from '../src/components/OnboardingPage';
-import { PlansScreen } from '../src/components/PlansScreen';
-import { SignInScreen } from '../src/components/SignInScreen';
-import { legalUrl } from '../src/utils/legalUrl';
-import type { Me } from '../src/utils/me';
+import { AccountMenu } from '../src/platform/components/AccountMenu';
+import { LegalLinks } from '../src/platform/components/LegalLinks';
+import { OnboardingPage } from '../src/product/components/OnboardingPage';
+import { PlansScreen } from '../src/product/components/PlansScreen';
+import { SignInScreen } from '../src/platform/components/SignInScreen';
+import { legalUrl } from '../src/platform/client/legalUrl';
+import type { Me } from '../src/platform/client/me';
 
 const sampleMe: Me = {
   userId: 'user-1',

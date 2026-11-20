@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { latestGrammarNote, talkingSharePct } from '../src/hooks/useConversationStats';
-import type { ChatMessage, GrammarNote } from '../src/types';
+import { latestGrammarNote, talkingSharePct } from '../src/product/hooks/useConversationStats';
+import type { ChatMessage, GrammarNote } from '../src/product/types';
 
 const note = (wordOrPhrase: string): GrammarNote => ({ wordOrPhrase, explanation: 'x', category: 'verb' }) as GrammarNote;
 

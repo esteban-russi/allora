@@ -1,6 +1,6 @@
 /** Tests for RevenueCat REST API v2 authenticated management URL client. */
 import { describe, expect, it, vi } from 'vitest';
-import { createRevenueCatV2Client } from '../src/server/revenueCatV2';
+import { createRevenueCatV2Client } from '../src/platform/server/revenueCatV2';
 
 describe('createRevenueCatV2Client', () => {
   it('picks the first active rc_billing subscription and fetches its management URL', async () => {

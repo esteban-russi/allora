@@ -1,6 +1,6 @@
 /** Behaviour every ReportStore must have, run against each implementation. */
 import { describe, expect, it } from 'vitest';
-import type { Report, ReportStore } from '../../src/server/reportStore';
+import type { Report, ReportStore } from '../../src/platform/server/reportStore';
 
 export interface ReportStoreFixture {
   store: ReportStore;

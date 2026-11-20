@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { VoiceProvider } from '../src/types';
+import type { VoiceProvider } from '../src/product/types';
 
 /** Minimal HTMLAudioElement stand-in that "plays" immediately. */
 class FakeAudio {
@@ -41,7 +41,7 @@ const fetchMock = vi.fn();
 async function loadSpeechService() {
   // SpeechService captures window.speechSynthesis in its constructor, so stub first
   vi.resetModules();
-  return (await import('../src/utils/speech')).speechService;
+  return (await import('../src/product/client/speech')).speechService;
 }
 
 function okTtsResponse(mimeType: string) {
@@ -170,7 +170,7 @@ describe('speakSmart failures', () => {
         })
       })
     });
-    const { transcribeAudioBlob } = await import('../src/utils/speech');
+    const { transcribeAudioBlob } = await import('../src/product/client/speech');
     const fakeBlob = new Blob(['audio-data'], { type: 'audio/webm' });
 
     await expect(transcribeAudioBlob(fakeBlob)).rejects.toThrow(

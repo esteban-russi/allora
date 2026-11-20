@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchMe, parseMeResponse } from '../src/utils/me';
+import { fetchMe, parseMeResponse } from '../src/platform/client/me';
 
 const VALID_ME = {
   userId: 'user-1',

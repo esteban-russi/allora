@@ -1,7 +1,7 @@
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 import { app } from '../server';
-import { cloudSttEncodingFor, stripBase64DataUrlPrefix } from '../src/server/speechRoutes';
+import { cloudSttEncodingFor, stripBase64DataUrlPrefix } from '../src/product/server/speechRoutes';
 
 describe('stripBase64DataUrlPrefix', () => {
   it.each([

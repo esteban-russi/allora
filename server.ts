@@ -3,8 +3,8 @@ import express from 'express';
 import rateLimit from 'express-rate-limit';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { attachLiveBridge } from './src/server/liveBridge';
-import { summarizeError } from './src/server/vertexCooldown';
+import { attachLiveBridge } from './src/product/server/liveBridge';
+import { summarizeError } from './src/platform/server/vertexCooldown';
 import {
   CHAT_MODEL,
   GCP_PROJECT,
@@ -16,30 +16,30 @@ import {
   hasGenAiCredentials,
   primaryAi,
   vertexCooldown
-} from './src/server/genAi';
-import { assertAuthConfig, authenticateHttpUser, isAuthEnforced } from './src/server/auth';
-import { requireAppCheck } from './src/server/appCheck';
-import { defaultSessionStore } from './src/server/defaultSessionStore';
-import { attachAccount } from './src/server/accountMiddleware';
-import { defaultAccountStore } from './src/server/defaultAccountStore';
-import { defaultUsageStore } from './src/server/defaultUsageStore';
-import { nextResetAt, usageDay } from './src/server/usageStore';
-import { createUserRateLimitMiddleware, defaultUserLimiter } from './src/server/rateLimiter';
+} from './src/platform/server/genAi';
+import { assertAuthConfig, authenticateHttpUser, isAuthEnforced } from './src/platform/server/auth';
+import { requireAppCheck } from './src/platform/server/appCheck';
+import { defaultSessionStore } from './src/product/server/defaultSessionStore';
+import { attachAccount } from './src/platform/server/accountMiddleware';
+import { defaultAccountStore } from './src/platform/server/defaultAccountStore';
+import { defaultUsageStore } from './src/platform/server/defaultUsageStore';
+import { nextResetAt, usageDay } from './src/platform/server/usageStore';
+import { createUserRateLimitMiddleware, defaultUserLimiter } from './src/platform/server/rateLimiter';
 import {
   getPrivacyPolicyConfig,
   isAiStudioFallbackPermitted,
   logPrivacyAuditNotice
-} from './src/server/privacyAndPolicy';
-import { defaultMetrics } from './src/server/metrics';
-import { scheduleMaintenance } from './src/server/maintenance';
-import type { FirebaseClientConfig } from './src/utils/firebaseAuth';
-import { createAccountRouter } from './src/server/accountRoutes';
-import { createBillingRouter, createRevenueCatWebhookRouter } from './src/server/billingRoutes';
-import { createReportRouter } from './src/server/reportRoutes';
-import { createSessionRouter } from './src/server/sessionRoutes';
-import { createChatRouter } from './src/server/chatRoutes';
-import { createSpeechRouter, speechClientStatus } from './src/server/speechRoutes';
-import { BRAND } from './src/data/brand';
+} from './src/platform/server/privacyAndPolicy';
+import { defaultMetrics } from './src/platform/server/metrics';
+import { scheduleMaintenance } from './src/platform/server/maintenance';
+import type { FirebaseClientConfig } from './src/platform/client/firebaseAuth';
+import { createAccountRouter } from './src/platform/server/accountRoutes';
+import { createBillingRouter, createRevenueCatWebhookRouter } from './src/platform/server/billingRoutes';
+import { createReportRouter } from './src/platform/server/reportRoutes';
+import { createSessionRouter } from './src/product/server/sessionRoutes';
+import { createChatRouter } from './src/product/server/chatRoutes';
+import { createSpeechRouter, speechClientStatus } from './src/product/server/speechRoutes';
+import { BRAND } from './src/config/brand';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

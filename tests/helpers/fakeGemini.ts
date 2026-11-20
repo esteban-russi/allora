@@ -3,7 +3,7 @@ import { createServer, type Server } from 'http';
 import type { AddressInfo } from 'net';
 import type { GoogleGenAI, LiveConnectConfig, LiveServerMessage } from '@google/genai';
 import { WebSocket, type ClientOptions } from 'ws';
-import { attachLiveBridge, type LiveBridgeOptions } from '../../src/server/liveBridge';
+import { attachLiveBridge, type LiveBridgeOptions } from '../../src/product/server/liveBridge';
 
 export interface FakeLiveSession {
   config: LiveConnectConfig & { sessionResumption?: { handle?: string } };

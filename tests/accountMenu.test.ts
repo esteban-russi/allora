@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { AccountMenu, openManageSubscriptionTab, type ManageTab } from '../src/components/AccountMenu';
-import type { Me } from '../src/utils/me';
-import type { PlanLimits } from '../src/server/plans';
-import type { DailyUsage } from '../src/server/usageStore';
-import { setBilling, unavailableBilling, type Billing } from '../src/utils/billing';
+import { AccountMenu, openManageSubscriptionTab, type ManageTab } from '../src/platform/components/AccountMenu';
+import type { Me } from '../src/platform/client/me';
+import type { PlanLimits } from '../src/platform/server/plans';
+import type { DailyUsage } from '../src/platform/server/usageStore';
+import { setBilling, unavailableBilling, type Billing } from '../src/platform/client/billing';
 
 describe('AccountMenu component', () => {
   beforeEach(() => {

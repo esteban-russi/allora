@@ -6,8 +6,8 @@ import {
   FirestoreSessionStore,
   fromSessionDocument,
   toSessionDocument
-} from '../src/server/firestoreSessionStore';
-import { initializeLearnerSession } from '../src/server/sessionStore';
+} from '../src/product/server/firestoreSessionStore';
+import { initializeLearnerSession } from '../src/product/server/sessionStore';
 import { describeSessionStoreContract } from './helpers/sessionStoreContract';
 
 describe('session documents', () => {

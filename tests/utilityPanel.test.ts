@@ -2,8 +2,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { UtilityPanel } from '../src/components/UtilityPanel';
-import { EMMANUELE, INITIAL_SAVED_PHRASES } from '../src/data/personas';
+import { UtilityPanel } from '../src/product/components/UtilityPanel';
+import { EMMANUELE, INITIAL_SAVED_PHRASES } from '../src/product/data/personas';
 
 describe('UtilityPanel saved phrases', () => {
   it('starts new learners with an empty saved phrases list', () => {

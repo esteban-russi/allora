@@ -1,7 +1,7 @@
 /** Tests for tier determination and plan limit constants. */
 import { describe, expect, it } from 'vitest';
-import type { Account, Subscription } from '../src/server/accountStore';
-import { PLAN_LIMITS, SUBSCRIPTION_SKEW_MS, tierFor } from '../src/server/plans';
+import type { Account, Subscription } from '../src/platform/server/accountStore';
+import { PLAN_LIMITS, SUBSCRIPTION_SKEW_MS, tierFor } from '../src/platform/server/plans';
 
 describe('tierFor', () => {
   const baseAccount: Account = {

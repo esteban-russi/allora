@@ -7,7 +7,7 @@ import {
   parseConversationTurn,
   parseSavedPhrases,
   toClientSession
-} from '../src/server/sessionStore';
+} from '../src/product/server/sessionStore';
 import { describeSessionStoreContract } from './helpers/sessionStoreContract';
 
 describeSessionStoreContract('InMemorySessionStore', ({ retentionMs, now }) => new InMemorySessionStore(retentionMs, now));

@@ -3,14 +3,14 @@ import { BlockedReason, FinishReason, HarmBlockThreshold, HarmCategory } from '@
 import request from 'supertest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { app } from '../server';
-import { primaryAi } from '../src/server/genAi';
+import { primaryAi } from '../src/platform/server/genAi';
 import {
   buildSystemInstruction,
   buildVoiceCallInstruction,
   SAFETY_INSTRUCTION
-} from '../src/data/personaPrompts';
-import { BLOCKED_REPLY_TEXT } from '../src/server/chatRoutes';
-import { isBlockedGeminiResponse, MODEL_SAFETY_SETTINGS } from '../src/server/modelSafety';
+} from '../src/product/data/personaPrompts';
+import { BLOCKED_REPLY_TEXT } from '../src/product/server/chatRoutes';
+import { isBlockedGeminiResponse, MODEL_SAFETY_SETTINGS } from '../src/platform/server/modelSafety';
 import { fakeGemini, openCall, startBridgeServer } from './helpers/fakeGemini';
 
 afterEach(() => {

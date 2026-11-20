@@ -1,8 +1,8 @@
 /** Tests for choosing the session store from the environment. */
 import { describe, expect, it } from 'vitest';
-import { createSessionStore } from '../src/server/defaultSessionStore';
-import { FirestoreSessionStore } from '../src/server/firestoreSessionStore';
-import { InMemorySessionStore } from '../src/server/sessionStore';
+import { createSessionStore } from '../src/product/server/defaultSessionStore';
+import { FirestoreSessionStore } from '../src/product/server/firestoreSessionStore';
+import { InMemorySessionStore } from '../src/product/server/sessionStore';
 
 describe('createSessionStore', () => {
   it.each([{}, { SESSION_STORE: '' }, { SESSION_STORE: 'memory' }])('uses memory for %j', (env) => {
