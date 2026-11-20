@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Bookmark, BookmarkCheck, Flag, Headphones, HelpCircle, Languages, Mic, Square, X } from 'lucide-react';
+import { Bookmark, BookmarkCheck, Flag, Headphones, HelpCircle, Languages, Mic, Send, Square, X } from 'lucide-react';
 import { Persona, ChatMessage, DevSettings } from '../types';
 import { PersonaBadge } from './PersonaBadge';
 import { LimitReachedCard } from '../../platform/components/LimitReachedCard';
@@ -493,7 +493,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             </div>
           )}
 
-          <div className="flex items-center gap-2 pl-5 pr-1.5 py-1.5 rounded-full bg-surface border-[1.5px] border-line shadow-soft focus-within:border-cobalt/50 transition-colors">
+          <div className="flex items-center gap-1.5 sm:gap-2 pl-4 sm:pl-5 pr-1.5 py-1.5 rounded-full bg-surface border-[1.5px] border-line shadow-soft focus-within:border-cobalt/50 transition-colors">
             <input
               ref={inputRef}
               type="text"
@@ -507,7 +507,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !isAiGenerating) handleSend();
               }}
-              placeholder={`Reply to ${persona.name} in Italian…`}
+              placeholder={`Scrivi a ${persona.name}…`}
               aria-label={`Message ${persona.name} in Italian`}
               className="flex-1 min-w-0 bg-transparent py-2 text-base text-ink placeholder:text-ink/40 focus:outline-none"
             />
@@ -549,14 +549,16 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 isAiGenerating ||
                 Boolean(limitReached && limitReached.counter === 'chatMessages')
               }
+              aria-label="Send"
               aria-describedby={
                 limitReached && limitReached.counter === 'chatMessages'
                   ? 'limit-reached-card'
                   : undefined
               }
-              className="shrink-0 h-12 px-5 sm:px-7 rounded-full bg-cobalt hover:bg-cobalt-strong text-canvas text-base font-medium transition-colors disabled:opacity-50 disabled:hover:bg-cobalt"
+              className="shrink-0 h-12 w-12 sm:w-auto sm:px-7 rounded-full bg-cobalt hover:bg-cobalt-strong text-canvas text-base font-medium flex items-center justify-center transition-colors disabled:opacity-50 disabled:hover:bg-cobalt"
             >
-              Send
+              <Send className="w-5 h-5 sm:hidden" aria-hidden="true" />
+              <span className="hidden sm:inline">Send</span>
             </button>
           </div>
         </div>

@@ -191,4 +191,26 @@ describe('ChatInterface failed reply row', () => {
     expect(html).not.toContain('Check your connection.');
     expect(html).not.toContain('Try again');
   });
+
+  it('renders mobile-first chat composer with compact placeholder and icon send button', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatInterface, {
+        persona: EMMANUELE,
+        messages: [userMessage],
+        devSettings: baseSettings,
+        savedPhraseIds: [],
+        onSendMessage: vi.fn(),
+        onSavePhrase: vi.fn()
+      })
+    );
+
+    // Compact placeholder fitting on 360px phones
+    expect(html).toContain('placeholder="Scrivi a Emmanuele…"');
+
+    // Send button has accessible label, 48px circle on mobile, text on sm+
+    expect(html).toContain('aria-label="Send"');
+    expect(html).toContain('h-12 w-12 sm:w-auto sm:px-7');
+    expect(html).toContain('lucide-send');
+    expect(html).toContain('class="hidden sm:inline">Send</span>');
+  });
 });
