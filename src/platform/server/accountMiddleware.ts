@@ -77,7 +77,8 @@ export function attachAccount(store: AccountStore, options: AttachAccountOptions
 
     try {
       const existing = await store.getAccount(user.userId);
-      if (!existing && !(await identity.userExists(user.userId))) {
+      const isDevAuth = user.authProvider === 'dev';
+      if (!existing && !isDevAuth && !(await identity.userExists(user.userId))) {
         res.status(401).json({
           error: 'This account has been deleted',
           code: 'ACCOUNT_DELETED'
