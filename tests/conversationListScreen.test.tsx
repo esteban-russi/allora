@@ -40,7 +40,9 @@ describe('ConversationListScreen', () => {
       })
     );
 
-    expect(html).toContain('All conversations');
+    expect(html).toContain('Chats');
+    expect(html).toContain('aria-label="New conversation"');
+    expect(html).toContain('aria-label="Back"');
     expect(html).toContain('Ordering at a café');
     expect(html).toContain('Ciao Emmanuele');
     expect(html).toContain('You: Un cornetto, per favore.');

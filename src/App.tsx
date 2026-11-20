@@ -673,17 +673,19 @@ export default function App() {
       />
 
       <div className="flex-1 min-w-0 flex flex-col">
-        <TopHeader
-          activeTab={activeTab}
-          persona={persona}
-          learnerInitial={learnerInitial}
-          learnerLevel={learnerProfile.level}
-          mode={isCallOpen ? 'voice' : 'text'}
-          onSelectVoice={startCall}
-          onOpenAccount={openAccountMenu}
-          onOpenConversations={openConversations}
-          habits={habits}
-        />
+        {!isConversationsOpen && (
+          <TopHeader
+            activeTab={activeTab}
+            persona={persona}
+            learnerInitial={learnerInitial}
+            learnerLevel={learnerProfile.level}
+            mode={isCallOpen ? 'voice' : 'text'}
+            onSelectVoice={startCall}
+            onOpenAccount={openAccountMenu}
+            onOpenConversations={openConversations}
+            habits={habits}
+          />
+        )}
 
         <div className="flex-1 min-h-0 flex gap-5 lg:pr-5 lg:pb-5">
           {activeTab === 'home' && (

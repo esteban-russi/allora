@@ -1,6 +1,6 @@
 /** Conversation list screen showing all learner chats with preview, time, and delete confirmation. */
 import React, { useState } from 'react';
-import { ArrowLeft, MessageSquarePlus, Trash2, AlertCircle, MessageSquare } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, AlertCircle, MessageSquare } from 'lucide-react';
 import { TUTORS, EMMANUELE } from '../data/personas';
 import type { SessionSummary } from '../server/sessionStore';
 
@@ -64,24 +64,24 @@ export const ConversationListScreen: React.FC<ConversationListScreenProps> = ({
           <button
             type="button"
             onClick={onBack}
-            aria-label="Back to chat"
+            aria-label="Back"
             className="min-h-[48px] min-w-[48px] flex items-center justify-center -ml-2 rounded-full hover:bg-surface text-ink-muted hover:text-ink focus:outline-none focus:ring-2 focus:ring-cobalt/40"
           >
             <ArrowLeft className="w-5 h-5" aria-hidden="true" />
           </button>
           <h1 className="font-serif text-xl sm:text-2xl font-semibold text-ink">
-            All conversations
+            Chats
           </h1>
         </div>
 
         <button
           type="button"
           onClick={onOpenNewConversation}
-          aria-label="Start new conversation"
-          className="min-h-[48px] px-3.5 rounded-full bg-cobalt-tint text-cobalt hover:bg-cobalt/20 font-semibold text-xs sm:text-sm flex items-center gap-1.5 focus:outline-none focus:ring-2 focus:ring-cobalt/40"
+          aria-label="New conversation"
+          className="min-h-[48px] min-w-[48px] px-3.5 rounded-full bg-cobalt-tint text-cobalt hover:bg-cobalt/20 font-semibold text-xs sm:text-sm flex items-center justify-center gap-1 focus:outline-none focus:ring-2 focus:ring-cobalt/40"
         >
-          <MessageSquarePlus className="w-4 h-4" aria-hidden="true" />
-          <span className="hidden sm:inline">New chat</span>
+          <Plus className="w-4 h-4" aria-hidden="true" />
+          <span>New</span>
         </button>
       </header>
 
