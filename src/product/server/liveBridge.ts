@@ -22,6 +22,9 @@ import {
   type AppCheckVerifier
 } from '../../platform/server/appCheck';
 import { defaultSessionStore } from './defaultSessionStore';
+import { defaultHabitStore } from './defaultHabitStore';
+import { type HabitStore } from './habitStore';
+import { getTopicById } from '../data/topics';
 import { defaultAccountStore } from '../../platform/server/defaultAccountStore';
 import { defaultUsageStore } from '../../platform/server/defaultUsageStore';
 import { quotasMode, type QuotasMode } from '../../platform/server/quota';
@@ -75,6 +78,7 @@ export type LiveClientEvent =
   | { type: 'go_away'; timeToDisconnectSec?: number }
   | { type: 'pong'; timestamp: number }
   | { type: 'quota_exceeded' }
+  | { type: 'goal_met'; streak: number }
   | { type: 'error'; message: string };
 
 export interface LiveBridgeOptions {
@@ -96,6 +100,8 @@ export interface LiveBridgeOptions {
   accountStore?: AccountStore;
   /** Optional custom usage store. */
   usageStore?: UsageStore;
+  /** Optional custom habit store. */
+  habitStore?: HabitStore;
   /** Quotas mode override ('off' | 'monitor' | 'enforce'). */
   quotasMode?: QuotasMode;
   /** Injectable clock for tests. */
@@ -324,6 +330,7 @@ async function runLiveCall(
 ): Promise<void> {
   const sessionStore = options.sessionStore ?? defaultSessionStore;
   const usageStore = options.usageStore ?? defaultUsageStore;
+  const habitStore = options.habitStore ?? defaultHabitStore;
   const metrics = options.metrics ?? defaultMetrics;
   const now = options.now ?? Date.now;
   const qMode = options.quotasMode ?? quotasMode();
@@ -376,7 +383,8 @@ async function runLiveCall(
     personaId: params.personaId,
     level: params.learnerLevel,
     grammarStrictness: params.grammarStrictness,
-    learnerName: params.learnerName
+    learnerName: params.learnerName,
+    topic: sessionRecord.topic
   });
   const buildConfig = (resumeHandle: string | null, systemInstruction: string): LiveConnectConfig => ({
     responseModalities: [Modality.AUDIO],
@@ -518,6 +526,17 @@ async function runLiveCall(
         sessionStore
           .saveTurnCheckpoint(sessionRecord.sessionId, user.userId, turn)
           .catch((err) => console.error('[Gemini Live] Could not save turn checkpoint:', err));
+
+        if (turn.sender === 'user') {
+          habitStore
+            .recordTurn(user.userId, Date.now())
+            .then((res) => {
+              if (res.justMetGoal) {
+                send({ type: 'goal_met', streak: res.summary.currentStreak });
+              }
+            })
+            .catch((err) => console.error('[Gemini Live] Could not record habit turn:', err));
+        }
       }
     } catch {
       // Ignore malformed control messages
@@ -534,7 +553,14 @@ async function runLiveCall(
 
   // Only send greeting if this is a brand new session without existing checkpoints
   if (!handle && sessionRecord.checkpointTurns.length === 0) {
-    liveSession.sendRealtimeInput({ text: GREETING_PROMPT });
+    let greetingText = GREETING_PROMPT;
+    if (sessionRecord.topic && sessionRecord.topic !== 'free_chat') {
+      const topicConfig = getTopicById(sessionRecord.topic);
+      if (topicConfig?.firstLine) {
+        greetingText = `(Inizia la conversazione salutando lo studente sul tema "${topicConfig.label}": "${topicConfig.firstLine.text}")`;
+      }
+    }
+    liveSession.sendRealtimeInput({ text: greetingText });
   }
 }
 

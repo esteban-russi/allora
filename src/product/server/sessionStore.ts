@@ -441,7 +441,12 @@ export class InMemorySessionStore implements SessionStore {
       const owned = this.readOwned(session.sessionId, userId);
       if (owned) list.push(owned);
     }
-    list.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    list.sort(
+      (a, b) =>
+        b.updatedAt.localeCompare(a.updatedAt) ||
+        b.createdAt.localeCompare(a.createdAt) ||
+        b.sessionId.localeCompare(a.sessionId)
+    );
     const max = Math.min(Math.max(limit, 1), 50);
     return list.slice(0, max).map((s) => {
       const turns = s.checkpointTurns;

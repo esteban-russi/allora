@@ -1,6 +1,7 @@
 /** HTTP routes for reading, saving and deleting learner sessions. */
 import { Router } from 'express';
 import { GRAMMAR_STRICTNESS_LEVELS, LEVEL_PROMPTS, PERSONA_PROMPTS, sanitizeLearnerName } from '../data/personaPrompts';
+import { isValidTopicId } from '../data/topics';
 import type { CefrLevel } from '../types';
 import { defaultSessionStore } from './defaultSessionStore';
 import { canUsePersona, PREMIUM_REQUIRED_BODY } from './personaAccess';
@@ -28,6 +29,17 @@ export function createSessionRouter(deps: SessionRouterDeps = {}): Router {
   const router = Router();
   const sessions = deps.sessions ?? defaultSessionStore;
 
+  router.get('/list', async (req, res) => {
+    try {
+      const userId = req.user!.userId;
+      const summaries = await sessions.listUserSessions(userId, 50);
+      res.json(summaries);
+    } catch (err) {
+      console.error('[Session] Error listing sessions:', summarizeError(err));
+      res.status(500).json({ error: 'Error listing sessions' });
+    }
+  });
+
   router.get('/', async (req, res) => {
     try {
       const userId = req.user!.userId;
@@ -42,6 +54,21 @@ export function createSessionRouter(deps: SessionRouterDeps = {}): Router {
     }
   });
 
+  router.get('/:sessionId', async (req, res) => {
+    try {
+      const userId = req.user!.userId;
+      const { sessionId } = req.params;
+      const session = await sessions.getSession(sessionId, userId);
+      if (!session) {
+        return res.status(404).json({ error: 'Session not found or not owned by user' });
+      }
+      res.json(toClientSession(session));
+    } catch (err) {
+      console.error('[Session] Error fetching session by id:', summarizeError(err));
+      res.status(500).json({ error: 'Error fetching session' });
+    }
+  });
+
   router.post('/', async (req, res) => {
     try {
       const userId = req.user!.userId;
@@ -51,11 +78,15 @@ export function createSessionRouter(deps: SessionRouterDeps = {}): Router {
         learnerName = '',
         learnerLevel = 'A2',
         grammarStrictness = 'tutor',
+        topic,
         savedPhrases
       } = req.body ?? {};
 
       if (sessionId !== undefined && (typeof sessionId !== 'string' || !sessionId)) {
         return res.status(400).json({ error: 'sessionId must be a non-empty string' });
+      }
+      if (topic !== undefined && !isValidTopicId(topic)) {
+        return res.status(400).json({ error: `Invalid topic: ${String(topic)}` });
       }
       if (typeof personaId !== 'string' || !Object.hasOwn(PERSONA_PROMPTS, personaId)) {
         return res.status(400).json({ error: `Unknown personaId: ${String(personaId)}` });
@@ -93,7 +124,7 @@ export function createSessionRouter(deps: SessionRouterDeps = {}): Router {
         return res.json(toClientSession(updated));
       }
 
-      const session = initializeLearnerSession({ userId, ...fields });
+      const session = initializeLearnerSession({ userId, ...fields, topic });
       if (phrases) {
         session.progress = { ...session.progress, savedPhrases: phrases };
       }
