@@ -1,6 +1,5 @@
 /** Gemini clients, model configuration and the Vertex-first, AI Studio-fallback call wrapper. */
 import { GoogleGenAI } from '@google/genai';
-import type { LiveBridgeOptions } from './liveBridge';
 import { isAiStudioFallbackPermitted } from './privacyAndPolicy';
 import { VertexCooldown, isPersistentVertexError, summarizeError } from './vertexCooldown';
 
@@ -18,6 +17,13 @@ export const CHAT_MODEL = process.env.GEMINI_CHAT_MODEL || process.env.GEMINI_MO
 export const TTS_MODEL = process.env.GEMINI_TTS_MODEL || 'gemini-3.8-flash-lite-tts';
 /** Native-audio model for real-time voice calls over the Live API. */
 export const LIVE_MODEL = process.env.GEMINI_LIVE_MODEL || 'gemini-3.8-live';
+
+/** Which Gemini clients a Live call tries, in order, and how failures steer it. */
+export interface LiveClientOptions {
+  clients: GoogleGenAI[];
+  skipClient: (ai: GoogleGenAI) => boolean;
+  onClientFailed: (ai: GoogleGenAI) => void;
+}
 
 /** Whether Gemini is reachable through Vertex AI (GCP_PROJECT + ADC) or an AI Studio key. */
 export function hasGenAiCredentials(): boolean {
@@ -144,7 +150,7 @@ export function buildLiveClientOptions(
   fallbackPermitted: boolean,
   cooldown: VertexCooldown,
   model: string
-): Pick<LiveBridgeOptions, 'clients' | 'skipClient' | 'onClientFailed'> {
+): LiveClientOptions {
   const liveFallbackAi = fallbackPermitted ? fallbackAi : null;
   const canSkipVertex = (ai: GoogleGenAI) => ai === primaryAi && liveFallbackAi !== null;
   return {
