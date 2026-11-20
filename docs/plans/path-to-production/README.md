@@ -1,8 +1,53 @@
-# Parliamo Italiano: path to production (web + Google Play)
+# Allora: path to production (web + Google Play)
 
 This replaces the earlier "Path to Production" Google Doc. That doc described a prototype
 with API keys in the browser and a tutor called Ottavia. The app has moved on, so this
 plan starts from what is deployed today.
+
+## 0. Status on 2026-11-20
+
+### Done
+
+- Plans 01–06 merged to `main` and deployed (PR #17): accounts and tiers, daily limits
+  (`QUOTAS_MODE=monitor`), Google and magic-link sign-in, guest merge, delete account,
+  usage meter and plans screen, RevenueCat billing backend, web checkout.
+- Deleted accounts get a 401 `ACCOUNT_DELETED`; the app signs out to a guest and returns
+  to onboarding.
+- Renamed to **Allora** from one brand module (`src/data/brand.ts`).
+- RevenueCat: entitlement `premium`, offering `default`, Web Billing products
+  `allora_pro_monthly` (£3.99) and `allora_pro_annual` (£29.99, 7-day trial), Stripe
+  connected in sandbox. Premium voice is 30 minutes a day.
+- Built and reviewed, CI green, waiting to merge (stacked, merge in this order):
+  #18 chat duplicate fix → #19 plan 12 → #20 plan 00 redirect → #21 plan 11 →
+  #22 plan 10 (web, ships off) → #23 plan 13 mechanism.
+
+### Open items (owner)
+
+| Item | Blocks |
+|---|---|
+| Merge PRs #18–#23 in order (each merge to `main` deploys) | 10–13 live |
+| Buy the domain (shortlist: `speakallora.com` + `speakallora.app`), then set `APP_URL`, map it in Cloud Run, add it to Firebase authorised domains | 00 |
+| Trademark check on "Allora" (UK IPO, EUIPO); a crypto project uses the name | launch |
+| Android app ID (permanent after the first Play upload) | 07–09 |
+| Permission to install a JDK and the Android SDK on the build Mac | 07–09 |
+| Legal text: fill the `[to confirm]` placeholders in privacy, terms and delete-account pages | 11 |
+| Premium tutors: character, Italian prompt, voice, starter messages, two portraits each | 13 |
+| reCAPTCHA key, App Check registration, `FIREBASE_APPCHECK_SITE_KEY`; then `APP_CHECK_MODE=monitor` | 10 |
+| RevenueCat webhook (`Bearer <revenuecat-webhook-auth>`); `.env` `REVENUECAT_SECRET_KEY` must be the `sk_` key | 05 |
+| Sandbox test purchase with card 4242 4242 4242 4242 | 06 |
+| Stripe business verification and tax decision; production RevenueCat web key at launch | launch |
+| Final icon artwork (placeholders ship in #19); OAuth consent screen app name "Allora" | launch |
+| Guest allowance decision (section 8) | launch |
+
+### Next steps
+
+1. Merge #18–#23; check the deploy and `/api/health` after each.
+2. Buy the domain and wire it up (plan 00 steps 2–5).
+3. Run the web sandbox purchase test (plan 06 manual test script) and set up the webhook.
+4. Decide the Android app ID, install the toolchain, then start plan 07, then 08 and 09.
+5. Finish legal text and premium tutor content; add the tutors (plan 13, README).
+6. Turn on App Check in monitor mode, then enforce; switch `QUOTAS_MODE` to `enforce`.
+7. Work through the launch checklist (section 7).
 
 ## 1. Where we are
 
@@ -92,8 +137,8 @@ Android SDK on the build machine.
 
 | # | Plan | What ships | Depends on | Status |
 |---|---|---|---|---|
-| 00 | [Brand constants and custom domain](00-brand-and-domain.md) | App name in one place, custom domain, final Android app ID | none (do first) | 🟠 name done; redirect in PR #20; domain and app ID open |
-| 01 | [Accounts and tiers](01-accounts-and-tiers.md) | `users` collection, tier logic, `GET /api/me` | firestore-sessions merged | ✅ merged |
+| 00 | [Brand constants and custom domain](00-brand-and-domain.md) | App name in one place, custom domain, final Android app ID | none (do first) | 🟠 name done; redirect in PR #20; domain (shortlist `speakallora.com`) and app ID open |
+| 01 | [Accounts and tiers](01-accounts-and-tiers.md) | `users` collection, tier logic, `GET /api/me` | Firestore sessions (merged) | ✅ merged |
 | 02 | [Daily usage limits](02-daily-usage-limits.md) | `usage` collection, caps on chat, helpers and voice minutes | 01 | ✅ merged |
 | 03 | [Sign-in on the web](03-sign-in-web.md) | Google + magic link, guest merge, sign out, delete account | 01, 02 | ✅ merged |
 | 04 | [Limits and paywall UI](04-limits-and-paywall-ui.md) | Usage meter, limit-reached states, plans screen (no checkout yet) | 02, 03 | ✅ merged |
@@ -167,5 +212,5 @@ Answered:
 
 Still open:
 1. Guest allowance (5 messages, 2 voice minutes a day): keep, or require sign-in before any use?
-2. The domain and Android app ID (plan 00 lists what is needed); the name is Allora.
+2. The domain (shortlist: `speakallora.com`, `speakallora.app`) and Android app ID; the name is Allora.
 3. Which premium tutors to launch with, and who produces the portraits (plan 13).
