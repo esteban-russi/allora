@@ -13,10 +13,14 @@
  *   shortName: Shown in the header and other tight spaces.
  *   premiumName: Name of the paid plan.
  *   supportEmail: Where learners can reach support.
+ *   tagline: What the app is for in two or three words, shown beside the name.
+ *   signInPitch: Why a returning user should sign in, on the login screen.
  */
 export const BRAND = {
   name: 'Allora',
   shortName: 'Allora',
   premiumName: 'Allora Premium',
-  supportEmail: 'estebangr2711@gmail.com'
+  supportEmail: 'estebangr2711@gmail.com',
+  tagline: 'Conversational Italian',
+  signInPitch: 'Sign in to access your saved conversations, vocabulary and Italian practice.'
 } as const;

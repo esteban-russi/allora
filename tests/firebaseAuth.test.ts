@@ -10,6 +10,7 @@ import {
   setAuthInstanceForTesting,
   signInAndMerge,
   signInWithGoogle,
+  setSignOutCleanup,
   signOutToGuest,
   startAnonymousAuth,
   type FirebaseClientConfig
@@ -363,7 +364,8 @@ describe('isMagicLink and completeMagicLink', () => {
 });
 
 describe('signOutToGuest', () => {
-  it('signs out, clears stored session ID, and signs in anonymously', async () => {
+  it('signs out, runs the sign-out cleanup, and signs in anonymously', async () => {
+    setSignOutCleanup(() => rememberLearnerSessionId(null));
     rememberLearnerSessionId('sess_123');
     expect(getLearnerSessionId()).toBe('sess_123');
 
@@ -380,6 +382,7 @@ describe('signOutToGuest', () => {
     expect(signOut).toHaveBeenCalledWith(fakeAuth);
     expect(getLearnerSessionId()).toBeNull();
     expect(signInAnonymously).toHaveBeenCalledWith(fakeAuth);
+    setSignOutCleanup(null);
   });
 });
 

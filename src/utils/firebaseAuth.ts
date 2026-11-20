@@ -1,7 +1,6 @@
 /** Anonymous and federated Firebase sign-in for the browser client. */
 import { postJson, setAuthTokenProvider } from './apiClient';
 import { initAppCheck } from './appCheck';
-import { rememberLearnerSessionId } from './learnerSession';
 import {
   loadClientConfig,
   parseFirebaseClientConfig,
@@ -312,6 +311,20 @@ export async function completeMagicLink(
 }
 
 let signOutInFlight: Promise<void> | null = null;
+let signOutCleanup: (() => void) | null = null;
+
+/**
+ * Register what to forget locally when the user signs out to a guest.
+ *
+ * Runs after sign-out and before the new guest is created, so app data stored
+ * in the browser (such as a saved session ID) never carries over to the guest.
+ *
+ * Args:
+ *   cleanup: Function to run, or null to remove it.
+ */
+export function setSignOutCleanup(cleanup: (() => void) | null): void {
+  signOutCleanup = cleanup;
+}
 
 /**
  * Sign out of the registered account and transition back to a fresh guest identity.
@@ -352,6 +365,6 @@ async function runSignOutToGuest(
   const anonFn = deps?.signInAnonymously ?? signInAnonymously;
 
   await signOutFn(auth);
-  rememberLearnerSessionId(null);
+  signOutCleanup?.();
   await anonFn(auth);
 }

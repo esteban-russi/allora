@@ -25,7 +25,7 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({
   const subheading =
     mode === 'after-onboarding'
       ? 'Sign in to sync your conversation across devices and access free daily limits.'
-      : 'Sign in to access your saved conversations, vocabulary and Italian practice.';
+      : BRAND.signInPitch;
 
   const handleGoogleSignIn = async () => {
     setIsLoading(true);
@@ -70,7 +70,7 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({
           {BRAND.shortName}
         </span>
         <span className="text-xs font-medium tracking-[0.08em] uppercase text-ink-muted">
-          Conversational Italian
+          {BRAND.tagline}
         </span>
       </header>
 
