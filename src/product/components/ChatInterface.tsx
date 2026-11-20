@@ -71,6 +71,42 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const isPointerDownInComposerRef = useRef<boolean>(false);
+  const blurTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const scheduleComposerBlur = () => {
+    if (blurTimeoutRef.current) {
+      clearTimeout(blurTimeoutRef.current);
+    }
+    blurTimeoutRef.current = setTimeout(() => {
+      const isInputFocused = typeof document !== 'undefined' && inputRef.current
+        ? document.activeElement === inputRef.current
+        : false;
+      if (!isPointerDownInComposerRef.current && !isInputFocused) {
+        onComposerBlur?.();
+      }
+    }, 150);
+  };
+
+  const handleComposerFocus = () => {
+    if (blurTimeoutRef.current) {
+      clearTimeout(blurTimeoutRef.current);
+      blurTimeoutRef.current = null;
+    }
+    onComposerFocus?.();
+  };
+
+  const handleComposerBlur = () => {
+    scheduleComposerBlur();
+  };
+
+  useEffect(() => {
+    return () => {
+      if (blurTimeoutRef.current) {
+        clearTimeout(blurTimeoutRef.current);
+      }
+    };
+  }, []);
   const helpRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognizerRef = useRef<any>(null);
@@ -425,13 +461,27 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
       </div>
 
       {/* Quick replies + composer */}
-      <div className="shrink-0 px-4 sm:px-6 lg:px-8 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] lg:pb-0">
+      <div
+        className="shrink-0 px-4 sm:px-6 lg:px-8 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))] lg:pb-0"
+        onPointerDown={() => {
+          isPointerDownInComposerRef.current = true;
+        }}
+        onPointerUp={() => {
+          isPointerDownInComposerRef.current = false;
+          scheduleComposerBlur();
+        }}
+        onPointerCancel={() => {
+          isPointerDownInComposerRef.current = false;
+          scheduleComposerBlur();
+        }}
+      >
         <div className="flex items-center gap-2.5 overflow-x-auto scrollbar-none pb-3" role="group" aria-label="Quick replies">
           {persona.quickReplies.map((word) => (
             <button
               key={word}
               type="button"
               lang="it"
+              onPointerDown={(e) => e.preventDefault()}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => insertQuickReply(word)}
               className="shrink-0 px-5 py-2 rounded-full bg-coral-tint border border-transparent hover:border-coral text-ink text-[15px] transition-colors"
@@ -451,6 +501,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                 <p className="text-[13px] font-semibold tracking-[0.06em] text-ink">TRY SAYING</p>
                 <button
                   type="button"
+                  onPointerDown={(e) => e.preventDefault()}
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => setIsHelpOpen(false)}
                   aria-label="Close suggestions"
                   className="w-7 h-7 rounded-full flex items-center justify-center text-ink-muted hover:bg-cobalt-tint"
@@ -463,6 +515,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                   <li key={phrase.it}>
                     <button
                       type="button"
+                      onPointerDown={(e) => e.preventDefault()}
+                      onMouseDown={(e) => e.preventDefault()}
                       onClick={() => {
                         setInputText(phrase.it);
                         setIsHelpOpen(false);
@@ -481,6 +535,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
                   <button
                     key={char}
                     type="button"
+                    onPointerDown={(e) => e.preventDefault()}
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => insertAtCaret(char)}
                     aria-label={`Insert ${char}`}
@@ -498,8 +553,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
               ref={inputRef}
               type="text"
               value={inputText}
-              onFocus={onComposerFocus}
-              onBlur={onComposerBlur}
+              onFocus={handleComposerFocus}
+              onBlur={handleComposerBlur}
               onChange={(e) => {
                 setInputText(e.target.value);
                 onDraftChange?.(e.target.value);
@@ -514,6 +569,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
             <button
               type="button"
+              onPointerDown={(e) => e.preventDefault()}
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => setIsHelpOpen(!isHelpOpen)}
               aria-expanded={isHelpOpen}
               aria-controls="help-me-say-it"
@@ -526,6 +583,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
             <button
               type="button"
+              onPointerDown={(e) => e.preventDefault()}
+              onMouseDown={(e) => e.preventDefault()}
               onClick={toggleMicRecording}
               disabled={isTranscribing}
               aria-label={isTranscribing ? 'Transcribing…' : isRecordingMic ? 'Stop dictation' : 'Dictate in Italian'}
@@ -543,6 +602,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
             <button
               type="button"
+              onPointerDown={(e) => e.preventDefault()}
+              onMouseDown={(e) => e.preventDefault()}
               onClick={handleSend}
               disabled={
                 !inputText.trim() ||
