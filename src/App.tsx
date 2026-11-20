@@ -26,6 +26,7 @@ import { useConversationStats } from './hooks/useConversationStats';
 import { useLimitReached } from './hooks/useLimitReached';
 import { useWebBilling } from './hooks/useWebBilling';
 import { useTutorChat } from './hooks/useTutorChat';
+import { useScreenFlow, type SignInMode } from './hooks/useScreenFlow';
 import { speechService } from './utils/speech';
 import { setAccountDeletedHandler, setAppCheckFailedHandler } from './utils/apiClient';
 import { completeMagicLink, EMAIL_FOR_SIGN_IN_KEY, isMagicLink, signOutToGuest } from './utils/firebaseAuth';
@@ -37,7 +38,8 @@ const GRAMMAR_STRICTNESS: DevSettings['grammarStrictness'][] = ['conversational'
 
 export default function App() {
   const [learnerProfile, setLearnerProfile] = useState<LearnerProfile | null>(null);
-  const [screen, setScreen] = useState<'onboarding' | 'signin-after-onboarding' | 'signin-login' | 'plans' | 'app'>('onboarding');
+  const flow = useScreenFlow();
+  const { screen, setScreen } = flow;
   // True until the saved session (if any) has been loaded, so onboarding does not flash
   const [isRestoring, setIsRestoring] = useState<boolean>(true);
   // A sign-in link waiting for the learner to confirm which email it was sent to
@@ -48,9 +50,6 @@ export default function App() {
   const needsConsent = Boolean(me && !hasCurrentConsent);
   const [limitReached, setLimitReached] = useLimitReached(me?.tier);
   const [premiumEnded, setPremiumEnded] = useState<boolean>(false);
-  // Premium tutor tapped in onboarding before signing in / subscribing
-  const [pendingTutorId, setPendingTutorId] = useState<string | null>(null);
-  const [selectedOnboardingTutorId, setSelectedOnboardingTutorId] = useState<string | null>(null);
 
   useWebBilling(me?.email ?? null);
 
@@ -129,64 +128,21 @@ export default function App() {
     }
   };
 
-  const handleSignedIn = async (mode: 'login' | 'after-onboarding') => {
+  const handleSignedIn = async (mode: SignInMode) => {
     const updatedMe = await refreshAccount();
     const session = await loadLearnerSession();
     if (session) {
       applySession(session);
     }
-    if (pendingTutorId) {
-      if (updatedMe?.tier === 'premium') {
-        setSelectedOnboardingTutorId(pendingTutorId);
-        setPendingTutorId(null);
-        setScreen('onboarding');
-      } else if (getBilling().isAvailable()) {
-        setScreen('plans');
-      } else {
-        setPendingTutorId(null);
-        setScreen('onboarding');
-      }
-      return;
+    const startSession = flow.afterSignIn({
+      mode,
+      hasSession: Boolean(session),
+      isPremium: updatedMe?.tier === 'premium',
+      billingAvailable: getBilling().isAvailable()
+    });
+    if (startSession && learnerProfile) {
+      void startLearnerSession({ profile: learnerProfile, grammarStrictness: devSettings.grammarStrictness, savedPhrases });
     }
-    if (session) {
-      if (mode === 'after-onboarding' && getBilling().isAvailable() && updatedMe?.tier !== 'premium') {
-        setScreen('plans');
-      } else {
-        setScreen('app');
-      }
-    } else if (mode === 'login') {
-      setScreen('onboarding');
-    } else {
-      if (learnerProfile) {
-        void startLearnerSession({ profile: learnerProfile, grammarStrictness: devSettings.grammarStrictness, savedPhrases });
-      }
-      if (getBilling().isAvailable() && updatedMe?.tier !== 'premium') {
-        setScreen('plans');
-      } else {
-        setScreen('app');
-      }
-    }
-  };
-
-  const handleSeePlansForTutor = (tutorId: string) => {
-    setPendingTutorId(tutorId);
-    if (!me || me.isAnonymous) {
-      setScreen('signin-login');
-    } else {
-      setScreen('plans');
-    }
-  };
-
-  const handlePlansDone = (purchased = false) => {
-    if (pendingTutorId) {
-      if (purchased || me?.tier === 'premium') {
-        setSelectedOnboardingTutorId(pendingTutorId);
-      }
-      setPendingTutorId(null);
-      setScreen('onboarding');
-      return;
-    }
-    setScreen('app');
   };
 
   // Start over as a new guest: blank profile, conversation and notebook, back to onboarding,
@@ -202,8 +158,7 @@ export default function App() {
     setSavedPhrases(INITIAL_SAVED_PHRASES);
     setLimitReached(null);
     setPremiumEnded(false);
-    setPendingTutorId(null);
-    setSelectedOnboardingTutorId(null);
+    flow.clearTutorSelection();
     void refreshAccount();
     setScreen('onboarding');
   };
@@ -321,8 +276,7 @@ export default function App() {
     const isFirstOnboarding = learnerProfile === null;
     if (consent) setConsent(consent);
     setLearnerProfile(profile);
-    setPendingTutorId(null);
-    setSelectedOnboardingTutorId(null);
+    flow.clearTutorSelection();
     chat.resetConversation(createInitialMessages(selectedTutor, profile.name, profile.level));
     // A new profile starts a new conversation; the notebook carries over
     void startLearnerSession({ profile, grammarStrictness: devSettings.grammarStrictness, savedPhrases });
@@ -439,10 +393,7 @@ export default function App() {
       <SignInScreen
         mode="login"
         onSignedIn={() => handleSignedIn('login')}
-        onSkip={() => {
-          setPendingTutorId(null);
-          setScreen('onboarding');
-        }}
+        onSkip={flow.cancelSignIn}
       />
     );
   }
@@ -451,7 +402,7 @@ export default function App() {
     return (
       <PlansScreen
         me={me}
-        onDone={handlePlansDone}
+        onDone={(purchased = false) => flow.afterPlans(purchased, me?.tier === 'premium')}
         onNeedSignIn={() => setScreen('signin-login')}
         refreshAccount={refreshAccount}
       />
@@ -462,11 +413,11 @@ export default function App() {
     return (
       <OnboardingPage
         initialProfile={learnerProfile}
-        initialTutorId={selectedOnboardingTutorId ?? undefined}
+        initialTutorId={flow.selectedTutorId ?? undefined}
         initialConsentAccepted={hasCurrentConsent}
         tier={me?.tier ?? 'guest'}
         canUpgrade={getBilling().isAvailable()}
-        onSeePlans={handleSeePlansForTutor}
+        onSeePlans={(tutorId) => flow.seePlansForTutor(tutorId, !me || me.isAnonymous)}
         onComplete={handleCompleteOnboarding}
         onLogin={me?.isAnonymous ? () => setScreen('signin-login') : undefined}
       />
