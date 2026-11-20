@@ -5,6 +5,7 @@ import request from 'supertest';
 import { createBillingRouter, createRevenueCatWebhookRouter } from '../src/server/billingRoutes';
 import { InMemoryAccountStore } from '../src/server/accountStore';
 import type { RevenueCatClient } from '../src/server/revenueCat';
+import type { RevenueCatV2Client } from '../src/server/revenueCatV2';
 import type { AuthenticatedUser } from '../src/server/auth';
 
 describe('POST /api/billing/sync', () => {
@@ -117,6 +118,130 @@ describe('POST /api/billing/sync', () => {
     expect(res.status).toBe(502);
     expect(res.body).toEqual({ code: 'BILLING_UPSTREAM_ERROR' });
     expect(errorSpy).toHaveBeenCalledWith('[Billing] Subscription sync failed:', 'Network error');
+    errorSpy.mockRestore();
+  });
+});
+
+describe('GET /api/billing/manage', () => {
+  function createManageApp(options: {
+    user?: AuthenticatedUser;
+    revenueCatV2?: RevenueCatV2Client | null;
+  }) {
+    const app = express();
+    app.use(express.json());
+    app.use((req, _res, next) => {
+      if (options.user) {
+        req.user = options.user;
+      }
+      next();
+    });
+    app.use('/api/billing', createBillingRouter({
+      revenueCatV2: options.revenueCatV2
+    }));
+    return app;
+  }
+
+  const signedInUser: AuthenticatedUser = {
+    userId: 'u-secret-id',
+    email: 'user@example.com',
+    isAnonymous: false,
+    authProvider: 'firebase'
+  };
+
+  it('returns 503 BILLING_UNAVAILABLE when revenueCatV2 client is not configured', async () => {
+    const app = createManageApp({ user: signedInUser, revenueCatV2: null });
+
+    const res = await request(app).get('/api/billing/manage');
+    expect(res.status).toBe(503);
+    expect(res.body).toEqual({ code: 'BILLING_UNAVAILABLE' });
+  });
+
+  it('returns 503 BILLING_UNAVAILABLE when v2 env vars are missing by default', async () => {
+    const prevKey = process.env.REVENUECAT_V2_SECRET_KEY;
+    const prevProj = process.env.REVENUECAT_PROJECT_ID;
+    delete process.env.REVENUECAT_V2_SECRET_KEY;
+    delete process.env.REVENUECAT_PROJECT_ID;
+
+    try {
+      const app = createManageApp({ user: signedInUser });
+      const res = await request(app).get('/api/billing/manage');
+      expect(res.status).toBe(503);
+      expect(res.body).toEqual({ code: 'BILLING_UNAVAILABLE' });
+    } finally {
+      if (prevKey !== undefined) process.env.REVENUECAT_V2_SECRET_KEY = prevKey;
+      if (prevProj !== undefined) process.env.REVENUECAT_PROJECT_ID = prevProj;
+    }
+  });
+
+  it('returns 403 SIGN_IN_REQUIRED when no user is attached', async () => {
+    const fakeV2: RevenueCatV2Client = { getManagementUrl: vi.fn() };
+    const app = createManageApp({ revenueCatV2: fakeV2 });
+
+    const res = await request(app).get('/api/billing/manage');
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ code: 'SIGN_IN_REQUIRED' });
+    expect(fakeV2.getManagementUrl).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 SIGN_IN_REQUIRED when user is anonymous', async () => {
+    const fakeV2: RevenueCatV2Client = { getManagementUrl: vi.fn() };
+    const app = createManageApp({
+      user: { userId: 'guest-1', isAnonymous: true, authProvider: 'firebase' },
+      revenueCatV2: fakeV2
+    });
+
+    const res = await request(app).get('/api/billing/manage');
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({ code: 'SIGN_IN_REQUIRED' });
+    expect(fakeV2.getManagementUrl).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 NO_WEB_SUBSCRIPTION when management URL is null', async () => {
+    const fakeV2: RevenueCatV2Client = {
+      getManagementUrl: vi.fn().mockResolvedValue(null)
+    };
+    const app = createManageApp({ user: signedInUser, revenueCatV2: fakeV2 });
+
+    const res = await request(app).get('/api/billing/manage');
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ code: 'NO_WEB_SUBSCRIPTION' });
+    expect(fakeV2.getManagementUrl).toHaveBeenCalledWith('u-secret-id');
+  });
+
+  it('returns 200 with url and Cache-Control: no-store on success', async () => {
+    const managementUrl = 'https://billing.revenuecat.com/portal/single-use-secret';
+    const fakeV2: RevenueCatV2Client = {
+      getManagementUrl: vi.fn().mockResolvedValue(managementUrl)
+    };
+    const app = createManageApp({ user: signedInUser, revenueCatV2: fakeV2 });
+
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const res = await request(app).get('/api/billing/manage');
+
+    expect(res.status).toBe(200);
+    expect(res.headers['cache-control']).toBe('no-store');
+    expect(res.body).toEqual({ url: managementUrl });
+    expect(fakeV2.getManagementUrl).toHaveBeenCalledWith('u-secret-id');
+    expect(logSpy).not.toHaveBeenCalled();
+    logSpy.mockRestore();
+  });
+
+  it('returns 502 BILLING_UPSTREAM_ERROR and logs summarized error without userId on failure', async () => {
+    const fakeV2: RevenueCatV2Client = {
+      getManagementUrl: vi.fn().mockRejectedValue(new Error('RevenueCat v2 subscriptions request failed with status 500'))
+    };
+    const app = createManageApp({ user: signedInUser, revenueCatV2: fakeV2 });
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await request(app).get('/api/billing/manage');
+
+    expect(res.status).toBe(502);
+    expect(res.body).toEqual({ code: 'BILLING_UPSTREAM_ERROR' });
+    expect(errorSpy).toHaveBeenCalledWith(
+      '[Billing] Management URL failed:',
+      'RevenueCat v2 subscriptions request failed with status 500'
+    );
+    expect(JSON.stringify(errorSpy.mock.calls)).not.toContain('u-secret-id');
     errorSpy.mockRestore();
   });
 });
