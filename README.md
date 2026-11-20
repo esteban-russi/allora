@@ -30,7 +30,7 @@ Premium can unlock extra tutors while Emmanuele stays free for everyone (`PREMIU
 
 ## Design
 
-The dashboard has three columns: a 72px icon rail, the chat workspace, and a utility panel with the tutor's profile, the notebook (latest grammar tip and saved phrases) and how much of the talking you did. Colours are Tailwind theme tokens in `src/index.css`:
+The layout adapts across screen sizes: phones get a bottom tab bar (Home, Chat, Notebook, Profile) that hides while typing; `md` and wider screens use the 72px icon rail on the left with the same four destinations; `lg` screens keep the utility panel beside the chat (tutor profile, notebook, talking share). Colours are Tailwind theme tokens in `src/index.css`:
 
 | Token | Hex | Used for |
 |---|---|---|
@@ -44,11 +44,21 @@ Italian text is set in Fraunces; the interface uses Inter.
 
 ## Features
 
+- **Home.** Daily practice goal ring, current streak, 7-day completion dots, and a quick card to continue your last conversation or start a call.
 - **Chat with Emmanuele.** Every reply comes in Italian with an English translation and 1 to 3 notes on vocabulary, verbs, idioms, grammar or culture. Listen to any line, hide its translation, or save it to your notebook.
+- **Multiple conversations.** Switch between conversations from the Chats list, start a new one with a tutor and a conversation topic from `src/product/data/topics.ts` (or open chat), or delete conversations with confirmation.
 - **Hands-free voice calls.** Calls stream through Gemini Live, so the tutor answers in under a second and you can interrupt him mid-sentence. Ask him to go slower, repeat himself, or suggest something to say. If Live is unavailable, the call carries on turn by turn (speech recognition, then chat, then text-to-speech).
 - **Captions.** Follow each line of the call in Italian with an English translation.
 - **Natural voices.** Replies are spoken with Gemini text-to-speech. If it is unavailable, the app falls back to the browser's built-in Italian voice.
-- **Adjustable tutoring.** Settings let you choose correction style (Casual, Friendly Tutor, or Strict Professor), subtitles, auto-play replies aloud, and speaking speed.
+- **Shared notebook.** Phrases saved from any conversation are kept in a single notebook shared across all conversations and available in its own tab.
+- **Habit tracking.** Tracks daily practice toward a chosen goal (5, 10, or 20 turns). A practice unit is one learner turn counted on the server during text chat or Live calls. Streaks are evaluated in the learner's local time zone: missing today does not break an active streak ending yesterday. Hitting the daily goal triggers a celebratory toast and light haptic feedback.
+- **Daily reminder.** Stores a daily reminder time preference. Delivery is isolated behind `src/platform/client/reminders.ts`; web reports unsupported until the Android shell adds Capacitor Local Notifications.
+- **Profile tab.** Manage learning settings, daily practice goal, reminder time, subscription plan and daily usage allowance, help and feedback, legal pages, sign out, and account deletion.
+- **Adjustable tutoring.** Settings now live in Profile and let you choose correction style (Casual, Friendly Tutor, or Strict Professor), subtitles, auto-play replies aloud, and speaking speed.
+
+### Navigation and back button
+
+Navigation state runs through a platform back-stack seam (`src/platform/navigation/backStack.ts`, `src/platform/hooks/useBackNavigation.ts`, `useAppNavigation.ts`). Top-level tabs do not build history among themselves. Back closes the top open overlay first; a conversation opened from the list returns to the list on Back; pressing Back from any tab returns to Home; and Back on Home exits the app. The Android shell will add a Capacitor `backButton` listener to the same seam for the hardware back button (not wired yet).
 
 ## How it works
 
@@ -105,19 +115,19 @@ React 19 · TypeScript · Vite 8 · Tailwind CSS 4 · Motion · Lucide · Expres
 
 Speech recognition relies on the browser's Web Speech API, so voice calls work best in Chrome or Edge.
 
-The billed API routes (`/api/chat`, `/api/translate`, `/api/tts`, `/api/stt`, `/api/session`, `/api/me`) are rate-limited per IP (`RATE_LIMIT_PER_MINUTE`, default 60) and per user (60 a minute). Each user can hold one open Live call and each IP two. When deploying behind a proxy such as Cloud Run, set `TRUST_PROXY_HOPS=1` so the limit applies to each client rather than to the proxy.
+The billed API routes (`/api/chat`, `/api/translate`, `/api/tts`, `/api/stt`, `/api/session`, `/api/me`, `/api/habits`) are rate-limited per IP (`RATE_LIMIT_PER_MINUTE`, default 60) and per user (60 a minute). Each user can hold one open Live call and each IP two. When deploying behind a proxy such as Cloud Run, set `TRUST_PROXY_HOPS=1` so the limit applies to each client rather than to the proxy.
 
 ## Accounts, sessions and privacy
 
-**Authentication.** Billed routes and the Live socket need a Firebase Auth or Google Identity ID token. HTTP requests send it as `Authorization: Bearer <token>`; Live calls send it as the WebSocket subprotocol `auth, <token>`, never in the URL. Tokens are checked against Google's certificates, and their audience must be `GCP_PROJECT` (Firebase) or `GOOGLE_CLIENT_ID` (Google Identity). Auth is enforced when `NODE_ENV=production` or `ENFORCE_AUTH=true`, and the server refuses to start without one of those audiences. Locally, requests without a token run as a dev user (`x-dev-user-id` header or `devUserId` query) and `dev-token:<id>` tokens are accepted.
+**Authentication.** Billed routes and the Live socket need a Firebase Auth or Google Identity ID token. HTTP requests send it as `Authorization: Bearer <token>`; Live calls send it as the WebSocket subprotocol `auth, <token>`, never in the URL. Tokens are checked against Google's certificates, and their audience must be `GCP_PROJECT` (Firebase) or `GOOGLE_CLIENT_ID` (Google Identity). Auth is enforced when `NODE_ENV=production` or `ENFORCE_AUTH=true`, and the server refuses to start without one of those audiences. Locally, requests without a token run as a dev user (`x-dev-user-id` header or `devUserId` query) and `dev-token:<id>` tokens are accepted. Dev-auth users skip the Firebase identity check, so onboarding works locally even with `GCP_PROJECT` set.
 
 On load the client signs the learner in anonymously with Firebase (`src/platform/client/firebaseAuth.ts`), using the public web config from `GET /api/auth-config`, and the same anonymous account is reused on that device. That needs `FIREBASE_API_KEY` and `FIREBASE_APP_ID` set on the server and Anonymous sign-in enabled in the Firebase project `GCP_PROJECT`; without them, the client sends no token, which only works when auth is not enforced. Anyone can create anonymous accounts, so the per-IP limits remain the backstop against abuse.
 
 **App Check.** Billed API routes and the `/api/live` WebSocket upgrade can require a Firebase App Check token (`X-Firebase-AppCheck` header on HTTP, or `appcheck, <token>` after `auth, <token>` in `Sec-WebSocket-Protocol`), verified via `firebase-admin/app-check`. `APP_CHECK_MODE` defaults to `off`; `monitor` verifies and records `appCheck: { ok, failed, missing }` counters in `/api/metrics` without blocking; `enforce` rejects invalid or missing tokens with HTTP 401 (`APP_CHECK_REQUIRED`) and prompts the learner to reload or update the app. Public routes (`/api/health`, `/api/auth-config`, `/api/webhooks/revenuecat`, static files) are uncovered. On web, the client lazily initializes reCAPTCHA Enterprise when `FIREBASE_APPCHECK_SITE_KEY` is served via `/api/auth-config`; native Android Play Integrity connects through `setNativeAppCheckProvider` in `src/platform/client/appCheck.ts`.
 
-**Sign-in, merging and account deletion.** Learners can upgrade from guest to an authenticated account using Google popup sign-in or an email magic link (`sendSignInLinkToEmail`). Upon signing in, `POST /api/account/merge` moves the guest's session and daily usage over to the account (unless the account already has active sessions, in which case guest sessions are discarded), deletes the guest `users` record, and deletes the anonymous Firebase user. `DELETE /api/account` deletes the learner's sessions, usage, and account documents, and permanently deletes their Firebase Auth user via `firebase-admin` (notifying the user if an active store subscription exists).
+**Sign-in, merging and account deletion.** Learners can upgrade from guest to an authenticated account using Google popup sign-in or an email magic link (`sendSignInLinkToEmail`). Upon signing in, `POST /api/account/merge` moves the guest's sessions, per-user notebook phrases, habit tracking history and daily usage over to the account (unless the account already has active sessions, in which case guest sessions are discarded), deletes the guest `users` record, and deletes the anonymous Firebase user. `DELETE /api/account` deletes the learner's sessions, per-user notebook record, habit history, usage, and account documents, and permanently deletes their Firebase Auth user via `firebase-admin` (notifying the user if an active store subscription exists).
 
-**Accounts and tiers.** Authenticated users are assigned a tier (`guest`, `free`, `premium`). `GET /api/me` returns the learner's account details, current tier, plan limits, subscription metadata, today's usage, and quota reset time (`resetsAt`). Guest records in Firestore carry a 30-day inactivity TTL on `expiresAtTs`. Accounts and sessions live in the store selected by `SESSION_STORE` (`memory` or `firestore`).
+**Accounts and tiers.** Authenticated users are assigned a tier (`guest`, `free`, `premium`). `GET /api/me` returns the learner's account details, current tier, plan limits, subscription metadata, today's usage, and quota reset time (`resetsAt`). Guest records in Firestore carry a 30-day inactivity TTL on `expiresAtTs`. Accounts, sessions and habits live in the store selected by `SESSION_STORE` (`memory` or `firestore`).
 
 **Daily usage limits.** Daily quotas are tracked per user in Firestore (`usage` collection) or memory: chat messages, helper requests (TTS, STT, translation), and voice seconds. `QUOTAS_MODE` controls enforcement: `off` disables tracking, `monitor` (default in production) meters usage and logs over-limit events, and `enforce` rejects requests with HTTP 429 (`QUOTA_EXCEEDED`) or cuts off live voice calls when daily limits are reached. Usage documents expire after 2 days via Firestore TTL on `expiresAtTs`.
 
@@ -141,9 +151,11 @@ When daily quotas are reached:
 - Account deletion (`DELETE /api/account`) cleans up subscriber data in RevenueCat via `deleteSubscriber`.
 - When `REVENUECAT_SECRET_KEY` (or the v2 variables) are omitted, the server starts normally and the corresponding billing endpoints return 503 `BILLING_UNAVAILABLE`.
 
-**Learner sessions.** A session holds the learner's level, saved phrases and the last 50 conversation turns. The server assigns its ID, the client remembers it on the device, and both chat and Live turns are checkpointed to it. `GET /api/session` returns the latest session, `POST` creates or updates one, `DELETE /api/session/:id` deletes one and `DELETE /api/session` deletes all of a user's data. Sessions expire after 30 days without activity.
+**Learner sessions and shared notebook.** A session holds the learner's level, selected conversation topic (`topic`), and the last 50 conversation turns. Saved phrases are kept in a per-user notebook record shared across all conversations (`learnerNotebooks` collection in Firestore, or memory). The server assigns session IDs, the client remembers the active session on the device, and both chat and Live turns are checkpointed to it. `GET /api/session/list` returns summaries for the learner's active sessions (newest first, up to 50), `GET /api/session` returns the latest session, `GET /api/session/:sessionId` fetches a specific session, `POST /api/session` creates or updates a session (accepting `topic`, `personaId`, `learnerLevel`, `learnerName`, `grammarStrictness`, and `savedPhrases`), `DELETE /api/session/:id` deletes one session, and `DELETE /api/session` deletes all of a user's sessions and notebook data. Sessions expire after 30 days without activity.
 
-`SESSION_STORE` picks where sessions live. `memory` (the default, for local development) loses them on restart. `firestore` keeps one document per session in the `learnerSessions` collection, shared by all instances; a TTL policy on `expiresAtTs` deletes expired ones. Production uses Firestore. Per-user rate limits stay in each instance's memory.
+`SESSION_STORE` picks where sessions and notebooks live. `memory` (the default, for local development) loses them on restart. `firestore` keeps one document per session in the `learnerSessions` collection and one document per user in `learnerNotebooks`, shared by all instances; a TTL policy on `expiresAtTs` deletes expired sessions. Production uses Firestore. Per-user rate limits stay in each instance's memory.
+
+**Habit store and daily turn tracking.** The habit store tracks daily learner practice turns, streaks, time zone, and reminder settings. `GET /api/habits` returns the learner's current streak, longest streak, today's turn count against the daily goal (5, 10, or 20), completion summary for the current week and last 7 days, time zone, and reminder preference. `PUT /api/habits/settings` updates the daily goal, IANA time zone, or reminder time (`{ enabled, time }`). The habit store keeps ~60 days of daily turn counts, trimming older days. Like sessions, habits live in the store selected by `SESSION_STORE` (`memory` for dev or Firestore collection `learnerHabits` for production). Habit tracking and notebook records are both covered by guest→account merge (`POST /api/account/merge`) and account deletion (`DELETE /api/account`).
 
 **Live call resilience.** The client pings every 5 s and reconnects with backoff after 10 s without a reply; the server pings every 10 s and ends calls that stop answering, so a dead socket never holds the call slot. A reconnect for the same session replaces the old call and resumes the Gemini session with its stored resumption handle. If the handle is rejected, a fresh Gemini session starts with a recap of the recent turns; only if that also fails does the call continue turn by turn.
 
@@ -245,10 +257,10 @@ Static, self-contained HTML pages live in `public/privacy.html`, `public/terms.h
 `src/` is split into three layers so the parts any paid AI app needs can be reused without the Italian tutor:
 
 - **`src/platform/`**: what you would reuse for another app: auth, accounts and consent, RevenueCat billing, tiers and daily quotas, rate limiting, App Check, content reports, metrics, the Gemini client helper, and the sign-in, account and legal UI.
-- **`src/product/`**: the Italian tutor: chat, speech and session routes, the Live voice bridge, personas and prompts, learner sessions, and the tutor UI.
+- **`src/product/`**: the Italian tutor: chat, speech, session and habit routes, the Live voice bridge, personas and prompts, learner sessions and habits, and the tutor UI.
 - **`src/config/`**: per-app values both layers read: `brand.ts` (name, plan name, support email, tagline) and `legal.ts` (terms version).
 
-Platform code may import only `src/platform` and `src/config`, never `src/product`; `tests/architecture.test.ts` fails if it does. Where platform code needs app data it takes it as a dependency instead: `createAccountRouter({ sessions })` receives the session store, `scheduleMaintenance` accepts any store with `purgeExpiredSessions`, and `setSignOutCleanup` lets the app clear its own browser data on sign-out (wired in `src/main.tsx`). `server.ts` and `src/App.tsx` are where the two layers are wired together.
+Platform code may import only `src/platform` and `src/config`, never `src/product`; `tests/architecture.test.ts` fails if it does. Where platform code needs app data it takes it as a dependency instead: `createAccountRouter({ sessions, habits })` receives the session and habit stores, `scheduleMaintenance` accepts any store with `purgeExpiredSessions`, and `setSignOutCleanup` lets the app clear its own browser data on sign-out (wired in `src/main.tsx`). `server.ts` and `src/App.tsx` are where the two layers are wired together.
 
 To start another app from this one, copy the repository, replace `src/product/` and `src/config/`, and rewire `server.ts` and `src/App.tsx`.
 
@@ -264,19 +276,22 @@ To start another app from this one, copy the repository, replace `src/product/` 
 │   │   ├── server/                # auth, appCheck, accountMiddleware, accountRoutes, accountStore (+ Firestore), billingRoutes, billingSync,
 │   │   │                          # revenueCat(V2), plans, quota, usageStore (+ Firestore), rateLimiter, reportRoutes, reportStore, metrics,
 │   │   │                          # maintenance, modelSafety, privacyAndPolicy, firebaseAdmin, identityAdmin, genAi, vertexCooldown
-│   │   ├── client/                # apiClient, appCheck, billing, billingWeb, clientConfig, firebaseAuth, legalUrl, me, notice, quotaError
-│   │   ├── hooks/                 # useAccount, useDialog, useLimitReached, useWebBilling
+│   │   ├── client/                # apiClient, appCheck, billing, billingWeb, clientConfig, firebaseAuth, haptics, legalUrl, me, notice,
+│   │   │                          # quotaError, reminders
+│   │   ├── navigation/            # backStack
+│   │   ├── hooks/                 # useAccount, useBackNavigation, useDialog, useLimitReached, useWebBilling
 │   │   └── components/            # AccountMenu, ConsentCheckbox, ConsentDialog, LegalLinks, LimitReachedCard, MagicLinkEmailForm,
 │   │                              # NoticeToast, SignInScreen, UsageMeter
 │   └── product/
-│       ├── server/                # chatRoutes, speechRoutes, sessionRoutes, sessionStore (+ Firestore), personaAccess,
-│       │                          # liveBridge (/api/live WebSocket bridge to Gemini Live)
-│       ├── client/                # learnerSession, liveCall, speech
-│       ├── hooks/                 # useTutorChat, useScreenFlow, useConversationStats
-│       ├── components/            # ChatInterface, VoiceCallModal, OnboardingPage, PlansScreen, UtilityPanel, TopHeader, IconRail,
-│       │                          # SettingsDialog, DevSettingsDrawer, PersonaProfileModal, PersonaBadge, PremiumEndedNotice,
-│       │                          # ReportDialog, UserBadge
-│       ├── data/                  # personas.ts, personaPrompts.ts
+│       ├── server/                # chatRoutes, speechRoutes, sessionRoutes, sessionStore (+ Firestore), habitRoutes, habitStore (+ Firestore),
+│       │                          # habitMath, personaAccess, liveBridge (/api/live WebSocket bridge to Gemini Live)
+│       ├── client/                # habitsClient, learnerSession, liveCall, speech
+│       ├── hooks/                 # useAppNavigation, useConversationList, useConversationStats, useScreenFlow, useTutorChat
+│       ├── components/            # BottomTabBar, ChatInterface, ConversationListScreen, DevSettingsDrawer, HabitGoalSelector, HomeTab,
+│       │                          # IconRail, LearningSettingsControls, NewConversationSheet, NotebookTab, OnboardingPage, PersonaBadge,
+│       │                          # PersonaProfileModal, PlansScreen, PremiumEndedNotice, ProfileTab, ReportDialog, SettingsDialog,
+│       │                          # TodayHabitCard, TopHeader, UserBadge, UtilityPanel, VoiceCallModal
+│       ├── data/                  # personas.ts, personaGreetings.ts, personaPrompts.ts, topics.ts
 │       └── types.ts
 └── index.html
 ```
