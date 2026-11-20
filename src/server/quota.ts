@@ -1,6 +1,6 @@
 /** Daily usage quotas enforcement, monitoring, and HTTP middleware. */
 import type { NextFunction, Request, Response } from 'express';
-import { summarizeError } from '../../vertexCooldown';
+import { summarizeError } from './vertexCooldown';
 import { defaultUsageStore } from './defaultUsageStore';
 import { nextResetAt, usageDay, type UsageStore } from './usageStore';
 

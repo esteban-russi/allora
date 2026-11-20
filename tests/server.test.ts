@@ -5,7 +5,7 @@ import express from 'express';
 import request from 'supertest';
 import type { GoogleGenAI } from '@google/genai';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { VertexCooldown } from '../vertexCooldown';
+import { VertexCooldown } from '../src/server/vertexCooldown';
 import { app, primaryAi, buildChatContents, buildFirebaseClientConfig, canReadMetrics, buildLiveClientOptions, cloudSttEncodingFor, parseModelJsonResponse, registerStaticRoutes, stripBase64DataUrlPrefix } from '../server';
 import { buildSystemInstruction, buildVoiceCallInstruction, LEVEL_PROMPTS, sanitizeLearnerName } from '../src/data/personaPrompts';
 

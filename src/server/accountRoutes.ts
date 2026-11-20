@@ -14,7 +14,7 @@ import { defaultIdentityAdmin } from './identityAdmin';
 import { verifyIdToken } from './auth';
 import { usageDay } from './usageStore';
 import { invalidateAccountCache } from './accountMiddleware';
-import { summarizeError } from '../../vertexCooldown';
+import { summarizeError } from './vertexCooldown';
 import { createRevenueCatClient, type RevenueCatClient } from './revenueCat';
 
 export interface AccountRouterDeps {

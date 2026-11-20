@@ -11,24 +11,24 @@ import {
   PERSONA_VOICES,
   buildVoiceCallInstruction,
   isPremiumPersona
-} from './src/data/personaPrompts';
-import type { CefrLevel } from './src/types';
-import { authenticateWebSocketRequest, type AuthenticatedUser, type AuthOptions } from './src/server/auth';
+} from '../data/personaPrompts';
+import type { CefrLevel } from '../types';
+import { authenticateWebSocketRequest, type AuthenticatedUser, type AuthOptions } from './auth';
 import {
   appCheckMode,
   createAppCheckVerifier,
   extractAppCheckToken,
   type AppCheckMode,
   type AppCheckVerifier
-} from './src/server/appCheck';
-import { defaultSessionStore } from './src/server/defaultSessionStore';
-import { defaultAccountStore } from './src/server/defaultAccountStore';
-import { defaultUsageStore } from './src/server/defaultUsageStore';
-import { quotasMode, type QuotasMode } from './src/server/quota';
-import { usageDay, type UsageStore } from './src/server/usageStore';
-import type { AccountStore, Tier } from './src/server/accountStore';
-import { PLAN_LIMITS, tierFor } from './src/server/plans';
-import { canUsePersona } from './src/server/personaAccess';
+} from './appCheck';
+import { defaultSessionStore } from './defaultSessionStore';
+import { defaultAccountStore } from './defaultAccountStore';
+import { defaultUsageStore } from './defaultUsageStore';
+import { quotasMode, type QuotasMode } from './quota';
+import { usageDay, type UsageStore } from './usageStore';
+import type { AccountStore, Tier } from './accountStore';
+import { PLAN_LIMITS, tierFor } from './plans';
+import { canUsePersona } from './personaAccess';
 import { summarizeError } from './vertexCooldown';
 import {
   initializeLearnerSession,
@@ -36,10 +36,10 @@ import {
   type ConversationTurn,
   type LearnerSession,
   type SessionStore
-} from './src/server/sessionStore';
-import { defaultUserLimiter, UserRateLimiter } from './src/server/rateLimiter';
-import { defaultMetrics, MetricsCollector } from './src/server/metrics';
-import { MODEL_SAFETY_SETTINGS } from './src/server/modelSafety';
+} from './sessionStore';
+import { defaultUserLimiter, UserRateLimiter } from './rateLimiter';
+import { defaultMetrics, MetricsCollector } from './metrics';
+import { MODEL_SAFETY_SETTINGS } from './modelSafety';
 
 export const LIVE_PATH = '/api/live';
 

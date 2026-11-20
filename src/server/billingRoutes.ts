@@ -1,7 +1,7 @@
 /** Billing routes for synchronizing subscription state with RevenueCat. */
 import crypto from 'crypto';
 import { Router, type Request, type Response } from 'express';
-import { summarizeError } from '../../vertexCooldown';
+import { summarizeError } from './vertexCooldown';
 import type { AccountStore } from './accountStore';
 import { defaultAccountStore } from './defaultAccountStore';
 import { tierFor } from './plans';

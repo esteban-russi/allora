@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { VertexCooldown, isPersistentVertexError, summarizeError } from '../vertexCooldown';
+import { VertexCooldown, isPersistentVertexError, summarizeError } from '../src/server/vertexCooldown';
 
 describe('VertexCooldown', () => {
   it('skips a tripped model until the cooldown elapses', () => {

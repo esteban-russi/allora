@@ -4,7 +4,7 @@ import type { AddressInfo } from 'net';
 import type { GoogleGenAI, LiveServerMessage } from '@google/genai';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
-import { attachLiveBridge, buildRecapInstruction, parseLiveCallParams, toClientFrames } from '../liveBridge';
+import { attachLiveBridge, buildRecapInstruction, parseLiveCallParams, toClientFrames } from '../src/server/liveBridge';
 import { InMemorySessionStore, initializeLearnerSession, type ConversationTurn } from '../src/server/sessionStore';
 import { InMemoryAccountStore } from '../src/server/accountStore';
 import { InMemoryUsageStore, usageDay } from '../src/server/usageStore';

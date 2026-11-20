@@ -1,7 +1,7 @@
 /** HTTP route for submitting learner reports on AI tutor replies. */
 import { randomUUID } from 'crypto';
 import { Router, type Request, type Response } from 'express';
-import { summarizeError } from '../../vertexCooldown';
+import { summarizeError } from './vertexCooldown';
 import { defaultReportStore } from './defaultReportStore';
 import {
   REPORT_REASONS,

@@ -1,6 +1,6 @@
 /** Express middleware attaching learner accounts and plan limits to authenticated requests. */
 import type { NextFunction, Request, Response } from 'express';
-import { summarizeError } from '../../vertexCooldown';
+import { summarizeError } from './vertexCooldown';
 import type { Account, AccountStore, Tier } from './accountStore';
 import { defaultIdentityAdmin, type IdentityAdmin } from './identityAdmin';
 import { PLAN_LIMITS, tierFor, type PlanLimits } from './plans';
