@@ -7,8 +7,7 @@ import {
   Info,
   Lock,
   MapPin,
-  MessageSquare,
-  MessageSquarePlus
+  MessageSquare
 } from 'lucide-react';
 import type { ChatMessage, LearnerProfile, Persona, SavedPhrase } from '../types';
 import { TUTORS } from '../data/personas';
@@ -85,26 +84,17 @@ export const HomeTab: React.FC<HomeTabProps> = ({
             Pronto a praticare il tuo italiano oggi?
           </p>
         </div>
-
-        {onOpenNewConversation && (
-          <button
-            type="button"
-            onClick={onOpenNewConversation}
-            aria-label="New conversation"
-            className="min-h-[48px] px-3.5 rounded-full bg-cobalt-tint text-cobalt hover:bg-cobalt/20 font-semibold text-xs sm:text-sm flex items-center gap-1.5 focus:outline-none focus:ring-2 focus:ring-cobalt/40 shrink-0"
-          >
-            <MessageSquarePlus className="w-4 h-4" aria-hidden="true" />
-            <span className="hidden sm:inline">New chat</span>
-          </button>
-        )}
       </header>
+
+      {/* Today Habit Card (Above the fold) */}
+      <TodayHabitCard habits={habits ?? null} />
 
       {/* Primary Card: Continue with Tutor */}
       <section
         aria-labelledby="continue-tutor-heading"
-        className="p-5 rounded-[24px] bg-surface border border-line shadow-soft space-y-4"
+        className="p-3.5 sm:p-4 rounded-2xl bg-surface border border-line shadow-soft space-y-3"
       >
-        <div className="flex items-start gap-4">
+        <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={() => onOpenTutorProfile(persona)}
@@ -114,37 +104,41 @@ export const HomeTab: React.FC<HomeTabProps> = ({
             <img
               src={persona.avatar.idle}
               alt=""
-              className="w-16 h-20 rounded-2xl object-cover object-top bg-[#fbf3e6] border border-line"
+              className="w-14 h-14 rounded-2xl object-cover object-top bg-[#fbf3e6] border border-line"
             />
           </button>
-          <div className="flex-1 min-w-0 space-y-1">
-            <span className="text-[11px] font-semibold tracking-[0.08em] uppercase text-cobalt">
-              Continue conversation
-            </span>
-            <h2 id="continue-tutor-heading" className="font-serif text-xl font-semibold text-ink leading-tight">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[10px] font-semibold tracking-[0.08em] uppercase text-cobalt">
+                Continue conversation
+              </span>
+              {onOpenNewConversation && (
+                <button
+                  type="button"
+                  onClick={onOpenNewConversation}
+                  className="text-xs font-semibold text-cobalt hover:underline focus:outline-none focus:ring-2 focus:ring-cobalt/40 rounded px-1"
+                >
+                  + New conversation
+                </button>
+              )}
+            </div>
+            <h2 id="continue-tutor-heading" className="font-serif text-base font-semibold text-ink leading-tight truncate">
               {persona.fullName}
             </h2>
-            <p className="text-xs text-ink-muted">
+            <p className="text-[11px] text-ink-muted truncate">
               {persona.role} · {persona.city}
             </p>
           </div>
         </div>
 
         {/* Message preview or empty state */}
-        <div className="p-3.5 rounded-2xl bg-canvas border border-line">
+        <div className="px-3 py-2 rounded-xl bg-canvas border border-line text-xs">
           {lastTutorMessage ? (
-            <div className="space-y-1">
-              <p className="text-xs sm:text-sm text-ink italic line-clamp-2">
-                “{lastTutorMessage.text}”
-              </p>
-              {lastTutorMessage.translation && (
-                <p className="text-[11px] text-ink-muted line-clamp-1">
-                  {lastTutorMessage.translation}
-                </p>
-              )}
-            </div>
+            <p className="text-ink italic truncate">
+              “{lastTutorMessage.text}”
+            </p>
           ) : (
-            <p className="text-xs text-ink-muted">
+            <p className="text-ink-muted truncate">
               Start your first conversation with {persona.name} and explore Roman life in Italian.
             </p>
           )}
@@ -153,7 +147,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({
         <button
           type="button"
           onClick={onNavigateToChat}
-          className="w-full h-11 rounded-full bg-cobalt hover:bg-cobalt-strong text-canvas font-medium text-sm flex items-center justify-center gap-2 transition-colors shadow-xs"
+          className="w-full h-10 rounded-full bg-cobalt hover:bg-cobalt-strong text-canvas font-medium text-xs sm:text-sm flex items-center justify-center gap-2 transition-colors shadow-xs"
         >
           <MessageSquare className="w-4 h-4" aria-hidden="true" />
           <span>Chat with {persona.name}</span>
@@ -183,9 +177,6 @@ export const HomeTab: React.FC<HomeTabProps> = ({
           <ChevronRight className="w-5 h-5 text-ink-muted group-hover:text-ink transition-colors" aria-hidden="true" />
         </button>
       </section>
-
-      {/* Today Habit Card */}
-      <TodayHabitCard habits={habits ?? null} />
 
       {/* Notebook Teaser */}
       <section aria-labelledby="notebook-teaser-heading">
