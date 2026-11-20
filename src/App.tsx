@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { EMMANUELE, INITIAL_MESSAGES, INITIAL_SAVED_PHRASES, TUTORS, createInitialMessages } from './data/personas';
-import { ChatMessage, DevSettings, GrammarNote, LearnerProfile, Persona, SavedPhrase } from './types';
+import { ChatMessage, DevSettings, LearnerProfile, Persona, SavedPhrase } from './types';
 import { ChatInterface } from './components/ChatInterface';
 import { VoiceCallModal } from './components/VoiceCallModal';
 import { DevSettingsDrawer } from './components/DevSettingsDrawer';
@@ -24,6 +24,7 @@ import { loadClientConfig } from './utils/clientConfig';
 import { createWebBilling } from './utils/billingWeb';
 import { useDialog } from './hooks/useDialog';
 import { useAccount } from './hooks/useAccount';
+import { useConversationStats } from './hooks/useConversationStats';
 import { speechService } from './utils/speech';
 import { setAccountDeletedHandler, setAppCheckFailedHandler } from './utils/apiClient';
 import { completeMagicLink, EMAIL_FOR_SIGN_IN_KEY, isMagicLink, signOutToGuest } from './utils/firebaseAuth';
@@ -32,7 +33,6 @@ import { loadLearnerSession, requestChatReply, saveLearnerSettings, startLearner
 import type { QuotaError } from './utils/quotaError';
 import type { ClientLearnerSession } from './server/sessionStore';
 
-const countWords = (text: string) => text.trim().split(/\s+/).filter(Boolean).length;
 const GRAMMAR_STRICTNESS: DevSettings['grammarStrictness'][] = ['conversational', 'tutor', 'strict'];
 
 export default function App() {
@@ -106,26 +106,7 @@ export default function App() {
     autoPlayAudio: false,
   });
 
-  // Latest grammar tip from the tutor, featured in the notebook
-  const grammarHighlight = useMemo<GrammarNote | null>(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const notes = messages[i].grammarNotes;
-      if (messages[i].sender === 'persona' && notes && notes.length > 0) return notes[0];
-    }
-    return null;
-  }, [messages]);
-
-  // Share of words the learner produced in this conversation
-  const talkingShare = useMemo(() => {
-    let learner = 0;
-    let total = 0;
-    for (const m of messages) {
-      const words = countWords(m.text);
-      total += words;
-      if (m.sender === 'user') learner += words;
-    }
-    return total === 0 ? 0 : Math.round((learner / total) * 100);
-  }, [messages]);
+  const { grammarHighlight, talkingShare } = useConversationStats(messages);
 
   const applySession = (session: ClientLearnerSession) => {
     const tutor = TUTORS.find((t) => t.id === session.personaId) ?? EMMANUELE;
