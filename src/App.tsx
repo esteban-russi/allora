@@ -41,6 +41,7 @@ import { ConversationListScreen } from './product/components/ConversationListScr
 import { NewConversationSheet } from './product/components/NewConversationSheet';
 import { fetchHabits, subscribeHabits, updateHabitSettings } from './product/client/habitsClient';
 import type { HabitGoal, HabitReminder, HabitSummary } from './product/server/habitStore';
+import { getTopicById } from './product/data/topics';
 
 const GRAMMAR_STRICTNESS: DevSettings['grammarStrictness'][] = ['conversational', 'tutor', 'strict'];
 
@@ -95,6 +96,7 @@ export default function App() {
   const [isNewConversationOpen, setIsNewConversationOpen] = useState<boolean>(false);
   const [sessionSummaries, setSessionSummaries] = useState<SessionSummary[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(() => getLearnerSessionId());
+  const [currentTopic, setCurrentTopic] = useState<string | null>(null);
   const [habits, setHabits] = useState<HabitSummary | null>(null);
 
   useEffect(() => {
@@ -148,6 +150,7 @@ export default function App() {
     const profile: LearnerProfile = { name: session.learnerName, level: session.learnerLevel, personaId: tutor.id };
     setLearnerProfile(profile);
     setActiveSessionId(session.sessionId);
+    setCurrentTopic(session.topic ?? null);
     rememberLearnerSessionId(session.sessionId);
     const checkpointMessages = toChatMessages(session.checkpointTurns, tutor.id);
     chat.resetConversation(
@@ -186,6 +189,7 @@ export default function App() {
     setIsProfileModalOpen(false);
     setLearnerProfile(null);
     setActiveSessionId(null);
+    setCurrentTopic(null);
     chat.resetConversation(INITIAL_MESSAGES);
     chat.setDraft('');
     setSavedPhrases(INITIAL_SAVED_PHRASES);
@@ -460,6 +464,7 @@ export default function App() {
       personaId: tutor.id
     };
     setLearnerProfile(nextProfile);
+    setCurrentTopic(topicId);
     const session = await createConversation({
       personaId,
       topic: topicId,
@@ -655,6 +660,9 @@ export default function App() {
     }
   };
 
+  const currentTopicConfig = currentTopic ? getTopicById(currentTopic) : undefined;
+  const topicLabel = currentTopicConfig?.label ?? (currentTopic && currentTopic !== 'free_chat' ? currentTopic : 'Free chat');
+
   return (
     <div className="h-dvh w-full flex overflow-hidden bg-canvas text-ink">
       <IconRail
@@ -679,6 +687,7 @@ export default function App() {
             persona={persona}
             learnerInitial={learnerInitial}
             learnerLevel={learnerProfile.level}
+            topicLabel={topicLabel}
             mode={isCallOpen ? 'voice' : 'text'}
             onSelectVoice={startCall}
             onOpenAccount={openAccountMenu}

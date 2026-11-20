@@ -1,6 +1,6 @@
 /** Top header bar with branding, tab or tutor title, conversation mode toggle, and desktop avatar. */
 import React from 'react';
-import { ChevronLeft } from 'lucide-react';
+import { ChevronLeft, Phone } from 'lucide-react';
 import { CefrLevel, Persona } from '../types';
 import { UserBadge } from './UserBadge';
 import { BRAND } from '../../config/brand';
@@ -13,6 +13,7 @@ interface TopHeaderProps {
   persona: Persona;
   learnerInitial: string;
   learnerLevel?: CefrLevel;
+  topicLabel?: string;
   mode: 'text' | 'voice';
   onSelectVoice: () => void;
   onOpenNotebook?: () => void;
@@ -33,6 +34,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   persona,
   learnerInitial,
   learnerLevel,
+  topicLabel,
   mode,
   onSelectVoice,
   onOpenAccount,
@@ -42,7 +44,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   const isChatTab = activeTab === 'chat';
   const isHomeTab = activeTab === 'home';
   const showCenterTitle = !isHomeTab;
-  const mobileTitle = isChatTab ? persona.name : TAB_TITLES[activeTab];
+  const mobileTitle = isChatTab ? persona.name.split(' ')[0] : TAB_TITLES[activeTab];
+  const topicSubtitle = topicLabel || 'Free chat';
 
   return (
     <header className="h-16 shrink-0 grid grid-cols-[auto_1fr_auto] sm:grid-cols-[1fr_auto_1fr] items-center gap-2 sm:gap-3 px-4 md:px-6 bg-canvas border-b border-line sm:border-b-0">
@@ -70,11 +73,22 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
       )}
 
       {/* Title on phones (< sm) */}
-      <div className="flex sm:hidden items-center justify-center min-w-0 px-2">
+      <div className="flex sm:hidden flex-col items-center justify-center min-w-0 px-1 text-center">
         {showCenterTitle && (
-          <h1 className="font-serif text-base sm:text-lg font-semibold text-ink truncate text-center">
-            {mobileTitle}
-          </h1>
+          isChatTab ? (
+            <>
+              <h1 className="font-serif text-base font-semibold text-ink truncate leading-tight">
+                {mobileTitle}
+              </h1>
+              <p className="text-[11px] text-ink-muted truncate leading-tight">
+                {topicSubtitle}
+              </p>
+            </>
+          ) : (
+            <h1 className="font-serif text-base sm:text-lg font-semibold text-ink truncate">
+              {mobileTitle}
+            </h1>
+          )
         )}
       </div>
 
@@ -104,36 +118,47 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
         )}
       </div>
 
-      <div className="col-start-3 flex items-center justify-end gap-2 sm:gap-3">
+      <div className="col-start-3 flex items-center justify-end gap-1.5 sm:gap-3">
         {isChatTab && <ChatHabitIndicator initialHabits={habits} />}
 
-        {/* Text/Voice switch: kept in Chat header */}
+        {/* Text/Voice switch on sm+, Phone icon button on < sm */}
         {isChatTab ? (
-          <div
-            role="group"
-            aria-label="Conversation mode"
-            className="flex items-center p-1 rounded-full bg-surface border border-line shadow-soft"
-          >
+          <>
             <button
               type="button"
-              aria-pressed={mode === 'text'}
-              className={`px-3 sm:px-5 py-1 sm:py-1.5 rounded-full text-xs sm:text-sm font-medium transition-colors ${
-                mode === 'text' ? 'bg-cobalt text-canvas' : 'text-ink hover:bg-cobalt-tint'
-              }`}
-            >
-              Text
-            </button>
-            <button
-              type="button"
-              aria-pressed={mode === 'voice'}
               onClick={onSelectVoice}
-              className={`px-3 sm:px-5 py-1 sm:py-1.5 rounded-full text-xs sm:text-sm font-medium transition-colors ${
-                mode === 'voice' ? 'bg-cobalt text-canvas' : 'text-ink hover:bg-cobalt-tint'
-              }`}
+              aria-label="Start voice call"
+              className="sm:hidden min-h-[48px] min-w-[48px] rounded-full flex items-center justify-center text-cobalt hover:bg-cobalt-tint focus:outline-none focus:ring-2 focus:ring-cobalt/40 transition-colors"
             >
-              Voice
+              <Phone className="w-5 h-5" aria-hidden="true" />
             </button>
-          </div>
+
+            <div
+              role="group"
+              aria-label="Conversation mode"
+              className="hidden sm:flex items-center p-1 rounded-full bg-surface border border-line shadow-soft"
+            >
+              <button
+                type="button"
+                aria-pressed={mode === 'text'}
+                className={`px-3 sm:px-5 py-1 sm:py-1.5 rounded-full text-xs sm:text-sm font-medium transition-colors ${
+                  mode === 'text' ? 'bg-cobalt text-canvas' : 'text-ink hover:bg-cobalt-tint'
+                }`}
+              >
+                Text
+              </button>
+              <button
+                type="button"
+                aria-pressed={mode === 'voice'}
+                onClick={onSelectVoice}
+                className={`px-3 sm:px-5 py-1 sm:py-1.5 rounded-full text-xs sm:text-sm font-medium transition-colors ${
+                  mode === 'voice' ? 'bg-cobalt text-canvas' : 'text-ink hover:bg-cobalt-tint'
+                }`}
+              >
+                Voice
+              </button>
+            </div>
+          </>
         ) : (
           <div className="h-9 sm:h-11" />
         )}

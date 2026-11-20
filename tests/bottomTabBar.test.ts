@@ -87,4 +87,43 @@ describe('TopHeader with tabs', () => {
     );
     expect(profileHtml).toContain('Profile');
   });
+
+  it('renders phone-specific compact elements: first name, topic subtitle, voice button, and compact habit ring', () => {
+    const chatHtml = renderToStaticMarkup(
+      React.createElement(TopHeader, {
+        activeTab: 'chat',
+        persona: EMMANUELE,
+        learnerInitial: 'E',
+        topicLabel: 'At the market',
+        mode: 'text',
+        habits: {
+          goal: 10,
+          todayCount: 3,
+          currentStreak: 4,
+          longestStreak: 4,
+          lastGoalMetDay: null,
+          last7Days: [],
+          weekDays: [],
+          goalMetToday: false,
+          timeZone: 'UTC',
+          reminder: { enabled: false, time: '19:00' }
+        },
+        onSelectVoice: vi.fn()
+      })
+    );
+
+    // First name on phone
+    expect(chatHtml).toContain('Emmanuele');
+    // Topic subtitle
+    expect(chatHtml).toContain('At the market');
+    // Start voice call phone button for phones (< sm)
+    expect(chatHtml).toContain('aria-label="Start voice call"');
+    expect(chatHtml).toContain('min-h-[48px]');
+    expect(chatHtml).toContain('min-w-[48px]');
+    // Desktop segmented control still present for sm+
+    expect(chatHtml).toContain('aria-label="Conversation mode"');
+    // Compact habit ring with 3/10 text alternative
+    expect(chatHtml).toContain('3/10 practice turns completed today');
+    expect(chatHtml).toContain('3/10');
+  });
 });
