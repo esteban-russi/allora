@@ -257,6 +257,64 @@ describe('Browser history synchronization and Android bottom-navigation conventi
     expect(fakeSeam.depth).toBe(1);
     expect(nav.canGoBack()).toBe(false);
   });
+
+  it('handles sequence: Back -> list -> Back -> Home -> Back -> exit when opened from list', () => {
+    // Sequence 1: Chat opened from list pushes on top:
+    // User is on Chats list: stack is [tab:home, screen:conversations]
+    const { nav, fakeSeam } = mountNavigation({ initialTab: 'chat' });
+    // Switch to conversations list
+    nav.replaceDestination('screen:conversations');
+    expect(fakeSeam.depth).toBe(2);
+    expect(fakeSeam.historyStack.map((e) => (e.data as any)?.id)).toEqual([
+      'tab:home',
+      'screen:conversations'
+    ]);
+    expect(nav.activeTab).toBe('chat');
+    expect(nav.currentDestinationId).toBe('screen:conversations');
+
+    // Opening a conversation FROM the list pushes it on top of the list
+    nav.pushScreen('conversation', vi.fn());
+    expect(fakeSeam.depth).toBe(3);
+    expect(nav.currentDestinationId).toBe('screen:conversation');
+
+    // Invariant: browser depth == stack depth
+    expect(fakeSeam.depth).toBe(nav.getStack().size);
+
+    // 1. Back from conversation -> goes to list
+    fakeSeam.seam.back();
+    expect(fakeSeam.depth).toBe(2);
+    expect(nav.currentDestinationId).toBe('screen:conversations');
+    expect(fakeSeam.depth).toBe(nav.getStack().size);
+
+    // 2. Back from list -> goes to Home
+    fakeSeam.seam.back();
+    expect(fakeSeam.depth).toBe(1);
+    expect(nav.activeTab).toBe('home');
+    expect(nav.currentDestinationId).toBe('tab:home');
+    expect(fakeSeam.depth).toBe(nav.getStack().size);
+
+    // 3. Back from Home -> exits (not handled)
+    expect(nav.goBack()).toBe(false);
+    expect(fakeSeam.depth).toBe(1);
+  });
+
+  it('keeps Back -> Home when Chat is opened from the tab bar or Home', () => {
+    // Sequence 2: Opening Chat from tab bar or Home shows conversation with Back -> Home
+    const { nav, fakeSeam } = mountNavigation({ initialTab: 'home' });
+    expect(fakeSeam.depth).toBe(1);
+
+    // Tap Chat tab from Home
+    nav.selectTab('chat');
+    expect(fakeSeam.depth).toBe(2);
+    expect(fakeSeam.historyStack.map((e) => (e.data as any)?.id)).toEqual(['tab:home', 'tab:chat']);
+    expect(nav.activeTab).toBe('chat');
+
+    // Back from Chat directly pops to Home
+    fakeSeam.seam.back();
+    expect(fakeSeam.depth).toBe(1);
+    expect(nav.activeTab).toBe('home');
+    expect(nav.canGoBack()).toBe(false);
+  });
 });
 
 describe('Tab back stack flow', () => {

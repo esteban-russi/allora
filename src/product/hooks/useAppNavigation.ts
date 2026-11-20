@@ -21,14 +21,21 @@ export function destinationIdToTab(id: string): AppTab {
       return raw;
     }
   }
+  if (id === 'screen:conversations' || id === 'screen:conversation') {
+    return 'chat';
+  }
   return 'home';
 }
 
 export function currentTabFromStack(stack: BackStack): AppTab {
   const entries = stack.getEntries();
   for (let i = entries.length - 1; i >= 0; i--) {
-    if (entries[i].id.startsWith('tab:')) {
-      const tab = entries[i].id.slice(4);
+    const id = entries[i].id;
+    if (id === 'screen:conversations' || id === 'screen:conversation') {
+      return 'chat';
+    }
+    if (id.startsWith('tab:')) {
+      const tab = id.slice(4);
       if (tab === 'home' || tab === 'chat' || tab === 'notebook' || tab === 'profile') {
         return tab;
       }
@@ -44,6 +51,7 @@ export interface UseAppNavigationOptions {
 
 export interface UseAppNavigationResult {
   activeTab: AppTab;
+  currentDestinationId: string;
   setActiveTab: (tab: AppTab) => void;
   selectTab: (tab: AppTab) => void;
   isComposerFocused: boolean;
@@ -55,6 +63,9 @@ export interface UseAppNavigationResult {
   closeOverlay: (id: string) => void;
   pushScreen: (id: string, onPop: () => void) => void;
   closeScreen: (id: string) => void;
+  replaceDestination: (id: string, onPop?: () => void) => void;
+  pushDestination: (id: string, onPop?: () => void) => void;
+  getStack: () => BackStack;
   canGoBack: () => boolean;
   goBack: () => boolean;
 }
@@ -171,6 +182,9 @@ export function useAppNavigation(options?: UseAppNavigationOptions): UseAppNavig
     get activeTab() {
       return currentTabFromStack(backHandler.getStack());
     },
+    get currentDestinationId() {
+      return backHandler.getStack().currentDestination()?.id ?? 'tab:home';
+    },
     setActiveTab: selectTab,
     selectTab,
     isComposerFocused,
@@ -182,6 +196,9 @@ export function useAppNavigation(options?: UseAppNavigationOptions): UseAppNavig
     closeOverlay,
     pushScreen,
     closeScreen,
+    replaceDestination: backHandler.replaceDestination,
+    pushDestination: backHandler.pushDestination,
+    getStack: backHandler.getStack,
     canGoBack: backHandler.canGoBack,
     goBack: backHandler.goBack
   };

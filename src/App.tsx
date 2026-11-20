@@ -91,7 +91,7 @@ export default function App() {
   const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
   const [profileModalPersona, setProfileModalPersona] = useState<Persona>(persona);
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState<boolean>(false);
-  const [isConversationsOpen, setIsConversationsOpen] = useState<boolean>(false);
+  const isConversationsOpen = nav.currentDestinationId === 'screen:conversations';
   const [isNewConversationOpen, setIsNewConversationOpen] = useState<boolean>(false);
   const [sessionSummaries, setSessionSummaries] = useState<SessionSummary[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(() => getLearnerSessionId());
@@ -405,14 +405,17 @@ export default function App() {
   };
 
   const openConversations = () => {
-    pushScreen('screen:conversations', () => setIsConversationsOpen(false));
-    setIsConversationsOpen(true);
     void fetchSessionList().then(setSessionSummaries);
+    const top = nav.getStack().peek();
+    if (top && top.id === 'screen:conversation') {
+      nav.goBack();
+    } else {
+      nav.replaceDestination('screen:conversations');
+    }
   };
 
   const closeConversations = () => {
-    closeScreen('screen:conversations');
-    setIsConversationsOpen(false);
+    nav.goBack();
   };
 
   const openNewConversation = () => {
@@ -431,8 +434,7 @@ export default function App() {
       applySession(session);
       rememberLearnerSessionId(session.sessionId);
     }
-    closeConversations();
-    selectTab('chat');
+    nav.pushScreen('conversation', () => {});
   };
 
   const handleDeleteSession = async (sessionId: string) => {
@@ -474,8 +476,14 @@ export default function App() {
       rememberLearnerSessionId(tempId);
       chat.resetConversation(createInitialMessages(tutor, nextProfile.name, nextProfile.level, topicId));
     }
-    if (isConversationsOpen) closeConversations();
-    selectTab('chat');
+    if (isNewConversationOpen) {
+      closeNewConversation();
+    }
+    if (isConversationsOpen) {
+      nav.pushScreen('conversation', () => {});
+    } else {
+      selectTab('chat');
+    }
   };
 
   const handleSaveHabitGoal = (goal: HabitGoal) => {
