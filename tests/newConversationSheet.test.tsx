@@ -21,6 +21,9 @@ describe('NewConversationSheet', () => {
     expect(html).toContain('At the market');
     expect(html).toContain('Asking for directions');
     expect(html).toContain('Start conversation');
+    expect(html).toContain('overflow-y-auto');
+    expect(html).toContain('line-clamp-2');
+    expect(html).toContain('safe-area-inset-bottom');
   });
 
   it('does not render when isOpen is false', () => {
