@@ -20,6 +20,7 @@ import { deleteWithAuth } from '../../platform/client/apiClient';
 import { getBilling } from '../../platform/client/billing';
 import { openManageSubscriptionTab } from '../../platform/components/AccountMenu';
 import { LearningSettingsControls } from './LearningSettingsControls';
+import { UsageMeter } from '../../platform/components/UsageMeter';
 
 export interface ProfileTabProps {
   learnerProfile: LearnerProfile;
@@ -106,16 +107,14 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
 
   return (
     <div className="h-full w-full overflow-y-auto px-4 sm:px-6 py-6 pb-24 md:pb-8 max-w-2xl mx-auto space-y-6">
-      {/* Title */}
-      <div className="flex items-center justify-between">
-        <h1
-          ref={headingRef}
-          tabIndex={-1}
-          className="font-serif text-2xl sm:text-3xl font-semibold text-ink focus:outline-none"
-        >
-          Profile
-        </h1>
-      </div>
+      {/* Visually-hidden heading for accessibility and focus target */}
+      <h1
+        ref={headingRef}
+        tabIndex={-1}
+        className="sr-only focus:outline-none"
+      >
+        Profile
+      </h1>
 
       {/* Identity Card */}
       <section
@@ -227,6 +226,10 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
             </button>
           )}
         </div>
+
+        {/* Daily usage allowance meters */}
+        <UsageMeter me={me} />
+
         {manageError && (
           <p role="alert" className="text-xs text-red-700 bg-red-50 p-2.5 rounded-xl border border-red-200">
             {manageError}

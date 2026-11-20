@@ -10,6 +10,7 @@ import { IconRail } from './product/components/IconRail';
 import { TopHeader } from './product/components/TopHeader';
 import { UtilityPanel } from './product/components/UtilityPanel';
 import { HomeTab } from './product/components/HomeTab';
+import { NotebookTab } from './product/components/NotebookTab';
 import { ProfileTab } from './product/components/ProfileTab';
 import { BottomTabBar } from './product/components/BottomTabBar';
 import { OnboardingPage } from './product/components/OnboardingPage';
@@ -628,10 +629,14 @@ export default function App() {
           )}
 
           {activeTab === 'notebook' && (
-            <div className="flex-1 min-h-0 flex justify-center overflow-y-auto px-4 py-4 pb-20 md:pb-6">
-              <div className="w-full max-w-2xl h-full">
-                <UtilityPanel {...panelProps} notebookHeadingRef={notebookHeadingRef} />
-              </div>
+            <div className="flex-1 min-h-0 flex">
+              <NotebookTab
+                savedPhrases={savedPhrases}
+                grammarHighlight={grammarHighlight}
+                persona={persona}
+                onRemovePhrase={panelProps.onRemovePhrase}
+                headingRef={notebookHeadingRef}
+              />
             </div>
           )}
 
