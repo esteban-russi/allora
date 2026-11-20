@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 import { Type } from '@google/genai';
 import { TextToSpeechClient } from '@google-cloud/text-to-speech';
 import { SpeechClient } from '@google-cloud/speech';
-import { PERSONA_PROMPTS, LEVEL_PROMPTS, GRAMMAR_STRICTNESS_LEVELS, buildSystemInstruction, sanitizeLearnerName } from './src/data/personaPrompts';
+import { PERSONA_PROMPTS, LEVEL_PROMPTS, GRAMMAR_STRICTNESS_LEVELS, buildSystemInstruction } from './src/data/personaPrompts';
 import type { CefrLevel } from './src/types';
 import { attachLiveBridge } from './src/server/liveBridge';
 import { summarizeError } from './src/server/vertexCooldown';
@@ -33,17 +33,8 @@ import { defaultAccountStore } from './src/server/defaultAccountStore';
 import { defaultUsageStore } from './src/server/defaultUsageStore';
 import { nextResetAt, usageDay } from './src/server/usageStore';
 import { requireQuota } from './src/server/quota';
-import {
-  canUsePersona,
-  PREMIUM_REQUIRED_BODY,
-  requirePersonaAccess
-} from './src/server/personaAccess';
-import {
-  initializeLearnerSession,
-  parseSavedPhrases,
-  toClientSession,
-  type ConversationTurn
-} from './src/server/sessionStore';
+import { requirePersonaAccess } from './src/server/personaAccess';
+import { type ConversationTurn } from './src/server/sessionStore';
 import { createUserRateLimitMiddleware, defaultUserLimiter } from './src/server/rateLimiter';
 import {
   getPrivacyPolicyConfig,
@@ -56,6 +47,7 @@ import type { FirebaseClientConfig } from './src/utils/firebaseAuth';
 import { createAccountRouter } from './src/server/accountRoutes';
 import { createBillingRouter, createRevenueCatWebhookRouter } from './src/server/billingRoutes';
 import { createReportRouter } from './src/server/reportRoutes';
+import { createSessionRouter } from './src/server/sessionRoutes';
 import {
   BLOCKED_REPLY_TEXT,
   isBlockedGeminiResponse,
@@ -283,108 +275,8 @@ app.use('/api/billing', createBillingRouter());
 // Content reporting route
 app.use('/api/report', createReportRouter());
 
-// Learner Session Endpoints (Session Continuity, Checkpointing, and GDPR Deletion)
-app.get('/api/session', async (req, res) => {
-  try {
-    const userId = req.user!.userId;
-    const session = await defaultSessionStore.getActiveUserSession(userId);
-    if (!session) {
-      return res.status(404).json({ error: 'No active session found for user' });
-    }
-    res.json(toClientSession(session));
-  } catch (err) {
-    console.error('[Session] Error fetching session:', summarizeError(err));
-    res.status(500).json({ error: 'Error fetching session' });
-  }
-});
-
-app.post('/api/session', async (req, res) => {
-  try {
-    const userId = req.user!.userId;
-    const {
-      sessionId,
-      personaId = 'emmanuele',
-      learnerName = '',
-      learnerLevel = 'A2',
-      grammarStrictness = 'tutor',
-      savedPhrases
-    } = req.body ?? {};
-
-    if (sessionId !== undefined && (typeof sessionId !== 'string' || !sessionId)) {
-      return res.status(400).json({ error: 'sessionId must be a non-empty string' });
-    }
-    if (typeof personaId !== 'string' || !Object.hasOwn(PERSONA_PROMPTS, personaId)) {
-      return res.status(400).json({ error: `Unknown personaId: ${String(personaId)}` });
-    }
-    if (!canUsePersona(req.account!.tier, personaId)) {
-      return res.status(403).json(PREMIUM_REQUIRED_BODY);
-    }
-    if (typeof learnerLevel !== 'string' || !Object.hasOwn(LEVEL_PROMPTS, learnerLevel)) {
-      return res.status(400).json({ error: `learnerLevel must be one of ${Object.keys(LEVEL_PROMPTS).join(', ')}` });
-    }
-    if (!GRAMMAR_STRICTNESS_LEVELS.includes(grammarStrictness)) {
-      return res.status(400).json({ error: `grammarStrictness must be one of ${GRAMMAR_STRICTNESS_LEVELS.join(', ')}` });
-    }
-    const phrases = savedPhrases === undefined ? undefined : parseSavedPhrases(savedPhrases);
-    if (phrases === null) {
-      return res.status(400).json({ error: 'savedPhrases must be a list of {id, it, en} strings (max 500)' });
-    }
-
-    const fields = {
-      personaId,
-      learnerName: sanitizeLearnerName(learnerName),
-      learnerLevel: learnerLevel as CefrLevel,
-      grammarStrictness
-    };
-
-    if (sessionId) {
-      // Only the settings change, so a turn checkpointed at the same moment is kept
-      const updated = await defaultSessionStore.updateSessionSettings(sessionId, userId, {
-        ...fields,
-        savedPhrases: phrases
-      });
-      if (!updated) {
-        return res.status(404).json({ error: 'Session not found or not owned by user' });
-      }
-      return res.json(toClientSession(updated));
-    }
-
-    const session = initializeLearnerSession({ userId, ...fields });
-    if (phrases) {
-      session.progress = { ...session.progress, savedPhrases: phrases };
-    }
-    res.json(toClientSession(await defaultSessionStore.createOrUpdateSession(session)));
-  } catch (err) {
-    console.error('[Session] Error saving session:', summarizeError(err));
-    res.status(500).json({ error: 'Error saving session' });
-  }
-});
-
-app.delete('/api/session/:sessionId', async (req, res) => {
-  try {
-    const userId = req.user!.userId;
-    const { sessionId } = req.params;
-    const deleted = await defaultSessionStore.deleteSession(sessionId, userId);
-    if (!deleted) {
-      return res.status(404).json({ error: 'Session not found or not owned by user' });
-    }
-    res.json({ status: 'deleted', sessionId });
-  } catch (err) {
-    console.error('[Session] Error deleting session:', summarizeError(err));
-    res.status(500).json({ error: 'Error deleting session' });
-  }
-});
-
-app.delete('/api/session', async (req, res) => {
-  try {
-    const userId = req.user!.userId;
-    const count = await defaultSessionStore.deleteAllUserData(userId);
-    res.json({ status: 'all_data_deleted', sessionsDeleted: count });
-  } catch (err) {
-    console.error('[Session] Error deleting user data:', summarizeError(err));
-    res.status(500).json({ error: 'Error deleting user data' });
-  }
-});
+// Learner session routes (continuity, checkpoints and GDPR deletion)
+app.use('/api/session', createSessionRouter());
 
 // Gemini Conversational Chat API with Italian pedagogical grammar analysis and session checkpointing
 app.post('/api/chat', requirePersonaAccess(), requireQuota('chatMessages'), async (req, res) => {
