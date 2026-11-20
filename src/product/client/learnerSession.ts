@@ -5,6 +5,8 @@ import { deleteWithAuth, getWithAuth, postJson } from '../../platform/client/api
 import { readQuotaError, type QuotaError } from '../../platform/client/quotaError';
 import type { HabitSummary } from '../server/habitStore';
 import { celebrateGoalMet, notifyHabits } from './habitsClient';
+import { getTopicById } from '../data/topics';
+import { getTutorGreeting } from '../data/personaGreetings';
 
 const STORAGE_KEY = 'parliamo.learnerSessionId';
 const CEFR_LEVELS: CefrLevel[] = ['A1', 'A2', 'B1', 'B2', 'C1'];
@@ -271,6 +273,73 @@ export async function createConversation(options: {
   } catch {
     return null;
   }
+}
+
+/**
+ * Create an optimistic session summary for immediate list display before server response.
+ *
+ * Args:
+ *   options: Persona, topic, learner name and CEFR level.
+ *
+ * Returns:
+ *   SessionSummary with topic title and initial tutor greeting preview.
+ */
+export function buildOptimisticSessionSummary(options: {
+  sessionId?: string;
+  personaId: string;
+  topic?: string;
+  learnerName?: string;
+  learnerLevel?: CefrLevel;
+}): SessionSummary {
+  const topic = options.topic ?? 'free_chat';
+  const topicConfig = getTopicById(topic);
+  const title = topic !== 'free_chat' && topicConfig ? topicConfig.label : 'Free chat';
+  const greeting = getTutorGreeting(
+    options.personaId,
+    options.learnerName ?? '',
+    options.learnerLevel ?? 'A2',
+    topic
+  );
+  return {
+    sessionId: options.sessionId ?? `temp_${Date.now()}`,
+    personaId: options.personaId,
+    topic,
+    title,
+    lastLinePreview: greeting.text,
+    lastLineSender: 'persona',
+    turnCount: 1,
+    updatedAt: new Date().toISOString()
+  };
+}
+
+/**
+ * Convert a client learner session into a session list summary item.
+ *
+ * Args:
+ *   session: Full client learner session.
+ *
+ * Returns:
+ *   SessionSummary reflecting the session's topic label, preview, and turns.
+ */
+export function toSessionSummary(session: ClientLearnerSession): SessionSummary {
+  const turns = session.checkpointTurns ?? [];
+  const lastTurn = turns.length > 0 ? turns[turns.length - 1] : null;
+  const topic = session.topic ?? 'free_chat';
+  const topicConfig = getTopicById(topic);
+  const title =
+    topic !== 'free_chat' && topicConfig
+      ? topicConfig.label
+      : session.title || 'Free chat';
+  return {
+    sessionId: session.sessionId,
+    personaId: session.personaId,
+    topic,
+    title,
+    lastLinePreview: lastTurn?.text ?? '',
+    lastLineSender: lastTurn?.sender ?? null,
+    turnCount: turns.length,
+    updatedAt: session.updatedAt || new Date().toISOString()
+  };
 }
 
 /**

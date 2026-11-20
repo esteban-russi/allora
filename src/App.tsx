@@ -35,8 +35,9 @@ import { speechService } from './product/client/speech';
 import { setAccountDeletedHandler, setAppCheckFailedHandler } from './platform/client/apiClient';
 import { completeMagicLink, EMAIL_FOR_SIGN_IN_KEY, isMagicLink, signOutToGuest } from './platform/client/firebaseAuth';
 import { ACCOUNT_DELETED_NOTICE, APP_CHECK_FAILED_NOTICE, MERGE_FAILED_NOTICE, showNotice } from './platform/client/notice';
-import { loadLearnerSession, saveLearnerSettings, startLearnerSession, toChatMessages, createConversation, deleteSessionById, fetchSessionById, fetchSessionList, getLearnerSessionId, rememberLearnerSessionId } from './product/client/learnerSession';
-import type { ClientLearnerSession, SessionSummary } from './product/server/sessionStore';
+import { loadLearnerSession, saveLearnerSettings, startLearnerSession, toChatMessages, createConversation, fetchSessionById, fetchSessionList, getLearnerSessionId, rememberLearnerSessionId, buildOptimisticSessionSummary } from './product/client/learnerSession';
+import type { ClientLearnerSession } from './product/server/sessionStore';
+import { useConversationList } from './product/hooks/useConversationList';
 import { ConversationListScreen } from './product/components/ConversationListScreen';
 import { NewConversationSheet } from './product/components/NewConversationSheet';
 import { fetchHabits, subscribeHabits, updateHabitSettings } from './product/client/habitsClient';
@@ -94,7 +95,13 @@ export default function App() {
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState<boolean>(false);
   const isConversationsOpen = nav.currentDestinationId === 'screen:conversations';
   const [isNewConversationOpen, setIsNewConversationOpen] = useState<boolean>(false);
-  const [sessionSummaries, setSessionSummaries] = useState<SessionSummary[]>([]);
+  const {
+    sessions: sessionSummaries,
+    refetch: refetchSessions,
+    addOptimisticSession,
+    reconcileCreatedSession,
+    handleDelete: deleteSessionFromList
+  } = useConversationList({ isVisible: isConversationsOpen });
   const [activeSessionId, setActiveSessionId] = useState<string | null>(() => getLearnerSessionId());
   const [currentTopic, setCurrentTopic] = useState<string | null>(null);
   const [habits, setHabits] = useState<HabitSummary | null>(null);
@@ -409,7 +416,7 @@ export default function App() {
   };
 
   const openConversations = () => {
-    void fetchSessionList().then(setSessionSummaries);
+    void refetchSessions();
     const top = nav.getStack().peek();
     if (top && top.id === 'screen:conversation') {
       nav.goBack();
@@ -442,11 +449,10 @@ export default function App() {
   };
 
   const handleDeleteSession = async (sessionId: string) => {
-    await deleteSessionById(sessionId);
-    const updated = await fetchSessionList();
-    setSessionSummaries(updated);
+    await deleteSessionFromList(sessionId);
     const activeId = getLearnerSessionId();
     if (!activeId || activeId === sessionId) {
+      const updated = await fetchSessionList();
       if (updated.length > 0) {
         const next = await fetchSessionById(updated[0].sessionId);
         if (next) applySession(next);
@@ -465,6 +471,15 @@ export default function App() {
     };
     setLearnerProfile(nextProfile);
     setCurrentTopic(topicId);
+
+    const optimisticSummary = buildOptimisticSessionSummary({
+      personaId,
+      topic: topicId,
+      learnerName: nextProfile.name,
+      learnerLevel: nextProfile.level
+    });
+    addOptimisticSession(optimisticSummary);
+
     const session = await createConversation({
       personaId,
       topic: topicId,
@@ -475,8 +490,9 @@ export default function App() {
     });
     if (session) {
       applySession(session);
+      reconcileCreatedSession(optimisticSummary.sessionId, session);
     } else {
-      const tempId = `temp_${Date.now()}`;
+      const tempId = optimisticSummary.sessionId;
       setActiveSessionId(tempId);
       rememberLearnerSessionId(tempId);
       chat.resetConversation(createInitialMessages(tutor, nextProfile.name, nextProfile.level, topicId));

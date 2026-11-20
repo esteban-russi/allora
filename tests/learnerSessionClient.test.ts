@@ -6,7 +6,9 @@ import {
   createConversation,
   loadLearnerSession,
   rememberLearnerSessionId,
-  getLearnerSessionId
+  getLearnerSessionId,
+  buildOptimisticSessionSummary,
+  toSessionSummary
 } from '../src/product/client/learnerSession';
 import * as apiClient from '../src/platform/client/apiClient';
 
@@ -116,5 +118,66 @@ describe('learnerSession client functions', () => {
     const session = await loadLearnerSession();
     expect(session?.sessionId).toBe('fallback_active');
     expect(getLearnerSessionId()).toBe('fallback_active');
+  });
+
+  it('buildOptimisticSessionSummary formats summary with topic title and initial greeting', () => {
+    const summary = buildOptimisticSessionSummary({
+      sessionId: 'temp_market_1',
+      personaId: 'emmanuele',
+      topic: 'market',
+      learnerName: 'Enzo',
+      learnerLevel: 'A2'
+    });
+
+    expect(summary.sessionId).toBe('temp_market_1');
+    expect(summary.personaId).toBe('emmanuele');
+    expect(summary.topic).toBe('market');
+    expect(summary.title).toBe('At the market');
+    expect(summary.lastLinePreview).toBeTruthy();
+    expect(summary.lastLineSender).toBe('persona');
+    expect(summary.turnCount).toBe(1);
+  });
+
+  it('toSessionSummary extracts summary fields from client learner session', () => {
+    const validSession = {
+      sessionId: 'sess_market',
+      personaId: 'emmanuele',
+      learnerName: 'Enzo',
+      learnerLevel: 'B1' as const,
+      grammarStrictness: 'tutor',
+      checkpointTurns: [
+        {
+          id: 'turn_1',
+          sender: 'persona' as const,
+          text: 'Che cosa compri oggi?',
+          timestamp: '2026-11-20T10:00:00.000Z'
+        },
+        {
+          id: 'turn_2',
+          sender: 'user' as const,
+          text: 'Vorrei comprare delle mele.',
+          timestamp: '2026-11-20T10:01:00.000Z'
+        }
+      ],
+      progress: {
+        cefrLevel: 'B1' as const,
+        levelHistory: [],
+        savedPhrases: [],
+        totalTurns: 2,
+        talkingSharePct: 50
+      },
+      topic: 'market',
+      title: 'At the market',
+      createdAt: '2026-11-20T10:00:00.000Z',
+      updatedAt: '2026-11-20T10:01:00.000Z',
+      expiresAt: '2026-12-20T10:00:00.000Z'
+    };
+
+    const summary = toSessionSummary(validSession);
+    expect(summary.sessionId).toBe('sess_market');
+    expect(summary.title).toBe('At the market');
+    expect(summary.lastLinePreview).toBe('Vorrei comprare delle mele.');
+    expect(summary.lastLineSender).toBe('user');
+    expect(summary.turnCount).toBe(2);
   });
 });
