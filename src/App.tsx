@@ -94,6 +94,7 @@ export default function App() {
   const [isConversationsOpen, setIsConversationsOpen] = useState<boolean>(false);
   const [isNewConversationOpen, setIsNewConversationOpen] = useState<boolean>(false);
   const [sessionSummaries, setSessionSummaries] = useState<SessionSummary[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(() => getLearnerSessionId());
   const [habits, setHabits] = useState<HabitSummary | null>(null);
 
   useEffect(() => {
@@ -128,6 +129,7 @@ export default function App() {
     initialMessages: INITIAL_MESSAGES,
     persona,
     learnerProfile,
+    sessionId: activeSessionId,
     temperature: devSettings.temperature,
     grammarStrictness: devSettings.grammarStrictness,
     onQuotaReached: setLimitReached,
@@ -145,6 +147,8 @@ export default function App() {
     const tutor = TUTORS.find((t) => t.id === session.personaId) ?? EMMANUELE;
     const profile: LearnerProfile = { name: session.learnerName, level: session.learnerLevel, personaId: tutor.id };
     setLearnerProfile(profile);
+    setActiveSessionId(session.sessionId);
+    rememberLearnerSessionId(session.sessionId);
     const checkpointMessages = toChatMessages(session.checkpointTurns, tutor.id);
     chat.resetConversation(
       checkpointMessages.length > 0
@@ -181,6 +185,7 @@ export default function App() {
     setIsCallOpen(false);
     setIsProfileModalOpen(false);
     setLearnerProfile(null);
+    setActiveSessionId(null);
     chat.resetConversation(INITIAL_MESSAGES);
     chat.setDraft('');
     setSavedPhrases(INITIAL_SAVED_PHRASES);
@@ -464,6 +469,9 @@ export default function App() {
     if (session) {
       applySession(session);
     } else {
+      const tempId = `temp_${Date.now()}`;
+      setActiveSessionId(tempId);
+      rememberLearnerSessionId(tempId);
       chat.resetConversation(createInitialMessages(tutor, nextProfile.name, nextProfile.level, topicId));
     }
     if (isConversationsOpen) closeConversations();
@@ -698,7 +706,7 @@ export default function App() {
               <div className="flex-1 min-w-0 flex">
                 <ConversationListScreen
                   sessions={sessionSummaries}
-                  activeSessionId={getLearnerSessionId()}
+                  activeSessionId={activeSessionId}
                   onSelectSession={(id) => void handleSelectSession(id)}
                   onDeleteSession={handleDeleteSession}
                   onOpenNewConversation={openNewConversation}

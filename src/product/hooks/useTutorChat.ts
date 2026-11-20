@@ -1,5 +1,5 @@
 /** React hook owning the tutor text chat: messages, draft, sending, retrying. */
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import type { ChatMessage, DevSettings, LearnerProfile, Persona } from '../types';
 import { requestChatReply, type ChatReplyErrorReason } from '../client/learnerSession';
 import type { QuotaError } from '../../platform/client/quotaError';
@@ -18,6 +18,7 @@ export interface UseTutorChatOptions {
   initialMessages: ChatMessage[];
   persona: Persona;
   learnerProfile: LearnerProfile | null;
+  sessionId?: string | null;
   temperature: number;
   grammarStrictness: DevSettings['grammarStrictness'];
   /** The daily chat limit was hit; the learner's text is put back in the draft. */
@@ -60,6 +61,16 @@ export function retryHistory(messages: ChatMessage[], messageId: string): ChatMe
   return (index === -1 ? messages : messages.slice(0, index)).slice(-CHAT_HISTORY_LENGTH);
 }
 
+const sessionDraftsInMemory = new Map<string, string>();
+
+export function getSessionDraft(sessionId?: string | null): string {
+  return sessionDraftsInMemory.get(sessionId ?? 'default') ?? '';
+}
+
+export function clearSessionDrafts(): void {
+  sessionDraftsInMemory.clear();
+}
+
 /**
  * Text chat with the tutor.
  *
@@ -74,7 +85,17 @@ export function useTutorChat(options: UseTutorChatOptions): UseTutorChatResult {
   const [messages, setMessages] = useState<ChatMessage[]>(options.initialMessages);
   const [failedReply, setFailedReply] = useState<FailedReply | null>(null);
   const [isAiGenerating, setIsAiGenerating] = useState<boolean>(false);
-  const [draft, setDraft] = useState<string>('');
+  const [, setDraftVersion] = useState<number>(0);
+  const activeSessionKey = options.sessionId ?? 'default';
+  const draft = sessionDraftsInMemory.get(activeSessionKey) ?? '';
+
+  const setDraft = useCallback(
+    (text: string) => {
+      sessionDraftsInMemory.set(activeSessionKey, text);
+      setDraftVersion((v) => v + 1);
+    },
+    [activeSessionKey]
+  );
 
   // Take back a message the tutor will not answer, and put its text back in the draft
   const withdrawMessage = (messageId: string, text: string) => {
