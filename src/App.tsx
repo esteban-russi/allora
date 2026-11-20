@@ -25,11 +25,12 @@ import { useAccount } from './hooks/useAccount';
 import { useConversationStats } from './hooks/useConversationStats';
 import { useLimitReached } from './hooks/useLimitReached';
 import { useWebBilling } from './hooks/useWebBilling';
+import { useTutorChat } from './hooks/useTutorChat';
 import { speechService } from './utils/speech';
 import { setAccountDeletedHandler, setAppCheckFailedHandler } from './utils/apiClient';
 import { completeMagicLink, EMAIL_FOR_SIGN_IN_KEY, isMagicLink, signOutToGuest } from './utils/firebaseAuth';
 import { ACCOUNT_DELETED_NOTICE, APP_CHECK_FAILED_NOTICE, MERGE_FAILED_NOTICE, showNotice } from './utils/notice';
-import { loadLearnerSession, requestChatReply, saveLearnerSettings, startLearnerSession, toChatMessages, type ChatReplyErrorReason } from './utils/learnerSession';
+import { loadLearnerSession, saveLearnerSettings, startLearnerSession, toChatMessages } from './utils/learnerSession';
 import type { ClientLearnerSession } from './server/sessionStore';
 
 const GRAMMAR_STRICTNESS: DevSettings['grammarStrictness'][] = ['conversational', 'tutor', 'strict'];
@@ -47,8 +48,6 @@ export default function App() {
   const needsConsent = Boolean(me && !hasCurrentConsent);
   const [limitReached, setLimitReached] = useLimitReached(me?.tier);
   const [premiumEnded, setPremiumEnded] = useState<boolean>(false);
-  const [failedReply, setFailedReply] = useState<{ messageId: string; text: string; reason: ChatReplyErrorReason } | null>(null);
-  const [chatDraft, setChatDraft] = useState<string>('');
   // Premium tutor tapped in onboarding before signing in / subscribing
   const [pendingTutorId, setPendingTutorId] = useState<string | null>(null);
   const [selectedOnboardingTutorId, setSelectedOnboardingTutorId] = useState<string | null>(null);
@@ -61,9 +60,7 @@ export default function App() {
   );
   const learnerInitial = (learnerProfile?.name.trim().charAt(0) || 'E').toUpperCase();
 
-  const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
   const [savedPhrases, setSavedPhrases] = useState<SavedPhrase[]>(INITIAL_SAVED_PHRASES);
-  const [isAiGenerating, setIsAiGenerating] = useState<boolean>(false);
   const [isCallOpen, setIsCallOpen] = useState<boolean>(false);
 
   // Modals & drawers
@@ -91,17 +88,41 @@ export default function App() {
     autoPlayAudio: false,
   });
 
+  const speakIfAutoPlay = (text: string) => {
+    if (!devSettings.autoPlayAudio) return;
+    speechService.speakSmart(text, {
+      provider: devSettings.voiceProvider,
+      voiceName: persona.voiceId,
+      gender: persona.voiceGender
+    });
+  };
+
+  const chat = useTutorChat({
+    initialMessages: INITIAL_MESSAGES,
+    persona,
+    learnerProfile,
+    temperature: devSettings.temperature,
+    grammarStrictness: devSettings.grammarStrictness,
+    onQuotaReached: setLimitReached,
+    onPremiumRequired: () => {
+      setPremiumEnded(true);
+      void refreshAccount();
+    },
+    onUsage: (used) => setUsage('chatMessages', used),
+    onReply: speakIfAutoPlay
+  });
+  const { messages } = chat;
   const { grammarHighlight, talkingShare } = useConversationStats(messages);
+
 
   const applySession = (session: ClientLearnerSession) => {
     const tutor = TUTORS.find((t) => t.id === session.personaId) ?? EMMANUELE;
     const profile: LearnerProfile = { name: session.learnerName, level: session.learnerLevel, personaId: tutor.id };
     setLearnerProfile(profile);
-    setMessages([
+    chat.resetConversation([
       ...createInitialMessages(tutor, profile.name, profile.level),
       ...toChatMessages(session.checkpointTurns, tutor.id)
     ]);
-    setFailedReply(null);
     setSavedPhrases(session.progress.savedPhrases);
     if (GRAMMAR_STRICTNESS.includes(session.grammarStrictness as DevSettings['grammarStrictness'])) {
       setDevSettings((prev) => ({ ...prev, grammarStrictness: session.grammarStrictness as DevSettings['grammarStrictness'] }));
@@ -176,12 +197,11 @@ export default function App() {
     setIsNotebookDrawerOpen(false);
     setIsProfileModalOpen(false);
     setLearnerProfile(null);
-    setMessages(INITIAL_MESSAGES);
+    chat.resetConversation(INITIAL_MESSAGES);
+    chat.setDraft('');
     setSavedPhrases(INITIAL_SAVED_PHRASES);
     setLimitReached(null);
     setPremiumEnded(false);
-    setFailedReply(null);
-    setChatDraft('');
     setPendingTutorId(null);
     setSelectedOnboardingTutorId(null);
     void refreshAccount();
@@ -295,15 +315,6 @@ export default function App() {
     }
   };
 
-  const speakIfAutoPlay = (text: string) => {
-    if (!devSettings.autoPlayAudio) return;
-    speechService.speakSmart(text, {
-      provider: devSettings.voiceProvider,
-      voiceName: persona.voiceId,
-      gender: persona.voiceGender
-    });
-  };
-
   const handleCompleteOnboarding = (profile: LearnerProfile, consent?: Consent) => {
     const selectedTutor = TUTORS.find((t) => t.id === profile.personaId) ?? EMMANUELE;
     // Only a guest's first onboarding offers sign-in; a profile edit goes back to the chat
@@ -312,8 +323,7 @@ export default function App() {
     setLearnerProfile(profile);
     setPendingTutorId(null);
     setSelectedOnboardingTutorId(null);
-    setMessages(createInitialMessages(selectedTutor, profile.name, profile.level));
-    setFailedReply(null);
+    chat.resetConversation(createInitialMessages(selectedTutor, profile.name, profile.level));
     // A new profile starts a new conversation; the notebook carries over
     void startLearnerSession({ profile, grammarStrictness: devSettings.grammarStrictness, savedPhrases });
     if (me?.isAnonymous && isFirstOnboarding) {
@@ -321,88 +331,6 @@ export default function App() {
     } else {
       setScreen('app');
     }
-  };
-
-  const requestTutorReply = async (text: string, messageId: string, history: ChatMessage[]) => {
-    setIsAiGenerating(true);
-
-    const result = await requestChatReply({
-      personaId: persona.id,
-      history,
-      userMessage: text,
-      temperature: devSettings.temperature,
-      grammarStrictness: devSettings.grammarStrictness,
-      learnerLevel: learnerProfile?.level ?? 'A2',
-      learnerName: learnerProfile?.name
-    });
-
-    if (result.status === 'quota') {
-      setMessages((prev) => prev.filter((m) => m.id !== messageId));
-      setFailedReply(null);
-      setChatDraft(text);
-      setLimitReached(result.quota);
-      setIsAiGenerating(false);
-      return;
-    }
-
-    if (result.status === 'premium_required') {
-      setMessages((prev) => prev.filter((m) => m.id !== messageId));
-      setFailedReply(null);
-      setChatDraft(text);
-      setPremiumEnded(true);
-      setIsAiGenerating(false);
-      void refreshAccount();
-      return;
-    }
-
-    if (result.status === 'ok') {
-      if (result.quotaUsed !== undefined) {
-        setUsage('chatMessages', result.quotaUsed);
-      }
-      const aiMessage: ChatMessage = {
-        id: `b-${Date.now()}`,
-        sender: 'persona',
-        personaId: persona.id,
-        text: result.text,
-        translation: result.translation,
-        grammarNotes: result.grammarNotes,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      };
-      setMessages((prev) => [...prev, aiMessage]);
-      setFailedReply(null);
-      speakIfAutoPlay(aiMessage.text);
-      setIsAiGenerating(false);
-      return;
-    }
-
-    setFailedReply({ messageId, text, reason: result.reason });
-    setIsAiGenerating(false);
-  };
-
-  // Handle student sending message in chat with real server Gemini API integration
-  const handleSendMessage = async (text: string) => {
-    const userMsg: ChatMessage = {
-      id: `u-${Date.now()}`,
-      sender: 'user',
-      personaId: persona.id,
-      text,
-      translation: '',
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    };
-
-    const history = messages.slice(-6);
-    setFailedReply(null);
-    setMessages((prev) => [...prev, userMsg]);
-    await requestTutorReply(text, userMsg.id, history);
-  };
-
-  const handleRetryReply = async () => {
-    if (!failedReply || isAiGenerating) return;
-    const { messageId, text } = failedReply;
-    const msgIndex = messages.findIndex((m) => m.id === messageId);
-    const history = (msgIndex === -1 ? messages : messages.slice(0, msgIndex)).slice(-6);
-    setFailedReply(null);
-    await requestTutorReply(text, messageId, history);
   };
 
   const handleSavePhrase = (message: ChatMessage) => {
@@ -430,9 +358,8 @@ export default function App() {
     };
     setPremiumEnded(false);
     setLimitReached(null);
-    setFailedReply(null);
     setLearnerProfile(nextProfile);
-    setMessages(createInitialMessages(EMMANUELE, nextProfile.name, nextProfile.level));
+    chat.resetConversation(createInitialMessages(EMMANUELE, nextProfile.name, nextProfile.level));
     setDevSettings((prev) => ({ ...prev, voiceId: EMMANUELE.voiceId }));
     void startLearnerSession({
       profile: nextProfile,
@@ -582,13 +509,13 @@ export default function App() {
               messages={messages}
               devSettings={devSettings}
               savedPhraseIds={savedPhrases.map(p => p.id)}
-              onSendMessage={handleSendMessage}
+              onSendMessage={chat.sendMessage}
               onSavePhrase={handleSavePhrase}
-              isAiGenerating={isAiGenerating}
-              draft={chatDraft}
-              onDraftChange={setChatDraft}
-              failedReply={failedReply}
-              onRetryReply={handleRetryReply}
+              isAiGenerating={chat.isAiGenerating}
+              draft={chat.draft}
+              onDraftChange={chat.setDraft}
+              failedReply={chat.failedReply}
+              onRetryReply={chat.retryReply}
               limitReached={limitReached}
               premiumEnded={premiumEnded}
               tier={me?.tier ?? 'guest'}
