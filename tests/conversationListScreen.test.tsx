@@ -47,6 +47,8 @@ describe('ConversationListScreen', () => {
     expect(html).toContain('Ciao Emmanuele');
     expect(html).toContain('You: Un cornetto, per favore.');
     expect(html).toContain('Delete conversation Ordering at a café');
+    expect(html).not.toContain('turns');
+    expect(html).not.toContain('·');
   });
 
   it('renders empty state when session list is empty', () => {

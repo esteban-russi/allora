@@ -155,9 +155,6 @@ export const ConversationListScreen: React.FC<ConversationListScreenProps> = ({
                     <p className="text-xs text-ink-muted truncate mt-0.5">{previewText}</p>
                     <div className="flex items-center gap-2 mt-1">
                       <span className="text-[10px] text-cobalt font-medium">{tutor.name}</span>
-                      {s.turnCount > 0 && (
-                        <span className="text-[10px] text-ink-muted">· {s.turnCount} turns</span>
-                      )}
                     </div>
                   </button>
 
