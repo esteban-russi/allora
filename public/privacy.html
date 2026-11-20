@@ -241,6 +241,11 @@
             your payment card details.
           </li>
           <li>
+            <strong>Habit and practice tracking:</strong> your daily practice goal (e.g. 5, 10, or 20 turns),
+            per-day turn counts for the last 60 days, current and longest streak records, time zone, and
+            daily reminder preference and time.
+          </li>
+          <li>
             <strong>Local browser storage:</strong> your current session ID (to resume your session),
             authentication state managed by Firebase, and your email address temporarily while completing
             an email-link sign-in.
@@ -310,6 +315,10 @@
           <li>
             <strong>Daily usage counters:</strong> expire automatically <strong>35 days</strong> after the
             UTC day they were recorded (Cloud Firestore TTL).
+          </li>
+          <li>
+            <strong>Habit tracking records:</strong> per-day turn counts older than 60 days are automatically
+            trimmed; habit goals, streak records, and reminder preferences are kept until you delete your account.
           </li>
           <li>
             <strong>Voice audio:</strong> processed in real time and not stored by Allora.
