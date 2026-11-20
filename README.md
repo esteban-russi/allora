@@ -4,8 +4,9 @@ Learn conversational Italian by talking to people, not flashcards.
 
 The name, short name, premium plan name and support email live in `src/data/brand.ts`;
 `index.html` gets the name at build time and `public/manifest.webmanifest` carries it by hand. The
-repository, Cloud Run service, GCP project and the `parliamo.*` browser storage keys
-keep the old name on purpose: renaming them would risk the deployment and sign learners out.
+GitHub repository, Cloud Run service and Artifact Registry repository are named `allora`. The GCP
+project, the runtime service account and the `parliamo.*` browser storage keys keep the old
+name on purpose: they cannot be renamed, or renaming them would sign learners out.
 
 Allora is a web app where you practise Italian with an AI tutor. For now there is one: **Emmanuele the Roman**, a retired legionary who chats about daily life in Rome. You can write to him or switch to a hands-free voice call: speak into your microphone, and he answers out loud in natural Italian, with captions, translations and short grammar notes to help you learn from every reply.
 

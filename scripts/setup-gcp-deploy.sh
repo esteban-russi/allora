@@ -6,8 +6,8 @@ set -euo pipefail
 
 PROJECT_ID="${1:?usage: $0 <gcp-project-id> [region] [service-name]}"
 REGION="${2:-europe-west1}"
-SERVICE="${3:-parliamo-italiano}"
-REPO="parliamo-italiano"
+SERVICE="${3:-allora}"
+REPO="allora"
 GITHUB_REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
 POOL="github"
 PROVIDER="github-actions"
