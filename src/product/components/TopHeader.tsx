@@ -33,6 +33,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   onOpenAccount
 }) => {
   const isChatTab = activeTab === 'chat';
+  const isHomeTab = activeTab === 'home';
+  const showCenterTitle = !isHomeTab;
   const mobileTitle = isChatTab ? persona.name : TAB_TITLES[activeTab];
 
   return (
@@ -43,32 +45,36 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
 
       {/* Title on phones (< sm) */}
       <div className="flex sm:hidden items-center justify-center min-w-0 px-2">
-        <h1 className="font-serif text-base sm:text-lg font-semibold text-ink truncate text-center">
-          {mobileTitle}
-        </h1>
+        {showCenterTitle && (
+          <h1 className="font-serif text-base sm:text-lg font-semibold text-ink truncate text-center">
+            {mobileTitle}
+          </h1>
+        )}
       </div>
 
       {/* Title on sm and up */}
       <div className="hidden sm:flex items-center justify-center gap-2">
-        {isChatTab ? (
-          <>
+        {showCenterTitle && (
+          isChatTab ? (
+            <>
+              <h1 className="font-serif text-lg font-semibold text-ink whitespace-nowrap">
+                {persona.name} <span aria-hidden="true">·</span>
+                <span className="sr-only">in</span> {persona.city}
+              </h1>
+              {learnerLevel && (
+                <span
+                  title={`Italian level ${learnerLevel}`}
+                  className="px-2.5 py-0.5 rounded-full bg-cobalt-tint text-cobalt text-xs font-semibold font-mono-data"
+                >
+                  {learnerLevel}
+                </span>
+              )}
+            </>
+          ) : (
             <h1 className="font-serif text-lg font-semibold text-ink whitespace-nowrap">
-              {persona.name} <span aria-hidden="true">·</span>
-              <span className="sr-only">in</span> {persona.city}
+              {TAB_TITLES[activeTab]}
             </h1>
-            {learnerLevel && (
-              <span
-                title={`Italian level ${learnerLevel}`}
-                className="px-2.5 py-0.5 rounded-full bg-cobalt-tint text-cobalt text-xs font-semibold font-mono-data"
-              >
-                {learnerLevel}
-              </span>
-            )}
-          </>
-        ) : (
-          <h1 className="font-serif text-lg font-semibold text-ink whitespace-nowrap">
-            {TAB_TITLES[activeTab]}
-          </h1>
+          )
         )}
       </div>
 

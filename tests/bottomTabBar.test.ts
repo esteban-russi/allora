@@ -39,7 +39,7 @@ describe('BottomTabBar', () => {
 });
 
 describe('TopHeader with tabs', () => {
-  it('shows tutor name on Chat tab and tab name on other tabs', () => {
+  it('shows tutor name on Chat tab, tab name on non-Chat tabs, and logo only on Home', () => {
     const chatHtml = renderToStaticMarkup(
       React.createElement(TopHeader, {
         activeTab: 'chat',
@@ -61,7 +61,9 @@ describe('TopHeader with tabs', () => {
         onSelectVoice: vi.fn()
       })
     );
-    expect(homeHtml).toContain('Home');
+    // Home shows the brand logo only; greeting is the in-page heading, no "Home" title in top bar
+    expect(homeHtml).toContain('Allora');
+    expect(homeHtml).not.toContain('>Home<');
 
     const notebookHtml = renderToStaticMarkup(
       React.createElement(TopHeader, {
