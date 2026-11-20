@@ -1,16 +1,30 @@
+import 'dotenv/config';
 import { randomUUID } from 'crypto';
 import express from 'express';
 import rateLimit from 'express-rate-limit';
-import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { GoogleGenAI, Type } from '@google/genai';
+import { Type } from '@google/genai';
 import { TextToSpeechClient } from '@google-cloud/text-to-speech';
 import { SpeechClient } from '@google-cloud/speech';
 import { PERSONA_PROMPTS, LEVEL_PROMPTS, GRAMMAR_STRICTNESS_LEVELS, buildSystemInstruction, sanitizeLearnerName } from './src/data/personaPrompts';
 import type { CefrLevel } from './src/types';
-import { attachLiveBridge, type LiveBridgeOptions } from './src/server/liveBridge';
-import { VertexCooldown, isPersistentVertexError, summarizeError } from './src/server/vertexCooldown';
+import { attachLiveBridge } from './src/server/liveBridge';
+import { summarizeError } from './src/server/vertexCooldown';
+import {
+  CHAT_MODEL,
+  GCP_PROJECT,
+  GCP_REGION,
+  LIVE_MODEL,
+  TTS_MODEL,
+  buildLiveClientOptions,
+  fallbackAi,
+  generateContentWithFallback,
+  hasGenAiCredentials,
+  parseModelJsonResponse,
+  primaryAi,
+  vertexCooldown
+} from './src/server/genAi';
 import { assertAuthConfig, authenticateHttpUser, isAuthEnforced } from './src/server/auth';
 import { requireAppCheck } from './src/server/appCheck';
 import { defaultSessionStore } from './src/server/defaultSessionStore';
@@ -48,8 +62,6 @@ import {
   MODEL_SAFETY_SETTINGS
 } from './src/server/modelSafety';
 import { BRAND } from './src/data/brand';
-
-dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -97,28 +109,6 @@ app.use((req, res, next) => {
 });
 const PORT = process.env.PORT || 3000;
 
-// Configuration
-const GCP_PROJECT = process.env.GCP_PROJECT;
-const GCP_REGION = process.env.GCP_REGION || 'europe-west2';
-
-// Local ADC credentials carry their own quota project (often another gcloud
-// project), and Google bills calls there even when a projectId is passed.
-// Pin it to GCP_PROJECT unless the environment already chooses one.
-if (GCP_PROJECT && !process.env.GOOGLE_CLOUD_QUOTA_PROJECT) {
-  process.env.GOOGLE_CLOUD_QUOTA_PROJECT = GCP_PROJECT;
-}
-
-// Split models: Chat / Pedagogical Tutor vs. Audio / TTS Generation
-const CHAT_MODEL = process.env.GEMINI_CHAT_MODEL || process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-const TTS_MODEL = process.env.GEMINI_TTS_MODEL || 'gemini-3.8-flash-lite-tts';
-// Native-audio model for real-time voice calls over the Live API
-const LIVE_MODEL = process.env.GEMINI_LIVE_MODEL || 'gemini-3.8-live';
-
-// Gemini is reachable through Vertex AI (GCP_PROJECT + ADC) or an AI Studio key
-export function hasGenAiCredentials(): boolean {
-  return Boolean(process.env.GCP_PROJECT || process.env.GEMINI_API_KEY);
-}
-
 // Behind a load balancer (e.g. Cloud Run) set TRUST_PROXY_HOPS=1 so req.ip is
 // the client's address rather than the proxy's, or every user shares one limit.
 const TRUST_PROXY_HOPS = Number(process.env.TRUST_PROXY_HOPS) || 0;
@@ -140,34 +130,6 @@ app.use(['/api/chat', '/api/translate', '/api/tts', '/api/stt', '/api/session', 
 app.use('/api/stt', express.json({ limit: '25mb' }));
 app.use(express.json({ limit: '1mb' }));
 
-// Helper to create GoogleGenAI client (Vertex AI or Google AI Studio)
-function createGenAiClient(preferVertex: boolean) {
-  const options: Record<string, any> = {
-    httpOptions: {
-      headers: {
-        'User-Agent': 'allora-gcp',
-      },
-    },
-  };
-
-  if (preferVertex && GCP_PROJECT) {
-    options.vertexai = true;
-    options.project = GCP_PROJECT;
-    if (GCP_REGION && GCP_REGION !== 'global') {
-      options.location = GCP_REGION;
-    }
-  } else if (process.env.GEMINI_API_KEY) {
-    options.apiKey = process.env.GEMINI_API_KEY;
-  }
-
-  return new GoogleGenAI(options);
-}
-
-// Primary client (Vertex AI if GCP_PROJECT configured, otherwise API key)
-const primaryAi = createGenAiClient(Boolean(GCP_PROJECT));
-// Fallback client (Google AI Studio via GEMINI_API_KEY)
-const fallbackAi = (GCP_PROJECT && process.env.GEMINI_API_KEY) ? createGenAiClient(false) : null;
-
 // Google Cloud Text-to-Speech and Speech-to-Text clients. Only created for an
 // explicit GCP_PROJECT, so a missing setting never falls through to whatever
 // project the local gcloud credentials default to.
@@ -183,44 +145,6 @@ if (GCP_PROJECT) {
     cloudSpeechClient = new SpeechClient({ projectId: GCP_PROJECT });
   } catch (err: any) {
     console.warn('[GCP STT] Could not initialize SpeechClient:', err.message);
-  }
-}
-
-// Vertex AI models that just failed with a configuration error (IAM, region,
-// model name) are skipped for a while instead of costing a round trip per request.
-const vertexCooldown = new VertexCooldown();
-
-// Execution wrapper enforcing data privacy rules (Vertex default vs AI Studio audit)
-async function generateContentWithFallback(requestConfig: any, isLearnerData = true) {
-  const model = String(requestConfig.model);
-  const allowAiStudio = isAiStudioFallbackPermitted(isLearnerData);
-
-  if (allowAiStudio && fallbackAi && vertexCooldown.isCoolingDown(model)) {
-    return await fallbackAi.models.generateContent(requestConfig);
-  }
-
-  try {
-    return await primaryAi.models.generateContent(requestConfig);
-  } catch (primaryErr: any) {
-    if (!fallbackAi || !allowAiStudio) {
-      if (!allowAiStudio && fallbackAi) {
-        console.warn(
-          `[Data Privacy] Vertex AI request failed for ${model}. AI Studio failover skipped to enforce learner privacy (vertex_only): ${summarizeError(primaryErr)}`
-        );
-      }
-      throw primaryErr;
-    }
-
-    if (isPersistentVertexError(primaryErr)) {
-      vertexCooldown.trip(model);
-      console.warn(
-        `[GCP Fallback] Vertex AI ${primaryErr.status} for ${model}; using AI Studio for the next ` +
-          `${vertexCooldown.cooldownMinutes} min: ${summarizeError(primaryErr)}`
-      );
-    } else {
-      console.warn(`[GCP Fallback] Vertex AI request failed, retrying with AI Studio: ${summarizeError(primaryErr)}`);
-    }
-    return await fallbackAi.models.generateContent(requestConfig);
   }
 }
 
@@ -757,24 +681,6 @@ export function stripBase64DataUrlPrefix(payload: string): string {
   return payload.includes(',') ? payload.split(',')[1] : payload;
 }
 
-/**
- * Safely parse a JSON string from an LLM response, stripping optional markdown
- * code fences (```json ... ```) and returning a fallback value if parsing fails.
- */
-export function parseModelJsonResponse<T>(rawText: string | undefined | null, fallback: T): T {
-  if (!rawText) return fallback;
-  const cleaned = rawText
-    .trim()
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/\s*```$/i, '')
-    .trim();
-  try {
-    return JSON.parse(cleaned) as T;
-  } catch {
-    return fallback;
-  }
-}
-
 /** Map a browser recording MIME type to a Cloud Speech-to-Text encoding, or null if unsupported. */
 export function cloudSttEncodingFor(mimeType: string): 'WEBM_OPUS' | 'OGG_OPUS' | 'LINEAR16' | null {
   if (mimeType.includes('webm')) return 'WEBM_OPUS';
@@ -934,41 +840,6 @@ export function buildChatContents(
   ];
 }
 
-/**
- * Choose the Gemini clients a Live call may use and when Vertex AI is skipped.
- *
- * AI Studio joins the rotation only when privacy policy allows learner data there.
- * The Vertex cooldown is used only when there is another client to skip to;
- * otherwise one Vertex failure would leave no client at all for the whole cooldown.
- *
- * Args:
- *   primaryAi: Vertex AI (or API-key) client.
- *   fallbackAi: AI Studio client, or null when not configured.
- *   fallbackPermitted: Whether policy allows learner audio on AI Studio.
- *   cooldown: Shared Vertex cooldown tracker.
- *   model: Live model name the cooldown is keyed by.
- *
- * Returns:
- *   The `clients`, `skipClient` and `onClientFailed` bridge options.
- */
-export function buildLiveClientOptions(
-  primaryAi: GoogleGenAI,
-  fallbackAi: GoogleGenAI | null,
-  fallbackPermitted: boolean,
-  cooldown: VertexCooldown,
-  model: string
-): Pick<LiveBridgeOptions, 'clients' | 'skipClient' | 'onClientFailed'> {
-  const liveFallbackAi = fallbackPermitted ? fallbackAi : null;
-  const canSkipVertex = (ai: GoogleGenAI) => ai === primaryAi && liveFallbackAi !== null;
-  return {
-    clients: liveFallbackAi ? [primaryAi, liveFallbackAi] : [primaryAi],
-    skipClient: (ai) => canSkipVertex(ai) && cooldown.isCoolingDown(model),
-    onClientFailed: (ai) => {
-      if (canSkipVertex(ai)) cooldown.trip(model);
-    }
-  };
-}
-
 /** Mount production static asset and SPA routes with immutable caching for /assets and no-cache for index.html. */
 export function registerStaticRoutes(targetApp: express.Express, distDir: string): void {
   targetApp.use(
@@ -1033,4 +904,4 @@ if (!process.env.VITEST) {
   startServer();
 }
 
-export { app, primaryAi };
+export { app };

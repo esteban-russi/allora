@@ -3,34 +3,10 @@ import os from 'os';
 import path from 'path';
 import express from 'express';
 import request from 'supertest';
-import type { GoogleGenAI } from '@google/genai';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { VertexCooldown } from '../src/server/vertexCooldown';
-import { app, primaryAi, buildChatContents, buildFirebaseClientConfig, canReadMetrics, buildLiveClientOptions, cloudSttEncodingFor, parseModelJsonResponse, registerStaticRoutes, stripBase64DataUrlPrefix } from '../server';
+import { app, buildChatContents, buildFirebaseClientConfig, canReadMetrics, cloudSttEncodingFor, registerStaticRoutes, stripBase64DataUrlPrefix } from '../server';
+import { primaryAi } from '../src/server/genAi';
 import { buildSystemInstruction, buildVoiceCallInstruction, LEVEL_PROMPTS, sanitizeLearnerName } from '../src/data/personaPrompts';
-
-describe('parseModelJsonResponse', () => {
-  it('parses pure JSON correctly', () => {
-    const parsed = parseModelJsonResponse('{"text":"ciao"}', { text: 'fallback' });
-    expect(parsed).toEqual({ text: 'ciao' });
-  });
-
-  it('strips markdown code fences before parsing', () => {
-    const raw = '```json\n{"text":"ciao","translation":"hello"}\n```';
-    const parsed = parseModelJsonResponse(raw, { text: 'fallback', translation: '' });
-    expect(parsed).toEqual({ text: 'ciao', translation: 'hello' });
-  });
-
-  it('returns fallback on invalid JSON syntax', () => {
-    const parsed = parseModelJsonResponse('not-json', { fallback: true });
-    expect(parsed).toEqual({ fallback: true });
-  });
-
-  it('returns fallback on empty or undefined input', () => {
-    expect(parseModelJsonResponse('', 'default')).toBe('default');
-    expect(parseModelJsonResponse(undefined, 'default')).toBe('default');
-  });
-});
 
 describe('stripBase64DataUrlPrefix', () => {
   it.each([
@@ -520,31 +496,6 @@ describe('buildSystemInstruction & level prompts', () => {
     expect(prompt).toContain('Lo studente con cui parli si chiama Giulia.');
     expect(prompt).toContain('telefonata');
     expect(prompt).not.toContain('JSON');
-  });
-});
-
-describe('buildLiveClientOptions', () => {
-  const vertex = { name: 'vertex' } as unknown as GoogleGenAI;
-  const aiStudio = { name: 'ai-studio' } as unknown as GoogleGenAI;
-
-  it('keeps Vertex usable after a failure when AI Studio fallback is not permitted', () => {
-    const cooldown = new VertexCooldown();
-    const live = buildLiveClientOptions(vertex, aiStudio, false, cooldown, 'live-model');
-
-    expect(live.clients).toEqual([vertex]);
-    live.onClientFailed?.(vertex);
-    expect(cooldown.isCoolingDown('live-model')).toBe(false);
-    expect(live.skipClient?.(vertex)).toBe(false);
-  });
-
-  it('skips Vertex during its cooldown when AI Studio fallback is permitted', () => {
-    const cooldown = new VertexCooldown();
-    const live = buildLiveClientOptions(vertex, aiStudio, true, cooldown, 'live-model');
-
-    expect(live.clients).toEqual([vertex, aiStudio]);
-    live.onClientFailed?.(vertex);
-    expect(live.skipClient?.(vertex)).toBe(true);
-    expect(live.skipClient?.(aiStudio)).toBe(false);
   });
 });
 

@@ -26,7 +26,8 @@ vi.mock('../src/data/personaPrompts', async (importOriginal) => {
   };
 });
 
-import { app, primaryAi } from '../server';
+import { app } from '../server';
+import { primaryAi } from '../src/server/genAi';
 import { invalidateAccountCache } from '../src/server/accountMiddleware';
 import { InMemoryAccountStore, type Subscription } from '../src/server/accountStore';
 import { defaultAccountStore } from '../src/server/defaultAccountStore';

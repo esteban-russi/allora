@@ -2,7 +2,8 @@
 import { BlockedReason, FinishReason, HarmBlockThreshold, HarmCategory } from '@google/genai';
 import request from 'supertest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { app, primaryAi } from '../server';
+import { app } from '../server';
+import { primaryAi } from '../src/server/genAi';
 import {
   buildSystemInstruction,
   buildVoiceCallInstruction,
