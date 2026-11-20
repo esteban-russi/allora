@@ -63,4 +63,34 @@ describe('ConversationListScreen', () => {
     expect(html).toContain('No conversations yet');
     expect(html).toContain('Start a conversation');
   });
+
+  it('previews tutor opening line when conversation only contains the tutor greeting', () => {
+    const greetingSession: SessionSummary[] = [
+      {
+        sessionId: 'sess_new',
+        personaId: 'emmanuele',
+        topic: 'free_chat',
+        title: 'Free chat',
+        lastLinePreview: 'Salve! Roma è piena di turisti oggi. E tu, che lavoro fai?',
+        lastLineSender: 'persona',
+        turnCount: 1,
+        updatedAt: '2026-11-20T10:00:00.000Z'
+      }
+    ];
+
+    const html = renderToStaticMarkup(
+      React.createElement(ConversationListScreen, {
+        sessions: greetingSession,
+        activeSessionId: 'sess_new',
+        onSelectSession: vi.fn(),
+        onDeleteSession: vi.fn(),
+        onOpenNewConversation: vi.fn(),
+        onBack: vi.fn()
+      })
+    );
+
+    expect(html).toContain('Salve! Roma è piena di turisti oggi');
+    expect(html).not.toContain('No messages yet');
+    expect(html).not.toContain('You: Salve');
+  });
 });

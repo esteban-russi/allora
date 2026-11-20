@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { ArrowLeft, Plus, Trash2, AlertCircle, MessageSquare } from 'lucide-react';
 import { TUTORS, EMMANUELE } from '../data/personas';
+import { getTutorGreeting } from '../data/personaGreetings';
 import type { SessionSummary } from '../server/sessionStore';
 
 /**
@@ -114,8 +115,9 @@ export const ConversationListScreen: React.FC<ConversationListScreenProps> = ({
               const tutor = TUTORS.find((t) => t.id === s.personaId) ?? EMMANUELE;
               const isActive = s.sessionId === activeSessionId;
               const relTime = formatRelativeTime(s.updatedAt);
-              const previewText = s.lastLinePreview
-                ? `${s.lastLineSender === 'user' ? 'You: ' : ''}${s.lastLinePreview}`
+              const preview = s.lastLinePreview || getTutorGreeting(s.personaId, '', 'A2', s.topic).text;
+              const previewText = preview
+                ? `${s.lastLineSender === 'user' ? 'You: ' : ''}${preview}`
                 : 'No messages yet';
 
               return (

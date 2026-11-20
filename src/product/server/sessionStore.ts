@@ -2,6 +2,7 @@
 import { randomUUID } from 'crypto';
 import type { CefrLevel } from '../types';
 import { getTopicById } from '../data/topics';
+import { getTutorGreeting } from '../data/personaGreetings';
 
 export const DEFAULT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000; // 30-day inactivity retention
 
@@ -718,22 +719,24 @@ export function initializeLearnerSession(options: CreateSessionOptions): Learner
   const topic = options.topic ?? 'free_chat';
   const topicConfig = getTopicById(topic);
   const title = options.title ?? (topic !== 'free_chat' && topicConfig ? topicConfig.label : 'Free chat');
+  const personaId = options.personaId ?? 'emmanuele';
 
-  const checkpointTurns: ConversationTurn[] = [];
-  if (topic !== 'free_chat' && topicConfig?.firstLine) {
-    checkpointTurns.push({
+  const greeting = getTutorGreeting(personaId, options.learnerName, level, topic);
+  const checkpointTurns: ConversationTurn[] = [
+    {
       id: `turn_${randomUUID()}`,
       sender: 'persona',
-      text: topicConfig.firstLine.text,
-      translation: topicConfig.firstLine.translation,
+      text: greeting.text,
+      translation: greeting.translation,
+      grammarNotes: greeting.grammarNotes,
       timestamp: now
-    });
-  }
+    }
+  ];
 
   return {
     sessionId: `sess_${randomUUID()}`,
     userId: options.userId,
-    personaId: options.personaId ?? 'emmanuele',
+    personaId,
     learnerName: options.learnerName ?? '',
     learnerLevel: level,
     grammarStrictness: options.grammarStrictness ?? 'tutor',

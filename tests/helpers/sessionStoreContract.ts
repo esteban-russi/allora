@@ -68,7 +68,7 @@ export function describeSessionStoreContract(name: string, makeStore: SessionSto
 
       const again = await store.getSession(session.sessionId, 'owner');
       expect(again?.learnerName).toBe('Giulia');
-      expect(again?.checkpointTurns).toEqual([]);
+      expect(again?.checkpointTurns).toEqual(session.checkpointTurns);
     });
 
     it('returns the most recently updated active session of a user', async () => {
@@ -88,7 +88,7 @@ export function describeSessionStoreContract(name: string, makeStore: SessionSto
 
     it('saves checkpoints in order and updates progress', async () => {
       const store = setup();
-      const session = initializeLearnerSession({ userId: 'learner' });
+      const session = { ...initializeLearnerSession({ userId: 'learner' }), checkpointTurns: [] };
       await store.createOrUpdateSession(session);
 
       await store.saveTurnCheckpoint(session.sessionId, 'learner', turn('t1', 'user', 'Ciao, come va?'));
@@ -106,7 +106,7 @@ export function describeSessionStoreContract(name: string, makeStore: SessionSto
 
     it('keeps both turns when two checkpoints are saved at the same time', async () => {
       const store = setup();
-      const session = initializeLearnerSession({ userId: 'learner' });
+      const session = { ...initializeLearnerSession({ userId: 'learner' }), checkpointTurns: [] };
       await store.createOrUpdateSession(session);
 
       await Promise.all([
@@ -139,12 +139,12 @@ export function describeSessionStoreContract(name: string, makeStore: SessionSto
       await store.createOrUpdateSession(session);
 
       expect(await store.saveTurnCheckpoint(session.sessionId, 'intruder', turn('t1', 'user', 'hi'))).toBeNull();
-      expect((await store.getSession(session.sessionId, 'owner'))?.checkpointTurns).toEqual([]);
+      expect((await store.getSession(session.sessionId, 'owner'))?.checkpointTurns).toEqual(session.checkpointTurns);
     });
 
     it('updates settings without losing a turn checkpointed at the same time', async () => {
       const store = setup();
-      const session = initializeLearnerSession({ userId: 'learner', learnerLevel: 'A2' });
+      const session = { ...initializeLearnerSession({ userId: 'learner', learnerLevel: 'A2' }), checkpointTurns: [] };
       await store.createOrUpdateSession(session);
       const settings = {
         personaId: 'emmanuele',
@@ -359,11 +359,13 @@ export function describeSessionStoreContract(name: string, makeStore: SessionSto
       expect(list[0].title).toBe('Come stai oggi a Roma?');
       expect(list[0].lastLinePreview).toBe('Come stai oggi a Roma?');
       expect(list[0].lastLineSender).toBe('user');
-      expect(list[0].turnCount).toBe(1);
+      expect(list[0].turnCount).toBe(2);
 
       expect(list[1].sessionId).toBe(s1.sessionId);
       expect(list[1].topic).toBe('market');
       expect(list[1].title).toBe('At the market');
+      expect(list[1].turnCount).toBe(1);
+      expect(list[1].lastLineSender).toBe('persona');
 
       // Verify other user not returned
       expect(list.some((s) => s.sessionId === other.sessionId)).toBe(false);
