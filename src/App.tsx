@@ -19,13 +19,12 @@ import { isTutorLockedForTier } from './components/PremiumEndedNotice';
 import { PlansScreen } from './components/PlansScreen';
 import { TERMS_VERSION } from './data/legal';
 import type { Consent } from './server/accountStore';
-import { getBilling, setBilling } from './utils/billing';
-import { loadClientConfig } from './utils/clientConfig';
-import { createWebBilling } from './utils/billingWeb';
+import { getBilling } from './utils/billing';
 import { useDialog } from './hooks/useDialog';
 import { useAccount } from './hooks/useAccount';
 import { useConversationStats } from './hooks/useConversationStats';
 import { useLimitReached } from './hooks/useLimitReached';
+import { useWebBilling } from './hooks/useWebBilling';
 import { speechService } from './utils/speech';
 import { setAccountDeletedHandler, setAppCheckFailedHandler } from './utils/apiClient';
 import { completeMagicLink, EMAIL_FOR_SIGN_IN_KEY, isMagicLink, signOutToGuest } from './utils/firebaseAuth';
@@ -54,21 +53,7 @@ export default function App() {
   const [pendingTutorId, setPendingTutorId] = useState<string | null>(null);
   const [selectedOnboardingTutorId, setSelectedOnboardingTutorId] = useState<string | null>(null);
 
-  const emailRef = useRef<string | null>(null);
-  emailRef.current = me?.email ?? null;
-
-  useEffect(() => {
-    (async () => {
-      const { revenueCatWebKey } = await loadClientConfig();
-      if (revenueCatWebKey) {
-        setBilling(
-          createWebBilling(revenueCatWebKey, {
-            email: () => emailRef.current
-          })
-        );
-      }
-    })();
-  }, []);
+  useWebBilling(me?.email ?? null);
 
   const persona: Persona = useMemo(
     () => TUTORS.find((t) => t.id === learnerProfile?.personaId) ?? EMMANUELE,
