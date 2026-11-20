@@ -1,7 +1,7 @@
 /** React hook managing active tabs, tab heading focus, and back navigation integration. */
 import { useCallback, useRef, useState } from 'react';
 import type { AppTab } from '../components/BottomTabBar';
-import { BackEntry } from '../../platform/navigation/backStack';
+import { BackEntry, BackStack } from '../../platform/navigation/backStack';
 import { useBackNavigation, type HistorySeam } from '../../platform/hooks/useBackNavigation';
 
 export function buildInitialNavigationStack(initialTab: AppTab = 'chat'): BackEntry[] {
@@ -19,6 +19,19 @@ export function destinationIdToTab(id: string): AppTab {
     const raw = id.slice(4);
     if (raw === 'home' || raw === 'chat' || raw === 'notebook' || raw === 'profile') {
       return raw;
+    }
+  }
+  return 'home';
+}
+
+export function currentTabFromStack(stack: BackStack): AppTab {
+  const entries = stack.getEntries();
+  for (let i = entries.length - 1; i >= 0; i--) {
+    if (entries[i].id.startsWith('tab:')) {
+      const tab = entries[i].id.slice(4);
+      if (tab === 'home' || tab === 'chat' || tab === 'notebook' || tab === 'profile') {
+        return tab;
+      }
     }
   }
   return 'home';
@@ -57,64 +70,73 @@ export interface UseAppNavigationResult {
  */
 export function useAppNavigation(options?: UseAppNavigationOptions): UseAppNavigationResult {
   const initialTab = options?.initialTab ?? 'chat';
-  const [activeTab, setActiveTabState] = useState<AppTab>(initialTab);
+  const [, setVersion] = useState<number>(0);
   const [isComposerFocused, setIsComposerFocused] = useState<boolean>(false);
 
   const homeHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const notebookHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const profileHeadingRef = useRef<HTMLHeadingElement | null>(null);
 
-  const initialEntries = buildInitialNavigationStack(initialTab);
+  const handleTabPopRef = useRef<() => void>(() => {});
+  const initialEntriesRef = useRef<BackEntry[] | null>(null);
+  if (!initialEntriesRef.current) {
+    const base = buildInitialNavigationStack(initialTab);
+    initialEntriesRef.current = base.map((entry) => {
+      if (entry.id !== 'tab:home') {
+        return { ...entry, onPop: () => handleTabPopRef.current() };
+      }
+      return entry;
+    });
+  }
 
   const backHandler = useBackNavigation({
-    initialEntries,
-    historySeam: options?.historySeam
+    initialEntries: initialEntriesRef.current,
+    historySeam: options?.historySeam,
+    onStackChange: () => setVersion((v) => v + 1)
   });
 
   const focusTabHeading = useCallback((tab: AppTab) => {
     // Schedule focus after render so new tab view is mounted
-    requestAnimationFrame(() => {
-      if (tab === 'home') {
-        homeHeadingRef.current?.focus();
-      } else if (tab === 'notebook') {
-        notebookHeadingRef.current?.focus();
-      } else if (tab === 'profile') {
-        profileHeadingRef.current?.focus();
-      }
-    });
+    if (typeof requestAnimationFrame !== 'undefined') {
+      requestAnimationFrame(() => {
+        if (tab === 'home') {
+          homeHeadingRef.current?.focus();
+        } else if (tab === 'notebook') {
+          notebookHeadingRef.current?.focus();
+        } else if (tab === 'profile') {
+          profileHeadingRef.current?.focus();
+        }
+      });
+    }
   }, []);
+
+  handleTabPopRef.current = () => {
+    const restoredTab = currentTabFromStack(backHandler.getStack());
+    focusTabHeading(restoredTab);
+  };
 
   const selectTab = useCallback(
     (nextTab: AppTab) => {
-      if (nextTab === activeTab) return;
+      const currentTab = currentTabFromStack(backHandler.getStack());
+      if (nextTab === currentTab) return;
 
-      setActiveTabState(nextTab);
       focusTabHeading(nextTab);
 
       if (nextTab === 'home') {
         // Navigating to Home resets to the root destination
         backHandler.resetToRoot({ id: 'tab:home', kind: 'destination' });
       } else {
-        backHandler.pushDestination(`tab:${nextTab}`, () => {
-          // When popped by Back, restore the preceding destination
-          const currentDest = backHandler.getStack().currentDestination();
-          const restoredTab = currentDest?.id.startsWith('tab:')
-            ? (currentDest.id.replace('tab:', '') as AppTab)
-            : 'home';
-          setActiveTabState(restoredTab);
-          focusTabHeading(restoredTab);
-        });
+        const onPop = () => handleTabPopRef.current();
+        if (currentTab !== 'home') {
+          // Top-level tabs do NOT build history among themselves.
+          // Switching tabs replaces the tab entry. Any non-Home tab sits exactly one step above Home.
+          backHandler.replaceDestination(`tab:${nextTab}`, onPop);
+        } else {
+          backHandler.pushDestination(`tab:${nextTab}`, onPop);
+        }
       }
     },
-    [activeTab, backHandler, focusTabHeading]
-  );
-
-  const setActiveTab = useCallback(
-    (tab: AppTab) => {
-      setActiveTabState(tab);
-      focusTabHeading(tab);
-    },
-    [focusTabHeading]
+    [backHandler, focusTabHeading]
   );
 
   const pushOverlay = useCallback(
@@ -146,8 +168,10 @@ export function useAppNavigation(options?: UseAppNavigationOptions): UseAppNavig
   );
 
   return {
-    activeTab,
-    setActiveTab,
+    get activeTab() {
+      return currentTabFromStack(backHandler.getStack());
+    },
+    setActiveTab: selectTab,
     selectTab,
     isComposerFocused,
     setIsComposerFocused,

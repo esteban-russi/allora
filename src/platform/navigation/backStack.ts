@@ -132,17 +132,17 @@ export class BackStack {
   }
 
   /**
-   * Programmatically close an overlay without triggering its onPop callback.
+   * Programmatically close an overlay or screen without triggering its onPop callback.
    *
    * Args:
-   *   id: Identifier of the overlay to remove.
+   *   id: Identifier of the entry to remove.
    *
    * Returns:
    *   The removed entry, or undefined if not found.
    */
   closeWithoutBack(id: string): BackEntry | undefined {
     for (let i = this.entries.length - 1; i >= 0; i--) {
-      if (this.entries[i].id === id && this.entries[i].kind === 'overlay') {
+      if (this.entries[i].id === id) {
         const [removed] = this.entries.splice(i, 1);
         this.onChange?.(this.getEntries());
         return removed;

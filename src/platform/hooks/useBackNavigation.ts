@@ -6,6 +6,7 @@ export interface HistorySeam {
   pushState(data: unknown, title: string, url?: string): void;
   replaceState(data: unknown, title: string, url?: string): void;
   back(): void;
+  go?(delta: number): void;
   addEventListener(event: 'popstate', handler: (e: PopStateEvent) => void): void;
   removeEventListener(event: 'popstate', handler: (e: PopStateEvent) => void): void;
 }
@@ -33,6 +34,7 @@ function getBrowserHistorySeam(): HistorySeam | null {
     pushState: (data, title, url) => window.history.pushState(data, title, url),
     replaceState: (data, title, url) => window.history.replaceState(data, title, url),
     back: () => window.history.back(),
+    go: (delta) => window.history.go(delta),
     addEventListener: (event, handler) => window.addEventListener(event, handler),
     removeEventListener: (event, handler) => window.removeEventListener(event, handler)
   };
@@ -61,22 +63,37 @@ export function useBackNavigation(options?: UseBackNavigationOptions): BackNavig
   }
   const stack = stackRef.current;
 
+  const initializedRef = useRef(false);
+  const handlePopState = useCallback(() => {
+    if (suppressPopRef.current > 0) {
+      suppressPopRef.current -= 1;
+      return;
+    }
+    stack.pop();
+  }, [stack]);
+
+  if (!initializedRef.current) {
+    initializedRef.current = true;
+    const initial = options?.initialEntries ?? [];
+    if (seam && initial.length > 0) {
+      seam.replaceState({ kind: initial[0].kind, id: initial[0].id }, '');
+      for (let i = 1; i < initial.length; i++) {
+        seam.pushState({ kind: initial[i].kind, id: initial[i].id }, '');
+      }
+    }
+    if (typeof window === 'undefined' && seam) {
+      seam.addEventListener('popstate', handlePopState);
+    }
+  }
+
   useEffect(() => {
     if (!seam) return;
-
-    const handlePopState = () => {
-      if (suppressPopRef.current > 0) {
-        suppressPopRef.current -= 1;
-        return;
-      }
-      stack.pop();
-    };
 
     seam.addEventListener('popstate', handlePopState);
     return () => {
       seam.removeEventListener('popstate', handlePopState);
     };
-  }, [seam, stack]);
+  }, [seam, handlePopState]);
 
   const pushOverlay = useCallback(
     (id: string, onPop: () => void): void => {
@@ -115,7 +132,19 @@ export function useBackNavigation(options?: UseBackNavigationOptions): BackNavig
 
   const resetToRoot = useCallback(
     (entry: BackEntry): void => {
+      const unwindCount = stack.size - 1;
       stack.resetToRoot(entry);
+      if (unwindCount > 0 && seam) {
+        if (seam.go) {
+          suppressPopRef.current += 1;
+          seam.go(-unwindCount);
+        } else {
+          suppressPopRef.current += unwindCount;
+          for (let i = 0; i < unwindCount; i++) {
+            seam.back();
+          }
+        }
+      }
       seam?.replaceState({ kind: entry.kind, id: entry.id }, '');
     },
     [seam, stack]

@@ -1,10 +1,109 @@
 /** Tests for app navigation tab stack generation, destination mapping, and BackStack routing. */
-import { describe, expect, it } from 'vitest';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { describe, expect, it, vi } from 'vitest';
 import {
   buildInitialNavigationStack,
-  destinationIdToTab
+  destinationIdToTab,
+  useAppNavigation,
+  type UseAppNavigationOptions,
+  type UseAppNavigationResult
 } from '../src/product/hooks/useAppNavigation';
 import { BackStack } from '../src/platform/navigation/backStack';
+import type { HistorySeam } from '../src/platform/hooks/useBackNavigation';
+
+export function createFakeHistorySeam(initialLength = 1) {
+  const historyStack: Array<{ data: unknown; title: string }> = [];
+  for (let i = 0; i < initialLength; i++) {
+    historyStack.push({ data: null, title: '' });
+  }
+  let pointer = initialLength - 1;
+  const popstateListeners: Array<(e: PopStateEvent) => void> = [];
+
+  const seam: HistorySeam = {
+    pushState(data, title) {
+      historyStack.splice(pointer + 1);
+      historyStack.push({ data, title });
+      pointer = historyStack.length - 1;
+    },
+    replaceState(data, title) {
+      if (pointer >= 0 && pointer < historyStack.length) {
+        historyStack[pointer] = { data, title };
+      } else {
+        historyStack.push({ data, title });
+        pointer = historyStack.length - 1;
+      }
+    },
+    back() {
+      if (pointer > 0) {
+        pointer -= 1;
+        seamHandler.triggerPopState();
+      }
+    },
+    go(delta: number) {
+      const nextPointer = pointer + delta;
+      if (nextPointer >= 0 && nextPointer < historyStack.length && nextPointer !== pointer) {
+        pointer = nextPointer;
+        seamHandler.triggerPopState();
+      }
+    },
+    addEventListener(event, handler) {
+      if (event === 'popstate') popstateListeners.push(handler);
+    },
+    removeEventListener(event, handler) {
+      if (event === 'popstate') {
+        const idx = popstateListeners.indexOf(handler);
+        if (idx !== -1) popstateListeners.splice(idx, 1);
+      }
+    }
+  };
+
+  const seamHandler = {
+    seam,
+    get depth() {
+      return pointer + 1;
+    },
+    get historyStack() {
+      return historyStack.slice(0, pointer + 1);
+    },
+    triggerPopState() {
+      for (const listener of [...popstateListeners]) {
+        listener({} as PopStateEvent);
+      }
+    }
+  };
+
+  return seamHandler;
+}
+
+function NavigationHarness({
+  options,
+  onReady
+}: {
+  options: UseAppNavigationOptions;
+  onReady: (nav: UseAppNavigationResult) => void;
+}) {
+  const nav = useAppNavigation(options);
+  onReady(nav);
+  return null;
+}
+
+function mountNavigation(options: UseAppNavigationOptions = {}): {
+  nav: UseAppNavigationResult;
+  fakeSeam: ReturnType<typeof createFakeHistorySeam>;
+} {
+  const fakeSeam = createFakeHistorySeam();
+  let navResult: UseAppNavigationResult | null = null;
+  renderToStaticMarkup(
+    React.createElement(NavigationHarness, {
+      options: { ...options, historySeam: fakeSeam.seam },
+      onReady: (res) => {
+        navResult = res;
+      }
+    })
+  );
+  return { nav: navResult!, fakeSeam };
+}
 
 describe('buildInitialNavigationStack', () => {
   it('seeds Home at root and Chat on top when landing on Chat', () => {
@@ -38,6 +137,125 @@ describe('destinationIdToTab', () => {
     expect(destinationIdToTab('screen:plans')).toBe('home');
     expect(destinationIdToTab('tab:unknown')).toBe('home');
     expect(destinationIdToTab('')).toBe('home');
+  });
+});
+
+describe('Browser history synchronization and Android bottom-navigation conventions', () => {
+  it('syncs browser history depth at launch on Chat and unwinds to Home on Back', () => {
+    const { nav, fakeSeam } = mountNavigation({ initialTab: 'chat' });
+
+    // Initial state: on Chat, browser history has Home below Chat
+    expect(fakeSeam.depth).toBe(2);
+    expect(fakeSeam.historyStack.map((e) => (e.data as any)?.id)).toEqual(['tab:home', 'tab:chat']);
+    expect(nav.canGoBack()).toBe(true);
+    expect(nav.activeTab).toBe('chat');
+
+    // Back from Chat pops to Home
+    fakeSeam.seam.back();
+    expect(fakeSeam.depth).toBe(1);
+    expect(nav.activeTab).toBe('home');
+    expect(nav.canGoBack()).toBe(false);
+
+    // Back on Home does not pop (exits the app, handled by browser/OS)
+    const handled = nav.goBack();
+    expect(handled).toBe(false);
+    expect(fakeSeam.depth).toBe(1);
+  });
+
+  it('keeps depth at 2 during tab hopping and returns to Home on first Back', () => {
+    const { nav, fakeSeam } = mountNavigation({ initialTab: 'home' });
+
+    // Start on Home
+    expect(fakeSeam.depth).toBe(1);
+    expect(nav.activeTab).toBe('home');
+    expect(nav.canGoBack()).toBe(false);
+
+    // Switch to Chat -> pushes tab:chat (depth 2)
+    nav.selectTab('chat');
+    expect(nav.activeTab).toBe('chat');
+    expect(fakeSeam.depth).toBe(2);
+
+    // Switch Chat -> Notebook -> replaces tab entry (depth remains 2, does NOT build history)
+    nav.selectTab('notebook');
+    expect(nav.activeTab).toBe('notebook');
+    expect(fakeSeam.depth).toBe(2);
+
+    // Switch Notebook -> Profile -> replaces tab entry (depth remains 2)
+    nav.selectTab('profile');
+    expect(nav.activeTab).toBe('profile');
+    expect(fakeSeam.depth).toBe(2);
+
+    // Back from Profile pops directly to Home
+    fakeSeam.seam.back();
+    expect(nav.activeTab).toBe('home');
+    expect(fakeSeam.depth).toBe(1);
+    expect(nav.canGoBack()).toBe(false);
+
+    // Back on Home exits (no handled pop)
+    expect(nav.goBack()).toBe(false);
+    expect(fakeSeam.depth).toBe(1);
+  });
+
+  it('syncs browser depth on open overlay and close via X before Back', () => {
+    const { nav, fakeSeam } = mountNavigation({ initialTab: 'chat' });
+    expect(fakeSeam.depth).toBe(2);
+
+    const onPop = vi.fn();
+    nav.pushOverlay('settings', onPop);
+    expect(fakeSeam.depth).toBe(3);
+
+    // Close via X button (programmatic closeWithoutBack)
+    nav.closeOverlay('settings');
+    expect(fakeSeam.depth).toBe(2);
+    expect(onPop).not.toHaveBeenCalled();
+
+    // Subsequent Back pops Chat to Home
+    fakeSeam.seam.back();
+    expect(fakeSeam.depth).toBe(1);
+    expect(nav.activeTab).toBe('home');
+  });
+
+  it('syncs browser depth on open screen and close via its button before Back', () => {
+    const { nav, fakeSeam } = mountNavigation({ initialTab: 'chat' });
+    expect(fakeSeam.depth).toBe(2);
+
+    const onPop = vi.fn();
+    nav.pushScreen('plans', onPop);
+    expect(fakeSeam.depth).toBe(3);
+
+    // Close screen via its own button (closeScreen removes screen:plans)
+    nav.closeScreen('plans');
+    expect(fakeSeam.depth).toBe(2);
+    expect(onPop).not.toHaveBeenCalled();
+
+    // Subsequent Back pops Chat to Home without ghost entries
+    fakeSeam.seam.back();
+    expect(fakeSeam.depth).toBe(1);
+    expect(nav.activeTab).toBe('home');
+  });
+
+  it('ensures Home + Back exits with no handled pop', () => {
+    const { nav, fakeSeam } = mountNavigation({ initialTab: 'home' });
+    expect(fakeSeam.depth).toBe(1);
+    expect(nav.canGoBack()).toBe(false);
+
+    // goBack returns false when on Home at root
+    expect(nav.goBack()).toBe(false);
+    expect(fakeSeam.depth).toBe(1);
+  });
+
+  it('unwinds browser history when selecting Home from deep stack via resetToRoot', () => {
+    const { nav, fakeSeam } = mountNavigation({ initialTab: 'chat' });
+    expect(fakeSeam.depth).toBe(2);
+
+    nav.pushScreen('plans', vi.fn());
+    expect(fakeSeam.depth).toBe(3);
+
+    // User taps Home tab directly
+    nav.selectTab('home');
+    expect(nav.activeTab).toBe('home');
+    expect(fakeSeam.depth).toBe(1);
+    expect(nav.canGoBack()).toBe(false);
   });
 });
 

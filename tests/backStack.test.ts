@@ -144,6 +144,21 @@ describe('BackStack', () => {
     expect(onPopSettings).not.toHaveBeenCalled();
   });
 
+  it('closeWithoutBack removes screen destinations without calling onPop and leaves no stale entry', () => {
+    const onPopPlans = vi.fn();
+    const stack = new BackStack([
+      { id: 'tab:home', kind: 'destination' },
+      { id: 'tab:chat', kind: 'destination' },
+      { id: 'screen:plans', kind: 'destination', onPop: onPopPlans }
+    ]);
+
+    const closed = stack.closeWithoutBack('screen:plans');
+    expect(closed?.id).toBe('screen:plans');
+    expect(onPopPlans).not.toHaveBeenCalled();
+    expect(stack.size).toBe(2);
+    expect(stack.peek()?.id).toBe('tab:chat');
+  });
+
   it('resetToRoot resets all entries to the provided root destination', () => {
     const stack = new BackStack([
       { id: 'home', kind: 'destination' },
