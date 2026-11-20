@@ -135,10 +135,11 @@ When daily quotas are reached:
 
 **Billing backend and subscription synchronization.** RevenueCat acts as the source of truth for premium subscriptions across web and mobile stores:
 - `POST /api/billing/sync`: Authenticated endpoint that queries RevenueCat REST API v1 for the current learner's entitlements and synchronizes `users/<uid>.subscription`. Invoked by the client post-purchase or on app launch when subscriptions near expiration.
+- `GET /api/billing/manage`: Authenticated endpoint that queries RevenueCat REST API v2 (`REVENUECAT_V2_SECRET_KEY` + `REVENUECAT_PROJECT_ID`) for a single-use authenticated Web Billing management URL (`Cache-Control: no-store`), so learners land directly on their subscription page without email verification. Returns 503 `BILLING_UNAVAILABLE` when either v2 variable is unset, 404 `NO_WEB_SUBSCRIPTION` when the learner has no active Web Billing subscription, and falls back to the SDK's `managementURL` on the client.
 - `POST /api/webhooks/revenuecat`: Webhook listener secured with constant-time token comparison (`REVENUECAT_WEBHOOK_AUTH`). Processes subscriber events (initial purchase, renewal, expiration, user transfer) by pulling latest status directly from RevenueCat.
 - Subscription state includes a 1-hour grace window (`SUBSCRIPTION_SKEW_MS`) past `expiresAt` to avoid disruptions during delayed renewal webhooks.
 - Account deletion (`DELETE /api/account`) cleans up subscriber data in RevenueCat via `deleteSubscriber`.
-- When `REVENUECAT_SECRET_KEY` is omitted, the app runs normally without billing (endpoints return 503 `BILLING_UNAVAILABLE`).
+- When `REVENUECAT_SECRET_KEY` (or the v2 variables) are omitted, the server starts normally and the corresponding billing endpoints return 503 `BILLING_UNAVAILABLE`.
 
 **Learner sessions.** A session holds the learner's level, saved phrases and the last 50 conversation turns. The server assigns its ID, the client remembers it on the device, and both chat and Live turns are checkpointed to it. `GET /api/session` returns the latest session, `POST` creates or updates one, `DELETE /api/session/:id` deletes one and `DELETE /api/session` deletes all of a user's data. Sessions expire after 30 days without activity.
 
@@ -174,12 +175,22 @@ The script enables the APIs, creates the Artifact Registry repo, the deployer an
 
 ### RevenueCat setup (owner, before deploying billing)
 
-1. **RevenueCat project:** Create the project, entitlement `premium`, and offering `default` with packages `$rc_monthly` and `$rc_annual`.
-2. **Secret Manager secrets:** Store the RevenueCat REST API secret key and a random webhook secret:
+| Variable | Source | Purpose |
+|---|---|---|
+| `REVENUECAT_SECRET_KEY` | Secret Manager (`revenuecat-secret-key`) | RevenueCat REST API v1 secret key for `/api/billing/sync`, webhooks, and account deletion |
+| `REVENUECAT_V2_SECRET_KEY` | Secret Manager (`revenuecat-v2-secret-key`) | RevenueCat REST API v2 secret key for direct authenticated Web Billing management links (`GET /api/billing/manage`) |
+| `REVENUECAT_PROJECT_ID` | GitHub variable (`REVENUECAT_PROJECT_ID`) | RevenueCat project ID used by the REST API v2 client |
+| `REVENUECAT_WEBHOOK_AUTH` | Secret Manager (`revenuecat-webhook-auth`) | Bearer token verified on `POST /api/webhooks/revenuecat` |
+| `REVENUECAT_WEB_PUBLIC_KEY` | GitHub variable (`REVENUECAT_WEB_PUBLIC_KEY`) | RevenueCat Web Billing public API key exposed via `/api/auth-config` |
+
+1. **RevenueCat project:** Create the project, entitlement `premium`, and offering `default` with packages `$rc_monthly` and `$rc_annual`. Copy the project ID and store it in the GitHub repository variable `REVENUECAT_PROJECT_ID`.
+2. **Secret Manager secrets:** Create a REST API v1 secret key and a REST API v2 secret key (with permissions `customer_information:subscriptions:read_write` and read customers), plus a random webhook secret, and store them in Secret Manager:
    ```bash
    printf '%s' '<REVENUECAT_SECRET_KEY>' | gcloud secrets create revenuecat-secret-key --data-file=- --project=<project>
+   printf '%s' '<REVENUECAT_V2_SECRET_KEY>' | gcloud secrets create revenuecat-v2-secret-key --data-file=- --project=<project>
    openssl rand -hex 32 | tr -d '\n' | gcloud secrets create revenuecat-webhook-auth --data-file=- --project=<project>
    gcloud secrets add-iam-policy-binding revenuecat-secret-key --member=serviceAccount:<runtime-sa> --role=roles/secretmanager.secretAccessor --project=<project>
+   gcloud secrets add-iam-policy-binding revenuecat-v2-secret-key --member=serviceAccount:<runtime-sa> --role=roles/secretmanager.secretAccessor --project=<project>
    gcloud secrets add-iam-policy-binding revenuecat-webhook-auth --member=serviceAccount:<runtime-sa> --role=roles/secretmanager.secretAccessor --project=<project>
    ```
 3. **Webhook configuration:** In RevenueCat → Integrations → Webhooks, set endpoint URL to `<APP_URL>/api/webhooks/revenuecat` with `Authorization: Bearer <the-webhook-secret>`. Check that "Send test event" returns 200.

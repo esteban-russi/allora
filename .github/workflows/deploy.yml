@@ -83,8 +83,10 @@ jobs:
             RATE_LIMIT_PER_MINUTE=60
             APP_URL=${{ vars.APP_URL }}
             REVENUECAT_WEB_PUBLIC_KEY=${{ vars.REVENUECAT_WEB_PUBLIC_KEY }}
+            REVENUECAT_PROJECT_ID=${{ vars.REVENUECAT_PROJECT_ID }}
           secrets: |-
             REVENUECAT_SECRET_KEY=revenuecat-secret-key:latest
+            REVENUECAT_V2_SECRET_KEY=revenuecat-v2-secret-key:latest
             REVENUECAT_WEBHOOK_AUTH=revenuecat-webhook-auth:latest
 
       - name: Smoke test
