@@ -192,14 +192,54 @@ describe('createWebBilling', () => {
     expect(postJsonSpy).toHaveBeenCalledTimes(2);
   });
 
-  it('fetches managementURL from customer info', async () => {
+  it('returns authenticated management URL from server on 200 without calling SDK', async () => {
+    const getWithAuthSpy = vi.spyOn(apiModule, 'getWithAuth').mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ url: 'https://billing.revenuecat.com/portal/direct-token' })
+    } as Response);
+
     const billing = createBilling();
     const url = await billing.manageUrl('u1');
-    expect(url).toBe('https://app.revenuecat.com/manage/test');
+
+    expect(url).toBe('https://billing.revenuecat.com/portal/direct-token');
+    expect(getWithAuthSpy).toHaveBeenCalledWith('/api/billing/manage');
+    expect(mockSdk.getCustomerInfo).not.toHaveBeenCalled();
   });
 
-  it('returns null managementURL when getCustomerInfo throws', async () => {
+  it('falls back to SDK managementURL when server returns 404', async () => {
+    vi.spyOn(apiModule, 'getWithAuth').mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: async () => ({ code: 'NO_WEB_SUBSCRIPTION' })
+    } as Response);
+
+    const billing = createBilling();
+    const url = await billing.manageUrl('u1');
+
+    expect(url).toBe('https://app.revenuecat.com/manage/test');
+    expect(mockSdk.getCustomerInfo).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to SDK managementURL on server network error', async () => {
+    vi.spyOn(apiModule, 'getWithAuth').mockRejectedValue(new Error('Network offline'));
+
+    const billing = createBilling();
+    const url = await billing.manageUrl('u1');
+
+    expect(url).toBe('https://app.revenuecat.com/manage/test');
+    expect(mockSdk.getCustomerInfo).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns null managementURL when server falls back and getCustomerInfo throws', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(apiModule, 'getWithAuth').mockResolvedValue({
+      ok: false,
+      status: 503,
+      json: async () => ({ code: 'BILLING_UNAVAILABLE' })
+    } as Response);
     mockSdk.getCustomerInfo.mockRejectedValue(new Error('Network error'));
+
     const billing = createBilling();
     const url = await billing.manageUrl('u1');
     expect(url).toBeNull();
