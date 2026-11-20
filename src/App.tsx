@@ -145,10 +145,12 @@ export default function App() {
     const tutor = TUTORS.find((t) => t.id === session.personaId) ?? EMMANUELE;
     const profile: LearnerProfile = { name: session.learnerName, level: session.learnerLevel, personaId: tutor.id };
     setLearnerProfile(profile);
-    chat.resetConversation([
-      ...createInitialMessages(tutor, profile.name, profile.level, session.topic),
-      ...toChatMessages(session.checkpointTurns, tutor.id)
-    ]);
+    const checkpointMessages = toChatMessages(session.checkpointTurns, tutor.id);
+    chat.resetConversation(
+      checkpointMessages.length > 0
+        ? checkpointMessages
+        : createInitialMessages(tutor, profile.name, profile.level, session.topic)
+    );
     setSavedPhrases(session.progress.savedPhrases);
     if (GRAMMAR_STRICTNESS.includes(session.grammarStrictness as DevSettings['grammarStrictness'])) {
       setDevSettings((prev) => ({ ...prev, grammarStrictness: session.grammarStrictness as DevSettings['grammarStrictness'] }));
